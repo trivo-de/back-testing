@@ -1,13 +1,19 @@
 # Kế hoạch backtest HPG
 
-Cập nhật: **08/09/2026**. Bản chính về phase, mã công việc, thời gian và output: **[Backtesting_work_breakdown_plan.xlsx](Backtesting_work_breakdown_plan.xlsx)**, hai sheet `Tổng quan 4 phase` và `Kế hoạch chi tiết`.
+**Bổ sung ngày 09/09:** Đã dành 2 ngày 08–09/09 dành cho research. Các ngày trong WBS là lịch dự kiến, không phải trạng thái hoàn thành. Đầu ra hai ngày đầu gồm plan, WBS, ghi chú inspect và thiết kế dự kiến; việc chốt rule có thể còn cần phản hồi. Mốc MVP vẫn là 15/09; cần rà lại phân bổ công việc sau research, không mặc định tăng giờ làm.
+
+Tài liệu bổ sung: [Thiết kế kỹ thuật](TECHNICAL_PLAN.md) · [Inspect open source](#open-source-research).
+
+Cập nhật: **09/09/2026**. Bản chính về phase, mã công việc, thời gian và output: **[Backtesting_work_breakdown_plan.xlsx](Backtesting_work_breakdown_plan.xlsx)**, hai sheet `Tổng quan 4 phase` và `Kế hoạch chi tiết`.
+
+**Xác nhận mới từ mentor, qua người thực hiện:** có thể lấy rule từ CAN SLIM, không bắt buộc tìm bộ CANSLIM-lite riêng. Tên CANSLIM-lite trong WBS gốc được hiểu là đầu việc chiến lược v0; mã công việc, thời lượng và mốc giữ nguyên. Bước tiếp theo là research nguồn CAN SLIM và chuyển thành bảng điều kiện cụ thể; các ngưỡng và cách thực thi chưa rõ vẫn ghi là đề xuất.
 
 ## 1. Mục tiêu thực sự
 
 - Hoàn thành một bài test thực tập: xây được luồng **HPG → chiến lược → giao dịch mô phỏng → P/L → lịch sử hiệu suất → web chart**, sau đó thêm **ngôn ngữ tự nhiên → StrategySpec → backtest**.
 - Năng lực cần thể hiện qua sản phẩm:
+
   - Hiểu yêu cầu.
-  - Chia việc vừa sức
   - Giải thích được quy tắc và con số
   - Kiểm tra trước khi báo hoàn thành
   - Kết nối agent vào một hệ thống có đầu vào/đầu ra rõ.
@@ -17,25 +23,25 @@ Cập nhật: **08/09/2026**. Bản chính về phase, mã công việc, thời 
 
 | Phase                                | Thời gian        | Quỹ ngày làm việc | Đầu ra chính                                                                         |
 | ------------------------------------ | ----------------- | --------------------: | --------------------------------------------------------------------------------------- |
-| 1 — Nghiệp vụ & MVP backtest      | 08–15/09/2026    |                     6 | HPG + CANSLIM-lite v0 chạy từ dữ liệu tới giao dịch, P/L, equity; API tối thiểu |
-| 2 — Tổng quát hóa backtest       | 16–21/09/2026    |                     4 | StrategySpec và backtest service dùng chung; ít nhất**2 chiến lược**       |
+| 1 — Nghiệp vụ & MVP backtest      | 08–15/09/2026    |                     6 | HPG + CANSLIM v0 chạy từ dữ liệu tới giao dịch, P/L, equity; API tối thiểu      |
+| 2 — Tổng quát hóa backtest       | 16–21/09/2026    |                     4 | StrategySpec và backtest service dùng chung; ít nhất **2 chiến lược**     |
 | 3 — Web chart & trực quan hóa     | 22–25/09/2026    |                     4 | Nến, volume, indicator, marker mua/bán, bảng giao dịch và hiệu suất từ API      |
 | 4 — Agent & hoàn thiện end-to-end | 28/09–02/10/2026 |                     5 | Ngôn ngữ tự nhiên → spec hợp lệ → API → chart; test, tài liệu và final demo |
 
 ## 3. Đã biết, chưa biết và giả định
 
-| Loại                            | Nội dung                                                                                                                                                                               |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Đã biết                       | HPG 2020–2023; CANSLIM-lite v0; API trước, chart sau, agent cuối; mốc MVP 15/09; lịch 4 phase trong Excel                                                                         |
-| Dữ liệu                        | P1.2 chỉ kiểm tra định dạng, đơn vị, missing/duplicate và raw/adjusted khi nhận; không có đầu việc tìm nhà cung cấp hoặc crawl dữ liệu                             |
-| Cần chốt ở P1.1/P1.3          | Điều kiện mua/bán CANSLIM-lite v0; vốn; sizing; phí/slippage; giá khớp; trạng thái cuối kỳ; khung nến                                                                      |
-| Cần chốt trước P4            | Indicator/toán tử mà agent hỗ trợ; model/tài khoản được phép dùng; cách hỏi lại khi yêu cầu chưa rõ                                                                  |
-| Giả định phạm vi đề xuất  | Nến ngày; một mã; mua rồi bán số đang giữ; không margin/bán khống; một vị thế tại một thời điểm                                                                     |
-| Giả định khớp đề xuất     | Tính signal khi phiên đóng; mô phỏng khớp Open phiên đủ điều kiện tiếp theo; không lấy Close vừa tạo signal làm giá khớp                                           |
-| Giả định báo cáo đề xuất | Không nạp/rút vốn giữa kỳ; giữ vị thế mở cuối kỳ và báo riêng lãi/lỗ tạm tính; không tự ép bán                                                                   |
-| Giả định lịch                | Một thực tập sinh triển khai; mentor phản hồi các quyết định cần thiết kịp thời. Thời lượng trong Excel là ước lượng, không phải cam kết đã đủ nguồn lực |
+| Loại                            | Nội dung                                                                                                                                                   |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Đã biết                       | HPG 2020–2023; CAN SLIM v0; API trước, chart sau, agent cuối; mốc MVP 15/09; lịch 4 phase trong Excel                                                 |
+| Dữ liệu                        | P1.2 chỉ kiểm tra định dạng, đơn vị, missing/duplicate và raw/adjusted khi nhận; không có đầu việc tìm nhà cung cấp hoặc crawl dữ liệu |
+| Cần chốt ở P1.1/P1.3          | Điều kiện mua/bán CAN SLIM v0; vốn; sizing; phí/slippage; giá khớp; trạng thái cuối kỳ; khung nến                                              |
+| Cần chốt trước P4            | Indicator/toán tử mà agent hỗ trợ; model/tài khoản được phép dùng; cách hỏi lại khi yêu cầu chưa rõ                                      |
+| Giả định phạm vi đề xuất  | Nến ngày; một mã; mua rồi bán số đang giữ; không margin/bán khống; một vị thế tại một thời điểm                                         |
+| Giả định khớp đề xuất     | Tính signal khi phiên đóng; mô phỏng khớp Open phiên đủ điều kiện tiếp theo; không lấy Close vừa tạo signal làm giá khớp               |
+| Giả định báo cáo đề xuất | Không nạp/rút vốn giữa kỳ; giữ vị thế mở cuối kỳ và báo riêng lãi/lỗ tạm tính; không tự ép bán                                       |
+                                                                                                                                                             |
 
-CANSLIM-lite chưa được định nghĩa chỉ bằng tên. Cần ghi rõ phần nào của CAN SLIM gốc được giữ, phần nào chưa hỗ trợ. CAN SLIM có cả yếu tố lợi nhuận doanh nghiệp, cung–cầu, doanh nghiệp dẫn đầu, tổ chức và xu hướng thị trường; OHLCV một mã không đủ tái hiện toàn bộ phương pháp. [Nguồn William O’Neil/MarketSmith](https://www.williamoneilchina.com/can-slim-overview/?lang=en).
+Nguồn rule đã được xác nhận là có thể dùng CAN SLIM. Cần ghi rõ phần nào được triển khai, phần nào chưa hỗ trợ và dữ liệu tương ứng. CAN SLIM có cả yếu tố lợi nhuận doanh nghiệp, cung–cầu, doanh nghiệp dẫn đầu, tổ chức và xu hướng thị trường; OHLCV một mã không đủ tái hiện toàn bộ phương pháp. [Nguồn William O’Neil/MarketSmith](https://www.williamoneilchina.com/can-slim-overview/?lang=en).
 
 ## 4. Các khái niệm cần học, đúng lúc cần dùng
 
@@ -44,7 +50,7 @@ CANSLIM-lite chưa được định nghĩa chỉ bằng tên. Cần ghi rõ ph�
 | OHLCV, nến               | Open, High, Low, Close và khối lượng trong một khoảng thời gian; thân nến nối Open–Close, bóng nến tới High–Low              | P1.2, P3.1                |
 | Indicator                 | Con số tính từ dữ liệu; MA là trung bình, BB là vùng biến động, MACD dựa trên chênh lệch EMA, MFI kết hợp giá và volume | P1.3/P1.5, P2.2, P3.2     |
 | Signal                    | Điều kiện chiến lược đã đúng, ví dụ điều kiện mua được thỏa                                                              | P1.1, P1.4/P1.5           |
-| Order / executed trade    | Yêu cầu mua/bán / lần khớp mô phỏng; có signal chưa chắc đã khớp                                                               | P1.4/P1.6                 |
+| Order / executed trade    | Yêu cầu mua / bán / lần khớp mô phỏng; có signal chưa chắc đã khớp                                                             | P1.4/P1.6                 |
 | Cash / position           | Tiền còn lại / số cổ phiếu đang giữ                                                                                                 | P1.6                      |
 | Position sizing           | Mỗi lần mua bao nhiêu cổ phiếu hoặc dùng bao nhiêu vốn                                                                             | P1.1, P1.6, P2.3          |
 | Fee / slippage            | Phí giao dịch / độ lệch giả định của giá khớp so với giá tham chiếu                                                           | P1.1, P1.6, P2.3          |
@@ -59,19 +65,35 @@ Nguồn học tham khảo: [Fidelity Technical Indicator Guide](https://www.fide
 
 ## 5. Hướng dẫn thực hiện
 
+### Trạng thái sau hai ngày research — 09/09
+
+Căn cứ note tự research và [bản đối chiếu](#open-source-research); các mục dưới là trạng thái thực tế, tách với lịch WBS dự kiến.
+
+| Đã có                                                                | Chưa hoàn tất                                     | Quyết định cho bước tiếp theo                                                            |
+| ----------------------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Plan, WBS, khái niệm và 3[case tính tiền](ACCOUNTING_TEST_CASES.md) | Chưa có actual từ engine                          | Dùng các case làm expected output cho thử nghiệm                                          |
+| Note Quick Start và một số API của backtesting.py                   | Cần làm rõ khớp/phí; chưa chốt engine/version | Thử backtesting.py trước; chỉ đánh giá phương án khác khi có vướng mắc cụ thể |
+| Mentor cho phép dùng nguồn CAN SLIM                                  | Chưa có bảng điều kiện cụ thể                | Ưu tiên P1.3: nguồn → điều kiện → dữ liệu → entry/exit/sizing                       |
+| Thiết kế module và API dự kiến                                     | Chưa triển khai/kiểm chứng                       | Giữ thiết kế là bản nháp, điều chỉnh theo thử nghiệm                                |
+| Danh sách repo tham khảo                                              | Người thực hiện chưa inspect stock-app          | Để đọc tùy nhu cầu API/UI, không chặn MVP                                              |
+
+**Thứ tự sau research:** (1) review các điểm trong note và lập rule table CAN SLIM; (2) thử engine với giao dịch cố định để kiểm tra P1.4/P1.6; (3) triển khai indicator/rule v0 và core; (4) API và đối chiếu kết quả. Ví dụ cố định chỉ kiểm tra engine, không thay CAN SLIM trong nghiệm thu. Chưa code cho đến bước triển khai được bắt đầu.
+
+**Mốc tiếp theo:** ngày 10/09 ưu tiên rule table và thử nghiệm engine; sau đó rà khối lượng P1.5–P1.7 còn lại đến 15/09. Đây là ưu tiên dự kiến, chưa phải cam kết rút ngắn effort trong Excel. Nếu rule hoặc engine còn vướng, báo rõ phần ảnh hưởng trước khi nhận thêm scope. Không cần hoàn tất đọc stock-app để cập nhật Git cuối ngày 09/09.
+
 ### Phase 1 — Nghiệp vụ & MVP backtest
 
 Câu hỏi cần trả lời: **“Với rule đã chốt, tôi tính được giao dịch và tài khoản đúng chưa?”**
 
-| Mã / lịch / effort theo Excel | Việc cần làm vừa đủ                                                                                       | Bằng chứng hoàn thành                                                                       |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| P1.1 — 08/09 — 0,5 ngày      | Viết một bảng giả định: signal, lệnh, giá khớp, long-only, vốn, sizing, phí/slippage, cuối kỳ      | Giải thích được một ví dụ mua rồi bán; các default rõ ràng                         |
-| P1.2 — 08/09 — 0,5 ngày      | Kiểm tra dữ liệu được cấp: cột, kiểu, thứ tự ngày, thiếu/trùng, đơn vị, raw/adjusted           | Data contract ngắn; biết dữ liệu nào dùng để tính signal và giá khớp                |
-| P1.3 — 09/09 — 1 ngày        | Chốt CANSLIM-lite v0 thành bảng điều kiện mua/bán; xác định indicator/params cần dùng và phần bỏ | Rule table đủ rõ để người khác đọc cùng một dữ liệu sẽ quyết định giống bạn |
-| P1.4 — 10/09 — 0,5 ngày      | Vẽ luồng signal → fill → cash/position → P/L/equity; định nghĩa field trả ra                           | Một ví dụ từ signal tới kết quả; tránh dùng thông tin tương lai                     |
-| P1.5 — 10–11/09 — 1,5 ngày  | Tính indicator và tín hiệu của rule v0; xử lý giai đoạn chưa đủ nến                                | Chuỗi BUY/SELL có lý do; đối chiếu thủ công vài mốc                                   |
-| P1.6 — 11–14/09 — 2 ngày    | Áp dụng sizing/phí/giá khớp; cập nhật tiền, vị thế, P/L, equity; không tự khớp mọi signal         | Danh sách lần khớp, bảng trade và lịch sử tài khoản kiểm tra được                  |
-| P1.7 — 14–15/09 — 1 ngày    | API tối thiểu, request/response mẫu; chạy các test số học/thời gian trọng yếu                         | Có thể gọi API, xem các bảng và chạy lại ví dụ                                        |
+| Mã / lịch / effort theo Excel | Việc cần làm vừa đủ                                                                                   | Bằng chứng hoàn thành                                                                       |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| P1.1 — 08/09 — 0,5 ngày      | Viết một bảng giả định: signal, lệnh, giá khớp, long-only, vốn, sizing, phí/slippage, cuối kỳ  | Giải thích được một ví dụ mua rồi bán; các default rõ ràng                         |
+| P1.2 — 08/09 — 0,5 ngày      | Kiểm tra dữ liệu được cấp: cột, kiểu, thứ tự ngày, thiếu/trùng, đơn vị, raw/adjusted       | Data contract ngắn; biết dữ liệu nào dùng để tính signal và giá khớp                |
+| P1.3 — 09/09 — 1 ngày        | Chốt CAN SLIM v0 thành bảng điều kiện mua/bán; xác định indicator/params cần dùng và phần bỏ | Rule table đủ rõ để người khác đọc cùng một dữ liệu sẽ quyết định giống bạn |
+| P1.4 — 10/09 — 0,5 ngày      | Vẽ luồng signal → fill → cash/position → P/L/equity; định nghĩa field trả ra                       | Một ví dụ từ signal tới kết quả; tránh dùng thông tin tương lai                     |
+| P1.5 — 10–11/09 — 1,5 ngày  | Tính indicator và tín hiệu của rule v0; xử lý giai đoạn chưa đủ nến                            | Chuỗi BUY/SELL có lý do; đối chiếu thủ công vài mốc                                   |
+| P1.6 — 11–14/09 — 2 ngày    | Áp dụng sizing/phí/giá khớp; cập nhật tiền, vị thế, P/L, equity; không tự khớp mọi signal     | Danh sách lần khớp, bảng trade và lịch sử tài khoản kiểm tra được                  |
+| P1.7 — 14–15/09 — 1 ngày    | API tối thiểu, request/response mẫu; chạy các test số học/thời gian trọng yếu                     | Có thể gọi API, xem các bảng và chạy lại ví dụ                                        |
 
 Các field cốt lõi, không phải schema lớn bắt buộc:
 
@@ -90,12 +112,12 @@ Nếu chưa bán và Close cuối là 21.000: cash = 7.998.000; equity = 10.098.
 
 Câu hỏi cần trả lời: **“Thay chiến lược có phải sửa lại engine không?”**
 
-| Mã / ngày / effort theo Excel | Việc cần làm vừa đủ                                                                             | Bằng chứng hoàn thành                                                    |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| P2.1 — 16/09 — 1 ngày        | Định nghĩa StrategySpec: indicator, params, entry, exit và validation                             | CANSLIM-lite v0 có thể biểu diễn bằng spec; không cần DSL phức tạp  |
-| P2.2 — 17/09 — 1 ngày        | Tách indicator và phép điều kiện thành module dùng lại                                       | Danh mục hỗ trợ ngắn; nhiều strategy gọi cùng interface               |
-| P2.3 — 18/09 — 1 ngày        | API nhận date range, strategy params, fee/slippage, sizing; chuẩn hóa response                     | Default/đơn vị/range rõ; input sai trả lỗi rõ                         |
-| P2.4 — 21/09 — 1 ngày        | Chạy CANSLIM-lite và một strategy đơn giản khác; chạy lại v0 để kiểm tra không bị hỏng | Ít nhất 2 strategy mà không sửa core; sample result và regression test |
+| Mã / ngày / effort theo Excel | Việc cần làm vừa đủ                                                                         | Bằng chứng hoàn thành                                                    |
+| ------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| P2.1 — 16/09 — 1 ngày        | Định nghĩa StrategySpec: indicator, params, entry, exit và validation                         | CAN SLIM v0 có thể biểu diễn bằng spec; không cần DSL phức tạp      |
+| P2.2 — 17/09 — 1 ngày        | Tách indicator và phép điều kiện thành module dùng lại                                   | Danh mục hỗ trợ ngắn; nhiều strategy gọi cùng interface               |
+| P2.3 — 18/09 — 1 ngày        | API nhận date range, strategy params, fee/slippage, sizing; chuẩn hóa response                 | Default/đơn vị/range rõ; input sai trả lỗi rõ                         |
+| P2.4 — 21/09 — 1 ngày        | Chạy CAN SLIM và một strategy đơn giản khác; chạy lại v0 để kiểm tra không bị hỏng | Ít nhất 2 strategy mà không sửa core; sample result và regression test |
 
 Chiến lược thứ hai đề xuất: MA crossover để dễ kiểm tra.
 
@@ -105,12 +127,12 @@ Chiến lược thứ hai đề xuất: MA crossover để dễ kiểm tra.
 
 Câu hỏi cần trả lời: **“Người xem có hiểu kết quả và đối chiếu giao dịch trên chart được không?”**
 
-| Mã / ngày / effort theo Excel | Việc cần làm vừa đủ                                                            | Bằng chứng hoàn thành                                                           |
-| ------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| P3.1 — 22/09 — 1 ngày        | Vẽ nến OHLCV và volume, zoom/scroll cơ bản                                      | Ngày và giá trên chart khớp dữ liệu API                                      |
-| P3.2 — 23/09 — 1 ngày        | MA/BB trên chart; MACD/MFI ở panel phù hợp                                       | Giá trị khớp backend; không tự tính lại bằng công thức khác ở frontend  |
-| P3.3 — 24/09 — 1 ngày        | Marker mua/bán từ lần **đã khớp**, bảng entry/exit/quantity/P&L/return | Marker đúng ngày và giá; bảng và chart cùng kết quả                       |
-| P3.4 — 25/09 — 1 ngày        | Equity/performance và summary; kết nối API đầu-cuối                            | Một lần chạy trả các phần đồng bộ; có trạng thái lỗi/không giao dịch |
+| Mã / ngày / effort theo Excel | Việc cần làm vừa đủ                                                          | Bằng chứng hoàn thành                                                           |
+| ------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| P3.1 — 22/09 — 1 ngày        | Vẽ nến OHLCV và volume, zoom/scroll cơ bản                                    | Ngày và giá trên chart khớp dữ liệu API                                      |
+| P3.2 — 23/09 — 1 ngày        | MA/BB trên chart; MACD/MFI ở panel phù hợp                                     | Giá trị khớp backend; không tự tính lại bằng công thức khác ở frontend  |
+| P3.3 — 24/09 — 1 ngày        | Marker mua/bán từ lần**đã khớp**, bảng entry/exit/quantity/P&L/return | Marker đúng ngày và giá; bảng và chart cùng kết quả                       |
+| P3.4 — 25/09 — 1 ngày        | Equity/performance và summary; kết nối API đầu-cuối                          | Một lần chạy trả các phần đồng bộ; có trạng thái lỗi/không giao dịch |
 
 **Qua Phase 3 khi:** gọi API rồi xem được toàn bộ kết quả trên web. Giữ UI đơn giản; chưa cần tài khoản người dùng, realtime, dashboard phức tạp hoặc nhiều mã.
 
@@ -141,6 +163,63 @@ Câu hỏi cần trả lời: **“Agent có chuyển đúng ý người dùng t
 | P4.1–P4.3 | `structured output JSON Schema`, `semantic validation`, `ambiguous user request`         | Docs model/framework được đơn vị chọn                    | Spec đúng; biết khi nào hỏi lại hoặc báo chưa hỗ trợ                       |
 
 Nguồn khởi đầu: [Backtrader — order execution](https://www.backtrader.com/docu/order-creation-execution/order-creation-execution/), [MarketSmith — CAN SLIM](https://www.williamoneilchina.com/can-slim-overview/?lang=en), [Fidelity — indicators](https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/overview), [Lightweight Charts — repo chính thức](https://github.com/tradingview/lightweight-charts).
+
+<a id="open-source-research"></a>
+
+### 6.1. Open-source research
+
+Ngày tổng hợp: **09/09/2026**. Căn cứ: note tự research `repo_research_log_note.txt` của người thực hiện và phần đối chiếu source/docs do trợ lý hỗ trợ. Note gốc giữ riêng trong thư mục local, không thay đổi.
+
+**Trạng thái:** người thực hiện đã đọc Quick Start và một số phần của backtesting.py; chưa inspect stock-app. Chưa có bằng chứng chạy engine. Các link master/main chưa cố định commit; cần ghi version khi bắt đầu thử nghiệm.
+
+#### Kết quả đã có từ note cá nhân
+
+| Nội dung đã ghi                                                        | Giá trị cho project                                                      | WBS            |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------------------- | -------------- |
+| DataFrame với OHLC, Volume optional theo thư viện; có thể thêm cột | Có căn cứ chuẩn bị data adapter; Volume vẫn cần nếu rule sử dụng | P1.2           |
+| Strategy có init/next và tham số MA; đã đọc ví dụ crossover      | Có điểm bắt đầu triển khai strategy v0                              | P1.3/P1.5      |
+| Biết chế độ next-open và trade_on_close                              | Có giả định để đối chiếu ngày/giá khớp                         | P1.4           |
+| Phân biệt buy, sell và close; tìm thấy equity, trades, closed_trades | Đã xác định các API/source cần đọc tiếp cho báo cáo giao dịch | P1.6           |
+| Đã đọc phần optimize và kết quả trades                            | Biết khả năng tham khảo; tối ưu tham số chưa là đầu việc MVP   | P2, tham khảo |
+
+**Kết luận cho plan:** đủ căn cứ chọn backtesting.py làm ứng viên thử đầu tiên. Chưa chốt engine chính thức; cần đối chiếu [ACC-01–03](ACCOUNTING_TEST_CASES.md), kiểm tra vị thế mở và lệnh không khớp. Chưa inspect stock-app không chặn bước này.
+
+#### 1. backtesting.py — ưu tiên đọc sâu cho P1
+
+Nguồn: [core backtesting.py](https://github.com/kernc/backtesting.py/blob/master/backtesting/backtesting.py) và [lib.py](https://github.com/kernc/backtesting.py/blob/master/backtesting/lib.py). Bảng dưới là đối chiếu do trợ lý bổ sung; không xem như toàn bộ đã có trong note cá nhân.
+
+| Vị trí                       | Quan sát từ source                                         | Áp dụng đề xuất                                                   |
+| ------------------------------ | ------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| Strategy.sell / Position.close | sell tạo lệnh short; close dùng để thoát vị thế      | Long-only phải giới hạn hành vi strategy                           |
+| _Broker._process_orders        | Chọn giá market theo trade_on_close                        | Kiểm tra next-open bằng ví dụ                                      |
+| Trade.pl                       | Phí phản ánh vào Trade.pl khi trade đóng               | Không lấy nguyên P/L vị thế mở làm net unrealized của project  |
+| _Broker._open_trade / equity   | _cash giảm phí khi mở; equity cộng unrealized vào _cash | Không coi _cash nội bộ là tiền mặt còn lại theo sổ cổ phiếu |
+
+Các field bắt đầu bằng `_` là nội bộ; dùng để hiểu source, không mặc định làm interface tích hợp. [Nguồn core](https://github.com/kernc/backtesting.py/blob/master/backtesting/backtesting.py).
+
+**Kết luận dự kiến:** ứng viên thử đầu tiên. Cần chứng minh lấy đủ fills, lệnh không khớp, lịch sử tài khoản và ánh xạ accounting. License repo hiển thị AGPL-3.0; kiểm tra điều kiện sử dụng trước khi tích hợp. [Repo](https://github.com/kernc/backtesting.py).
+
+**Phần đọc tiếp có giới hạn:** tập trung `_process_orders`, `_open_trade`, `_close_trade` để trả lời hai câu hỏi còn mở về khớp và phí. Đối chiếu lại các điểm đã sửa; không cần đọc lại toàn bộ Quick Start hoặc mở rộng sang optimizer.
+
+#### 2. stock-app — tham khảo cách nối ứng dụng
+
+**Người thực hiện chưa inspect; để tham khảo sau khi cần nối API/UI.** Trợ lý đã xem [README](https://github.com/agBythos/stock-app) và cây thư mục. README mô tả FastAPI, Backtrader, Lightweight Charts; có API chạy backtest và tách backtest/ khỏi static/. Source server.py và backtrader_engine.py chưa tải được qua công cụ web trong lượt kiểm tra trước, nên chưa xác nhận implementation khớp README.
+
+**Tùy chọn khi làm API/UI:** mở [server.py](https://github.com/agBythos/stock-app/blob/main/server.py), tìm `/api/backtest/run`, lần theo [backtest/](https://github.com/agBythos/stock-app/tree/main/backtest) rồi [static/](https://github.com/agBythos/stock-app/tree/main/static). Không đặt việc đọc repo này thành điều kiện hoàn tất research ngày 2.
+
+Học cách nối API với engine; chưa chọn làm nền dự án. Không mang chi phí TWSE hoặc ML/RF/HMM vào scope HPG. README dùng chart v4; khi dùng docs khác version phải đối chiếu API. Đây là dự án cá nhân; chưa chạy tests để đánh giá độ tin cậy. [Nguồn README](https://github.com/agBythos/stock-app).
+
+#### 3. Những gì còn cần xác nhận sau note này
+
+| Câu hỏi                          | Ghi nhận của người thực hiện                                                                           |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Phạm vi đã tự đọc?           | Quick Start; các API buy/sell/close, equity, trades/closed_trades nêu trong note; chưa ghi commit/version |
+| Cần hiểu thêm gì?              | Giá/ngày khớp, xử lý phí; xác nhận lại các cách diễn đạt đã sửa                             |
+| Quyết định dự kiến?           | Thử backtesting.py trước; chưa có kết quả chọn engine chính thức                                   |
+| Cần kiểm chứng gì cho project? | Long-only, phí, cash/equity, tín hiệu không khớp và vị thế cuối kỳ                                 |
+| Ví dụ đối chiếu?              | ACC-01–03 đã có số kỳ vọng; chưa có actual từ engine                                               |
+
+Mỗi kết luận gắn trạng thái: đã đọc source / suy luận / đã chạy đối chiếu / chưa xác nhận. Chỉ đánh dấu đã chạy khi có kết quả thực tế.
 
 ## 7. Acceptance và test cases tối thiểu
 

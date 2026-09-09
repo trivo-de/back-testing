@@ -18,3 +18,5 @@ Thumbs.db
 data/
 outputs/
 logs/
+local_only_docs/
+/docs/OPEN_SOURCE_REVIEW.md
