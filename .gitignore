@@ -19,4 +19,7 @@ data/
 outputs/
 logs/
 local_only_docs/
-/docs/OPEN_SOURCE_REVIEW.md
+
+# Local-only agent helpers and generated artifacts
+/.agents/
+AGENTS.md
