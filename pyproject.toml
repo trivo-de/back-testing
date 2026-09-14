@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "backtest-hpg"
+version = "0.1.0"
+description = "Deterministic HPG daily backtest"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi==0.141.1",
+  "psycopg[binary]==3.3.5",
+  "uvicorn==0.52.4",
+]
+
+[project.optional-dependencies]
+test = ["httpx==0.28.1"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+backtest_hpg = ["web/*.html"]

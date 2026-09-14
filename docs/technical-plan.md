@@ -113,33 +113,35 @@ Hệ quả:
 11. Xây Web UI kết quả dạng bảng/cards/equity; để candlestick chart và marker trực
     quan sang Phase 3.
 
-## 8. Cấu trúc source dự kiến
+## 8. Cấu trúc repository hiện tại
 
-Đây là target structure, chưa phải yêu cầu tạo file rỗng trước khi code:
+Cây đầy đủ, ownership và đường đi của API nằm trong
+[project-structure.md](project-structure.md). Source dùng Python `src` layout và
+chia theo boundary đã có trong System Design:
 
 ```text
-src/
-  backtest_hpg/
-    data/
-    indicators/
-    strategy/
-    execution/
-    portfolio/
-    metrics/
-    application/
-    persistence/
-    api/
-tests/
-  unit/
-  integration/
-  fixtures/
-web/
-  src/
-migrations/
+src/backtest_hpg/
+├── api/              HTTP routes và Pydantic schemas
+├── application/      use case, port và result mapping
+├── domain/           market/trading models, engine, portfolio và strategies
+├── infrastructure/   PostgreSQL adapter trong database.py
+├── web/              packaged Web UI
+├── config.py         grouped database/API/backtest/result/strategy settings
+└── main.py           composition root
 ```
 
-Domain modules không import từ `api`. Test fixture nhỏ nằm trong `tests/fixtures`;
-dataset thị trường lớn và output local tiếp tục được Git ignore theo project rule.
+Model domain được đặt theo khái niệm `market`, `trading`, `results`; không gom vào
+một `models.py`. Strategy registry ánh xạ `strategy_id` tới module strategy và mọi
+strategy dùng chung engine/execution. Production agent sau này nằm trong
+`strategy_agent/`, chỉ chuyển natural language thành `StrategySpec` đã validate và
+không tính P/L.
+
+Static backend settings nằm trong `config.py` theo nhóm bất biến. URL kết nối thật
+vẫn được đọc runtime từ environment hoặc `.env`; strategy thresholds trong config
+phải tiếp tục khớp `canslim-rules.md` và không được tự tối ưu.
+
+Test fixture nhỏ nằm trong `tests/fixtures`; dataset thị trường lớn và output local
+tiếp tục được Git ignore theo project rule.
 
 ## 9. Quyết định đã chốt và còn mở
 

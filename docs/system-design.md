@@ -83,6 +83,22 @@ flowchart TD
 
 Không module domain nào được import từ API, Web UI hoặc storage adapter.
 
+Physical package mapping:
+
+| Boundary | Source package |
+| --- | --- |
+| HTTP API adapter | `backtest_hpg/api/` |
+| Application use case và repository port | `backtest_hpg/application/` |
+| Models, engine, portfolio, indicators và strategy registry | `backtest_hpg/domain/` |
+| PostgreSQL adapter | `backtest_hpg/infrastructure/database.py` |
+| Static backend settings | `backtest_hpg/config.py` |
+| Composition root | `backtest_hpg/main.py` |
+| Web UI | `backtest_hpg/web/` |
+
+Luồng code của một request là `main -> api -> application -> strategy registry ->
+domain engine`, còn application gọi repository port được implement bởi
+`infrastructure/database.py`.
+
 ## 4. Domain state
 
 ```mermaid
@@ -172,7 +188,8 @@ columns; strategy/config metadata linh hoạt có thể nằm trong JSONB.
 
 ## 10. Evolution path
 
-- Phase 2 có thể thêm strategy registry sau khi interface signal ổn định.
+- Strategy registry tối thiểu đã tồn tại; Phase 2 thêm strategy module mới sau khi
+  interface signal ổn định và phải giữ regression result của v0.
 - Repository adapter cho phép thay đổi storage implementation mà không đổi domain
   core; PostgreSQL là implementation production đã chọn.
 - Queue/worker có thể được thêm sau qua application boundary khi thời gian chạy hoặc

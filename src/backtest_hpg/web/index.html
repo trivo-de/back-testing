@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>HPG Backtest</title>
+  <!-- Minimal responsive styling; all calculations remain in the backend. -->
+  <style>
+    body{font:14px;font-family:Roboto,sans-serif;max-width:1200px;margin:auto;padding:24px;color:#182230}form,.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}label{display:grid;gap:4px}input,button{padding:8px}button{cursor:pointer}.cards div{background:#eef1f4;padding:12px;border-radius:6px}table{width:100%;border-collapse:collapse;margin:8px 0 24px}th,td{padding:7px;border:1px solid #c7cdd4;text-align:left}th{background:#16324f;color:white}.error{color:#a00}.muted{color:#667085}section{overflow:auto}
+  </style>
+</head>
+<body>
+  <h1>CANSLIM Backtest</h1>
+  <!-- Backtest request inputs -->
+  <form id="run-form">
+    <label>Dataset ID<input name="dataset_id" value="vndirect-hpg-vnindex-daily-2019-2023" required></label>
+    <label>Dataset version<input name="dataset_version" value="2026-09-12.1" required></label>
+    <label>Từ ngày<input type="date" name="start_date" value="2020-01-01" required></label>
+    <label>Đến ngày<input type="date" name="end_date" value="2023-12-31" required></label>
+    <label>Vốn ban đầu<input type="number" name="initial_cash" value="10000000" min="1" required></label>
+    <label>Phí<input type="number" name="fee_rate" value="0.001" min="0" step="0.0001" required></label>
+    <label>Slippage<input type="number" name="slippage_rate" value="0.002" min="0" max="0.9999" step="0.0001" required></label>
+    <button type="submit">Chạy backtest</button>
+  </form>
+  <p id="state" class="muted">Sẵn sàng.</p>
+  <!-- One backend-produced result; the UI does not recalculate P/L. -->
+  <main id="result" hidden>
+    <h2 id="run-title"></h2><div id="summary" class="cards"></div>
+    <section><h2>Fills</h2><div id="fills"></div></section>
+    <section><h2>Closed trades</h2><div id="trades"></div></section>
+    <section><h2>Open position</h2><div id="position"></div></section>
+    <section><h2>Signals / orders</h2><div id="audit"></div></section>
+    <section><h2>Equity history</h2><div id="equity"></div></section>
+  </main>
+  <!-- Reloadable persisted run history -->
+  <section><h2>Run history</h2><div id="history"></div></section>
+  <script>
+    // HTML escaping and generic table rendering
+    const state=document.querySelector('#state'),result=document.querySelector('#result');
+    const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    const table=(rows,columns)=>!rows?.length?'<p class="muted">Không có dữ liệu.</p>':`<table><thead><tr>${columns.map(x=>`<th>${esc(x)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${columns.map(c=>`<td>${esc(r[c])}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+    // Result presentation
+    const show=run=>{result.hidden=false;document.querySelector('#run-title').textContent=`Run ${run.metadata.run_id} — ${run.metadata.label}`;document.querySelector('#summary').innerHTML=Object.entries(run.summary).map(([k,v])=>`<div><strong>${esc(k)}</strong><br>${esc(v)}</div>`).join('');document.querySelector('#fills').innerHTML=table(run.fills,['fill_time','side','fill_price','quantity','fee']);document.querySelector('#trades').innerHTML=table(run.trades,['entry_date','exit_date','quantity','net_pnl','close_reason']);document.querySelector('#position').innerHTML=run.open_position?table([run.open_position],['quantity','entry_price','market_value','unrealized_pnl']):'<p class="muted">Không có vị thế mở.</p>';document.querySelector('#audit').innerHTML=table(run.signals,['signal_time','side','reason','pivot'])+table(run.orders,['created_time','side','status','rejection_reason']);document.querySelector('#equity').innerHTML=table(run.equity_history,['trading_date','cash','quantity','market_value','equity','unrealized_pnl']);};
+    // API actions
+    const load=async id=>{state.textContent='Đang tải...';try{const response=await fetch(`/api/backtests/${id}`),body=await response.json();if(!response.ok)throw Error(body.detail||'Không tải được run');show(body);state.textContent='Đã tải.'}catch(error){state.className='error';state.textContent=error.message}};
+    const history=async()=>{const response=await fetch('/api/backtests'),runs=await response.json();document.querySelector('#history').innerHTML=!runs.length?'<p class="muted">Chưa có run.</p>':`<table><tbody>${runs.map(r=>`<tr><td><button data-run="${esc(r.metadata.run_id)}">${esc(r.metadata.run_id)}</button></td><td>${esc(r.summary.final_equity)}</td></tr>`).join('')}</tbody></table>`;document.querySelectorAll('[data-run]').forEach(button=>button.onclick=()=>load(button.dataset.run));};
+    document.querySelector('#run-form').onsubmit=async event=>{event.preventDefault();state.className='muted';state.textContent='Đang chạy...';const values=Object.fromEntries(new FormData(event.target));const payload={...values,symbol:'HPG',strategy_id:'canslim_breakout_v0'};try{const response=await fetch('/api/backtests',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)}),body=await response.json();if(!response.ok)throw Error(typeof body.detail==='string'?body.detail:JSON.stringify(body.detail));show(body);state.textContent='Hoàn thành.';await history()}catch(error){state.className='error';state.textContent=error.message}};
+    history();
+  </script>
+</body>
+</html>

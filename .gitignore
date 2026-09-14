@@ -1,10 +1,12 @@
 # Python
 __pycache__/
 *.py[cod]
+*.egg-info/
 .venv/
 venv/
 .env
 .env.*
+!.env.example
 
 # IDE / OS
 .idea/

@@ -1,6 +1,6 @@
 # PostgreSQL Schema — Backtest HPG
 
-Cập nhật: 11/09/2026.
+Cập nhật: 14/09/2026.
 
 ## 1. Quyết định storage
 
@@ -32,8 +32,10 @@ erDiagram
 ## 3. Tables
 
 Các type dưới đây là target PostgreSQL schema. `numeric` được dùng cho monetary
-records; indicator calculation precision/rounding phải được chốt trong coding
-conventions trước implementation.
+records. Core tính bằng `Decimal` không làm tròn trung gian. Tại boundary tạo
+result DTO/API và trước khi persist, mọi giá trị `Decimal` được quantize về 6 chữ
+số thập phân (`0.000001`) bằng `ROUND_HALF_UP`. Cùng hàm quantize phải được dùng
+cho response vừa chạy và response reload từ PostgreSQL.
 
 ### `datasets`
 
