@@ -1,6 +1,22 @@
-# Software Requirements Specification — Backtest HPG v0
+# Software Requirements Specification — Backtest HPG v0 (legacy baseline)
 
-Cập nhật: 11/09/2026.
+> **Scope hiện hành 17/09/2026:** VN30F1M 5 phút thay dữ liệu HPG; giữ CANSLIM,
+> VN-Index cho R1 và accounting normalized như baseline theo xác nhận user.
+> **18/09:** strategy/execution chính dùng 5 phút; 1D chỉ hỗ trợ. Mapping indicator,
+> market/warm-up và session chờ C01–C06 trong [checklist](../../.agents/checklists/vn30f1m-backtest-checklist.md).
+> Ưu tiên source → API → notebook chạy được trước, chưa cần agent. Các mục daily
+> và loại trừ intraday bên dưới là baseline cũ, không giới hạn scope 5 phút mới.
+> Storage target 18/09 là [Parquet + JSON](../plans/technical-plan.md#6-persistence-parquet-json); metadata/session agent còn chờ chốt, source chưa migrate. Xem [CANSLIM Rule](../strategies/canslim-rules.md),
+> [Backtest Plan](../plans/backtest-plan-v0.md) và
+> [VN30F1M Data Contract](../data/vn30f1m/data-contract.md); nội dung dưới giữ để truy vết.
+
+Cập nhật: 15/09/2026.
+
+Điều chỉnh ưu tiên: chart nến + BUY/SELL marker từ executed fills được đưa vào đợt
+push Docker/notebook/chart trước Phase 2. Đây là phần P3.1/P3.3 làm sớm, chưa phải
+toàn bộ Phase 3. Acceptance tối thiểu và phần để sau nằm trong
+[Web UI Specification](../design/web-ui-specification.md); lịch/effort trong
+[kế hoạch chart](../plans/candlestick-ui-plan.md).
 
 ## 1. Mục tiêu
 
@@ -19,7 +35,7 @@ run/dataset/config.
 
 - HPG và VN-Index daily.
 - Long-only, tối đa một vị thế, không leverage hoặc pyramiding.
-- Entry/exit theo [canslim-rules.md](canslim-rules.md).
+- Entry/exit theo [canslim-rules.md](../strategies/canslim-rules.md).
 - Market execution mô phỏng ở Open phiên kế tiếp.
 - Fixed fractional risk sizing 2%.
 - Core xử lý một run trong memory; application persist dataset/version và toàn bộ
@@ -44,7 +60,7 @@ run/dataset/config.
 | FR-012 | API tối thiểu chỉ được thêm sau khi domain core chạy đúng các fixture.                                       |
 | FR-013 | Web UI render result của backend; không tự tính signal, fill, P/L hoặc equity.                                    |
 | FR-014 | UI hiển thị summary P/L, equity history, fills, open position và trade history của cùng run ID.                  |
-| FR-015 | Candlestick chart và BUY/SELL marker trực quan được triển khai ở Phase 3; marker phải lấy từ fill thực tế.      |
+| FR-015 | Candlestick chart và BUY/SELL marker thuộc Phase 3, được ưu tiên cho đợt push Docker/notebook/chart theo quyết định 15/09; mỗi marker phải đúng ngày/giá của fill thực tế. |
 | FR-016 | Mỗi run thành công phải persist metadata, signals, orders, fills, trades, open position và equity history.     |
 | FR-017 | Web UI/API có thể liệt kê và mở lại run đã lưu theo `run_id`; restart service không làm mất history.             |
 | FR-018 | Dataset dùng cho run phải tham chiếu immutable dataset version/content hash để kết quả có thể tái lập.          |

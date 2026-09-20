@@ -1,0 +1,12 @@
+.git
+.venv
+.agents
+.env
+data
+local_only_docs
+outputs
+logs
+tests
+__pycache__
+*.py[cod]
+*.egg-info

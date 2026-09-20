@@ -1,4 +1,25 @@
-# Kế hoạch backtest HPG
+# Kế hoạch backtest VN30F1M
+
+**Ưu tiên 18/09:** backtest VN30F1M 5 phút chạy qua API và notebook trước,
+chưa cần agent. 1D chỉ hỗ trợ, không thay luồng chính. Đầu việc W01–W08,
+field xác nhận C01–C06 và acceptance nằm trong
+[checklist hiện hành](../../.agents/checklists/vn30f1m-backtest-checklist.md). Mốc cũ bên dưới giữ để
+truy vết; không coi chart snapshot hoặc kế hoạch là backtest đã chạy.
+
+> **Storage 18/09/2026:** [Parquet + JSON](technical-plan.md#6-persistence-parquet-json) thay target pickle trong kế hoạch bên dưới. Raw nguồn giữ nguyên; SQLite/PostgreSQL cho metadata/session agent còn chờ chốt. Nội dung implementation/mốc cũ giữ để truy vết; chưa migrate code hoặc nghiệm thu storage mới.
+
+
+**Ưu tiên 17/09:** mentor cho phép bắt đầu agent sớm; mục tiêu prompt tiếng Việt
+→ backtest → output hiện có. [Research plan](agent-research-plan.md) kiểm kê nền
+tảng P2/P4, scope và eval; chưa duyệt thêm strategy. Chart snapshot VN30F1M đã
+triển khai cho hạn bàn giao, trạng thái/giới hạn ở [PROGRESS](progress.md).
+
+**Scope hiện hành 17/09:** user chốt dùng VN30F1M thay HPG, giữ rule
+`canslim_breakout_v0`, VN-Index cho R1 và accounting normalized như baseline.
+Mapping indicator, session và snapshot market/warm-up còn chờ chốt theo
+[CANSLIM Rule](../strategies/canslim-rules.md). Nguồn dữ liệu 5 phút
+theo [VN30F1M Data Contract](../data/vn30f1m/data-contract.md), persistence dùng pickle
+local. ORB từng được nêu là phương án khảo sát nhưng không phải requirement.
 
 **Bổ sung ngày 09/09:** Đã dành 2 ngày 08–09/09 dành cho research. Các ngày trong WBS là lịch dự kiến, không phải trạng thái hoàn thành. Đầu ra hai ngày đầu gồm plan, WBS, ghi chú inspect và thiết kế dự kiến; việc chốt rule có thể còn cần phản hồi. Mốc MVP vẫn là 15/09; cần rà lại phân bổ công việc sau research, không mặc định tăng giờ làm.
 
@@ -6,11 +27,25 @@
 2019 là warm-up và kỳ báo cáo là 2020–2023. Tự xây deterministic backtest core;
 không dùng `backtesting.py` làm dependency production. Config báo cáo dùng vốn
 10.000.000 VND, phí 0,1% và slippage 0,2%. Web UI tối thiểu hiển thị/lưu lịch sử
-run trước Phase 3; Phase 3 mới bổ sung candlestick và marker trực quan.
+run trước Phase 3; baseline Phase 3 bổ sung candlestick và marker trực quan.
+
+**Điều chỉnh ưu tiên 15/09:** đợt push kế tiếp gom Docker, notebook và chart nến
+có điểm BUY/SELL từ executed fills. Kéo phần nến P3.1 và marker P3.3 lên trước
+Phase 2; bổ sung volume, equity line và cột trade có sẵn vào bắt buộc vì dùng lại
+payload backend. Indicator/trade return/tương tác nâng cao giữ baseline sau.
+Ước lượng mới 2,5–3,5 ngày công (20–28h), chưa gồm blocker dữ liệu. Baseline được giữ để
+đối chiếu, chưa là lịch mới đã cam kết. Chi tiết scope, dependency, acceptance và
+thiết kế nằm trong [kế hoạch chart nến](candlestick-ui-plan.md); trạng thái tổng hợp
+và state C1–R1 nằm trong [PROGRESS](progress.md).
+
+**Điều chỉnh storage 15/09:** MVP bỏ PostgreSQL khỏi kế hoạch triển khai, dùng một
+file Python pickle local để lưu dataset snapshot và complete run result. Pickle chỉ
+được load từ file do application tự tạo; Docker mount thư mục chứa file để giữ lịch
+sử sau restart. Chưa sửa source trong bước cập nhật plan này.
 
 Tài liệu bổ sung: [Technical Plan](technical-plan.md) · [Inspect open source](#open-source-research).
 
-Cập nhật: **11/09/2026**. Tài liệu Markdown này là bản có thể review trên Git về
+Cập nhật: **15/09/2026**. Tài liệu Markdown này là bản có thể review trên Git về
 phase, mã công việc, thời gian và output. Các workbook Gantt/WBS `.xlsx` chỉ là
 artifact quản lý local, không phải source of truth được push.
 
@@ -18,7 +53,9 @@ artifact quản lý local, không phải source of truth được push.
 
 ## 1. Mục tiêu thực sự
 
-- Hoàn thành một bài test thực tập: xây được luồng **HPG → chiến lược → giao dịch mô phỏng → P/L → lịch sử hiệu suất → web chart**, sau đó thêm **ngôn ngữ tự nhiên → StrategySpec → backtest**.
+- Hoàn thành một bài test thực tập: xây được luồng **VN30F1M 5 phút → strategy đã
+  duyệt → giao dịch mô phỏng → P/L → lịch sử hiệu suất → web chart**, sau đó thêm
+  **ngôn ngữ tự nhiên → StrategySpec → backtest**.
 - Năng lực cần thể hiện qua sản phẩm:
 
   - Hiểu yêu cầu.
@@ -27,11 +64,11 @@ artifact quản lý local, không phải source of truth được push.
   - Kết nối agent vào một hệ thống có đầu vào/đầu ra rõ.
 - **Đích cuối: Một demo đúng và giải thích được trong phạm vi đã chốt.**
 
-## 2. Bốn phase theo Excel
+## 2. Bốn phase theo Excel — baseline
 
 | Phase                                | Thời gian        | Quỹ ngày làm việc | Đầu ra chính                                                                         |
 | ------------------------------------ | ----------------- | --------------------: | --------------------------------------------------------------------------------------- |
-| 1 — Nghiệp vụ & MVP backtest      | 08–15/09/2026    |                     6 | HPG + `canslim_breakout_v0` chạy từ dữ liệu tới giao dịch, P/L, equity; persist history, API và Web UI bảng/cards tối thiểu |
+| 1 — Nghiệp vụ & MVP backtest      | Baseline cũ      |                     6 | VN30F1M, CANSLIM và normalized accounting đã chốt; còn timeframe/data mapping; persist history bằng pickle local, API và Web UI |
 | 2 — Tổng quát hóa backtest       | 16–21/09/2026    |                     4 | StrategySpec và backtest service dùng chung; ít nhất**2 chiến lược**       |
 | 3 — Web chart & trực quan hóa     | 22–25/09/2026    |                     4 | Nến, volume, indicator, marker mua/bán, bảng giao dịch và hiệu suất từ API      |
 | 4 — Agent & hoàn thiện end-to-end | 28/09–02/10/2026 |                     5 | Ngôn ngữ tự nhiên → spec hợp lệ → API → chart; test, tài liệu và final demo |
@@ -40,18 +77,40 @@ artifact quản lý local, không phải source of truth được push.
 
 | Loại                            | Nội dung                                                                                                                                                   |
 | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Đã biết                       | HPG/VN-Index daily tải 2019–2023; warm-up 2019; báo cáo HPG 2020–2023; `canslim_breakout_v0`; tự xây core; API và UI tối thiểu trước chart; mốc MVP 15/09; lịch 4 phase trong Excel |
+| Đã biết                       | VN30F1M 5 phút, 16/03–15/09/2026, 6.174 records; pickle local; API/UI/chart dùng cùng immutable snapshot |
 | Dữ liệu                        | P1.2 chỉ kiểm tra định dạng, đơn vị, missing/duplicate và raw/adjusted khi nhận; không có đầu việc tìm nhà cung cấp hoặc crawl dữ liệu |
-| Đã chốt ở P1.1/P1.3           | Điều kiện mua/bán `canslim_breakout_v0`; vốn 10.000.000 VND; sizing risk 2%; phí 0,1%; slippage 0,2%; next-Open fill; giữ và mark-to-market vị thế cuối kỳ |
+| Chưa chốt                     | Timeframe strategy/execution, aggregation/session, snapshot VN-Index cùng kỳ và warm-up, rollover mapping |
 | Cần chốt trước P4            | Indicator/toán tử mà agent hỗ trợ; model/tài khoản được phép dùng; cách hỏi lại khi yêu cầu chưa rõ                                      |
-| Giả định phạm vi đề xuất  | Nến ngày; một mã; mua rồi bán số đang giữ; không margin/bán khống; một vị thế tại một thời điểm                                         |
-| Giả định khớp đề xuất     | Tính signal khi phiên đóng; mô phỏng khớp Open phiên đủ điều kiện tiếp theo; không lấy Close vừa tạo signal làm giá khớp               |
-| Giả định báo cáo đề xuất | Không nạp/rút vốn giữa kỳ; giữ vị thế mở cuối kỳ và báo riêng lãi/lỗ tạm tính; không tự ép bán                                       |
+| Phạm vi hiện hành          | Input VN30F1M 5 phút; giữ CANSLIM, VN-Index R1, long-only và một vị thế |
+| Timing đã chốt | Signal sau Close và fill ở Open kế tiếp; đơn vị bar/phiên của nguồn mới còn chờ xác nhận |
+| Accounting đã chốt | Giữ cash, sizing, phí và P/L normalized như baseline; không thêm multiplier/margin/thuế/settlement futures |
 |                                  |                                                                                                                                                             |
 
 Nguồn rule đã được xác nhận là có thể dùng CAN SLIM. Cần ghi rõ phần nào được triển khai, phần nào chưa hỗ trợ và dữ liệu tương ứng. CAN SLIM có cả yếu tố lợi nhuận doanh nghiệp, cung–cầu, doanh nghiệp dẫn đầu, tổ chức và xu hướng thị trường; OHLCV một mã không đủ tái hiện toàn bộ phương pháp. [Nguồn William O’Neil/MarketSmith](https://www.williamoneilchina.com/can-slim-overview/?lang=en).
 
-## 4. Các khái niệm cần học, đúng lúc cần dùng
+## 4. Kế hoạch chuyển đổi hiện hành
+
+| Bước | Việc nhỏ nhất cần làm | Acceptance |
+| --- | --- | --- |
+| N1 — Docs/provenance | Chốt data contract, URL/hash và limitation | Data VN30F1M là quyết định riêng, không ngầm đổi strategy |
+| N2 — Strategy decision | Đối chiếu từng rule CANSLIM với field/timeframe VN30F1M; liệt kê dữ liệu thiếu và thay đổi cần duyệt | Không có threshold/rule mới do implementation tự đặt |
+| N3 — Data | Adapter timestamp 5 phút; nếu chọn daily thì đặc tả aggregation/session trước | 6.174 rows đúng hash; missing/duplicate/session lỗi bị reject |
+| N4 — Domain/strategy | Tái sử dụng CANSLIM và accounting normalized sau khi chốt timeframe/data mapping | Regression/boundary/causality pass; missing data không được coi là pass |
+| N5 — Storage/API | Thay PostgreSQL bằng trusted local pickle; API dùng VN30F1M và strategy đã duyệt | Atomic save, restart/reload cùng result; không còn DB setup |
+| N6 — UI/notebook | Chart theo mapping đã chốt, executed markers và P/L có nhãn normalized simulation | Timestamp/price/fill và cùng run/hash khớp backend; không diễn giải P/L futures thực tế |
+| N7 — Acceptance | Chạy unit, integration, deterministic, pickle restart và browser checks | Không lấy exploratory profit làm expected result |
+
+**Qua MVP hiện hành khi:** snapshot đã promote với manifest/hash; strategy VN30F1M
+đã được chốt timeframe/data mapping và chạy deterministic; accounting normalized,
+fee/slippage đúng baseline; result mở lại từ pickle sau restart; chart và marker khớp fill.
+Actual-contract roll map và semantics 14:45 còn unknown phải hiện trong metadata,
+không được âm thầm coi là đã xác nhận.
+
+## 5. Phụ lục baseline HPG/CANSLIM
+
+Các phần còn lại là kế hoạch lịch sử trước quyết định VN30F1M, chỉ dùng để truy vết.
+
+### Các khái niệm cần học, đúng lúc cần dùng
 
 | Khái niệm               | Hiểu đơn giản                                                                                                                           | Học để làm việc nào |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
@@ -79,7 +138,7 @@ Căn cứ note tự research và [bản đối chiếu](#open-source-research); 
 
 | Đã có                                                                       | Chưa hoàn tất                                     | Quyết định cho bước tiếp theo                                                            |
 | ------------------------------------------------------------------------------ | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Plan, WBS, khái niệm và 3 [Accounting Test Cases](accounting-test-cases.md) | Chưa có actual từ engine                          | Dùng các case làm expected output cho thử nghiệm                                          |
+| Plan, WBS, khái niệm và 3 [Accounting Test Cases](../testing/hpg/accounting-test-cases.md) | Chưa có actual từ engine                          | Dùng các case làm expected output cho thử nghiệm                                          |
 | Note Quick Start và một số API của backtesting.py                          | Chỉ còn giá trị tham khảo                     | Quyết định 11/09: tự xây deterministic core; không dùng thư viện làm dependency production |
 | Mentor cho phép dùng nguồn CAN SLIM                                         | Chưa có bảng điều kiện cụ thể                | Ưu tiên P1.3: nguồn → điều kiện → dữ liệu → entry/exit/sizing                       |
 | Thiết kế module và API dự kiến                                            | Chưa triển khai/kiểm chứng                       | Giữ thiết kế là bản nháp, điều chỉnh theo thử nghiệm                                |
@@ -101,7 +160,7 @@ Câu hỏi cần trả lời: **“Với rule đã chốt, tôi tính được g
 | P1.4 — 10/09 — 0,5 ngày      | Vẽ luồng signal → fill → cash/position → P/L/equity; định nghĩa field trả ra                       | Một ví dụ từ signal tới kết quả; tránh dùng thông tin tương lai                     |
 | P1.5 — 10–11/09 — 1,5 ngày  | Tính indicator và tín hiệu của rule v0; xử lý giai đoạn chưa đủ nến                            | Chuỗi BUY/SELL có lý do; đối chiếu thủ công vài mốc                                   |
 | P1.6 — 11–14/09 — 2 ngày    | Áp dụng sizing/phí/giá khớp; cập nhật tiền, vị thế, P/L, equity; không tự khớp mọi signal     | Danh sách lần khớp, bảng trade và lịch sử tài khoản kiểm tra được                  |
-| P1.7 — 14–15/09 — 1 ngày baseline | Nối application/persistence, API tối thiểu và Web UI bảng/cards; chạy test số học/thời gian trọng yếu | Persist/reload được run; API và UI mở cùng result; candlestick chưa thuộc bước này |
+| P1.7 — 14–15/09 — 1 ngày baseline | Nối application/pickle repository, API tối thiểu và Web UI bảng/cards; chạy test số học/thời gian trọng yếu | Atomic save/reload được run sau restart; API và UI mở cùng result; candlestick chưa thuộc bước này |
 
 Các field cốt lõi, không phải schema lớn bắt buộc:
 
@@ -115,7 +174,7 @@ Ví dụ kiểm tra **giả lập**, không phải biểu phí thật: vốn 10.
 Nếu chưa bán và Close cuối là 21.000: cash = 7.998.000; equity = 10.098.000; lãi tạm tính = 98.000 theo cách tính đã gồm phí mua, chưa giả định phí bán. Đây là lý do cần theo dõi vị thế mở, không chỉ cộng lãi/lỗ giao dịch đã đóng.
 
 **Qua Phase 1 khi:** đúng rule v0 đã thống nhất; fixture mua/bán và vị thế mở khớp
-số tính tay; run được persist/reload; API và Web UI tối thiểu hiển thị cùng summary,
+số tính tay; run được persist/reload từ pickle local sau restart; API và Web UI tối thiểu hiển thị cùng summary,
 fills, trades, open position và equity. Chưa cần candlestick chart hoặc marker trực
 quan. Scope P1.7 đã rộng hơn baseline Excel ban đầu; giữ lịch baseline để theo dõi
 nhưng phải báo rủi ro, không coi effort 1 ngày là estimate đã xác nhận lại.
@@ -136,6 +195,11 @@ Chiến lược thứ hai đề xuất: MA crossover để dễ kiểm tra.
 **Qua Phase 2 khi:** đổi strategy/params được qua cùng API; kết quả v0 không đổi khi chỉ tách cấu trúc; unsupported indicator/operator trả lỗi.
 
 ### Phase 3 — Web chart & trực quan hóa
+
+Ưu tiên mới: làm sớm nến P3.1 + marker P3.3 cho đợt push Docker/notebook/chart.
+Hai hạng mục implementation vẫn `Not started` tại 15/09; plan đã lập không được
+tính thành chart đã chạy. P1.7 giữ `Blocked` do raw/manifest chưa nhất quán;
+Docker và notebook kết quả `In progress`, chưa xác minh acceptance trong lượt này.
 
 Câu hỏi cần trả lời: **“Người xem có hiểu kết quả và đối chiếu giao dịch trên chart được không?”**
 
@@ -206,6 +270,7 @@ Mỗi kết luận gắn trạng thái: đã đọc source / suy luận / đã c
 | T10  | P4.2/P4.4  | Câu rõ tạo cùng spec với API trực tiếp                      | Kết quả backtest giống nhau; số agent trình bày lấy từ engine                      |
 | T11  | P4.3       | “Mua khi giá tốt”; indicator ngoài phạm vi; thiếu dữ liệu | Hỏi rõ hoặc báo chưa hỗ trợ; không âm thầm chạy rule khác                      |
 | T12  | P4.5       | Người khác làm theo hướng dẫn demo                          | Chạy được luồng cuối, hiểu ví dụ và giới hạn                                   |
+| T13  | P1.7       | Save run, restart process rồi reload; file lỗi hoặc sai version | Reload đúng complete result; lỗi storage fail rõ, không trả partial run hoặc unpickle file upload |
 
 Khi rule cần dữ liệu BCTC, thêm case chỉ dùng sau thời điểm công bố. Khi mô hình có xử lý quyền, thêm case không tạo lãi/lỗ giả hoặc cộng quyền hai lần. Đây là test phụ thuộc mô hình được chọn, không yêu cầu bạn xây toàn bộ cơ chế thị trường ngay lập tức.
 

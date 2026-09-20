@@ -24,18 +24,25 @@ def calculate_snapshot(
     market_window: int = CANSLIM_BREAKOUT_V0.sma_window,
     base_window: int = CANSLIM_BREAKOUT_V0.base_window,
     volume_window: int = CANSLIM_BREAKOUT_V0.volume_window,
+    market_t: int | None = None,
 ) -> IndicatorSnapshot | None:
     """Calculate indicators at index ``t`` without reading any value after ``t``."""
 
-    if not (0 <= t < len(highs) == len(lows) == len(volumes) == len(index_closes)):
+    if not (0 <= t < len(highs) == len(lows) == len(volumes)):
         raise ValueError("aligned series and a valid t are required")
-    if t < max(base_window, volume_window) or t + 1 < market_window:
+    if market_t is None:
+        if len(index_closes) != len(highs):
+            raise ValueError("aligned market series required without market_t")
+        market_t = t
+    if not -1 <= market_t < len(index_closes):
+        raise ValueError("Invalid market sample index")
+    if t < max(base_window, volume_window) or market_t + 1 < market_window:
         return None
 
     prior_highs = tuple(decimal(value) for value in highs[t - base_window : t])
     prior_lows = tuple(decimal(value) for value in lows[t - base_window : t])
     prior_volumes = tuple(decimal(value) for value in volumes[t - volume_window : t])
-    market_values = tuple(decimal(value) for value in index_closes[t - market_window + 1 : t + 1])
+    market_values = tuple(decimal(value) for value in index_closes[market_t - market_window + 1 : market_t + 1])
     pivot = max(prior_highs)
     if pivot <= 0:
         raise ValueError("pivot must be > 0")

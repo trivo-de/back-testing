@@ -1,9 +1,9 @@
 from __future__ import annotations
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Callable, Mapping, Sequence
 from ..config import CANSLIM_BREAKOUT_V0
-from .market import Bar
+from .market import Bar, BarTime, trading_day
 from .portfolio import Portfolio, decimal
 from .results import BacktestResult, EquityPoint, Summary
 from .trading import Fill, FixedSignal, OrderResult, SignalRecord, Trade
@@ -44,6 +44,13 @@ def run_engine(
 
     if not bars or any(current.trading_date >= following.trading_date for current, following in zip(bars, bars[1:])):
         raise ValueError("bars must be non-empty and strictly increasing")
+    for bar in bars:
+        if isinstance(bar.trading_date, datetime):
+            if (bar.trading_date.utcoffset() is None or not isinstance(bar.close_time, datetime)
+                    or bar.close_time.utcoffset() is None or bar.closed_at <= bar.trading_date):
+                raise ValueError("Intraday bars require aware Open and later Close timestamps")
+    if any(current.closed_at > following.trading_date for current, following in zip(bars, bars[1:])):
+        raise ValueError("Next Open cannot precede the prior Close")
 
     fee, slippage, risk, stop = map(decimal, (fee_rate, slippage_rate, risk_per_trade, stop_fraction))
     if fee < 0 or not Decimal("0") <= slippage < 1 or not Decimal("0") < risk <= 1 or not Decimal("0") < stop < 1:
@@ -51,7 +58,7 @@ def run_engine(
 
     starting_cash = decimal(initial_cash)
     portfolio = Portfolio.open(starting_cash)
-    pending: tuple[date, FixedSignal] | None = None
+    pending: tuple[BarTime, FixedSignal] | None = None
     entry_fill: Fill | None = None
     entry_pivot: Decimal | None = None
     signal_records: list[SignalRecord] = []
@@ -89,8 +96,8 @@ def run_engine(
             pending = None
 
         # Close: mark the portfolio before asking for the next signal.
-        if record_start is None or bar.trading_date >= record_start:
-            equity.append(EquityPoint(bar.trading_date, portfolio.mark(bar.close)))
+        if record_start is None or trading_day(bar.trading_date) >= record_start:
+            equity.append(EquityPoint(bar.closed_at, portfolio.mark(bar.close)))
 
         # After Close: evaluate using data available through this bar only.
         signal = signal_provider(index, portfolio, entry_pivot)
@@ -101,12 +108,14 @@ def run_engine(
                 raise ValueError("BUY signal requires a flat portfolio")
             if signal.side == "SELL" and portfolio.position is None:
                 raise ValueError("SELL signal requires an open position")
-            signal_records.append(SignalRecord(bar.trading_date, signal.side, signal.reason, signal.pivot))
-            pending = (bar.trading_date, signal)
+            signal_records.append(SignalRecord(bar.closed_at, signal.side, signal.reason, signal.pivot))
+            pending = (bar.closed_at, signal)
 
     if pending is not None:
         orders.append(OrderResult(pending[0], pending[1].side, "PENDING", "no next bar"))
 
+    if not equity:
+        raise ValueError("Report range contains no bars")
     final_snapshot = equity[-1].snapshot
     summary = Summary(
         starting_cash,
@@ -121,7 +130,7 @@ def run_engine(
 # Deterministic accounting test support
 def run_fixed_signals(
     bars: Sequence[Bar],
-    signals: Mapping[date, FixedSignal],
+    signals: Mapping[BarTime, FixedSignal],
     *,
     initial_cash: Decimal | int | str,
     fee_rate: Decimal | int | str,

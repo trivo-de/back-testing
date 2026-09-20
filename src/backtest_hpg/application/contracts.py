@@ -24,8 +24,8 @@ class RunConfig:
 
         if not self.dataset_id.strip() or not self.dataset_version.strip():
             raise ValueError("dataset_id and dataset_version are required")
-        if self.symbol != BACKTEST.supported_symbol:
-            raise ValueError(f"only {BACKTEST.supported_symbol} is supported")
+        if self.symbol not in (BACKTEST.supported_symbol, "VN30F1M"):
+            raise ValueError(f"only {BACKTEST.supported_symbol} and VN30F1M are supported")
         get_strategy(self.strategy_id)
         if self.start_date > self.end_date:
             raise ValueError("start_date must be <= end_date")

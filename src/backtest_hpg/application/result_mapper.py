@@ -29,6 +29,8 @@ def serialize_result(value):
     value = quantize_result(value)
     if isinstance(value, Decimal):
         return format(value, "f")
+    if isinstance(value, (date, UUID)):
+        return value.isoformat() if isinstance(value, date) else str(value)
     if isinstance(value, dict):
         return {key: serialize_result(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -80,8 +82,8 @@ def result_to_dict(
         stop_loss_pct = Decimal(strategy_parameters["STOP_LOSS_PCT"])
         open_position = {"entry_fill_id": fill_ids[(entry_fill.fill_date, "BUY")], "quantity": position.quantity, "entry_price": position.entry_price, "entry_pivot": position.entry_pivot, "stop_reference": position.entry_price * (1 - stop_loss_pct), "market_value": last_snapshot.market_value, "unrealized_pnl": last_snapshot.unrealized_pnl}
 
-    return serialize_result({
-        "metadata": {"run_id": run_id, "dataset_id": metadata["dataset_id"], "dataset_version": metadata["dataset_version"], "content_hash": metadata["content_hash"], "engine_version": BACKTEST.engine_version, "label": BACKTEST.result_label, "config": config, "strategy_parameters": strategy_parameters},
+    response = {
+        "metadata": {**metadata, "run_id": run_id, "engine_version": BACKTEST.engine_version, "label": BACKTEST.result_label, "config": config, "strategy_parameters": strategy_parameters},
         "signals": signals,
         "orders": orders,
         "fills": fills,
@@ -89,4 +91,13 @@ def result_to_dict(
         "open_position": open_position,
         "equity_history": [{"trading_date": point.trading_date, **point.snapshot.__dict__} for point in result.equity_history],
         "summary": result.summary.__dict__,
-    })
+    }
+    if config.symbol == "VN30F1M":
+        unevaluable = sum(row["status"] == "UNEVALUABLE" for row in result.evaluations)
+        response["evaluations"] = result.evaluations
+        response["evaluation_status"] = {
+            "status": "UNEVALUABLE" if unevaluable == len(result.evaluations) else ("PARTIALLY_EVALUABLE" if unevaluable else "EVALUABLE"),
+            "evaluated_bars": len(result.evaluations) - unevaluable,
+            "unevaluable_bars": unevaluable,
+        }
+    return serialize_result(response)

@@ -1,6 +1,9 @@
 # Cấu trúc repository
 
-Cập nhật: 14/09/2026.
+> **Storage 18/09/2026:** [Parquet + JSON](../plans/technical-plan.md#6-persistence-parquet-json) thay target pickle trong kế hoạch bên dưới. Raw nguồn giữ nguyên; SQLite/PostgreSQL cho metadata/session agent còn chờ chốt. Nội dung implementation/mốc cũ giữ để truy vết; chưa migrate code hoặc nghiệm thu storage mới.
+
+
+Cập nhật: 15/09/2026.
 
 ## 1. Cây thư mục
 
@@ -12,8 +15,13 @@ back-testing/
 ├── pyproject.toml
 ├── requirements.txt
 ├── docs/                          # Specification và quyết định kỹ thuật
+├── data/
+│   ├── preprocessing.ipynb        # Adapter/validator được quản lý trên Git
+│   └── dataset_manifest.json      # Metadata snapshot; raw data vẫn local
 ├── migrations/
 │   └── 001_initial.sql
+├── notebooks/
+│   └── backtest-results.ipynb     # Trình bày result từ HTTP API
 ├── scripts/
 │   ├── apply_migrations.py
 │   └── run_postgres_acceptance.py
@@ -67,7 +75,7 @@ trong `application/run_backtest.py`.
 
 `DATABASE_URL` thật không phải static value: nó tiếp tục được đọc runtime từ
 environment hoặc `.env`, vì credential thay đổi theo máy. Strategy settings là
-giá trị cố định theo [CANSLIM Rule](canslim-rules.md), không phải tham số tự tối ưu.
+giá trị cố định theo [CANSLIM Rule](../strategies/canslim-rules.md), không phải tham số tự tối ưu.
 
 ## 3. Ownership và dependency
 
@@ -78,6 +86,7 @@ giá trị cố định theo [CANSLIM Rule](canslim-rules.md), không phải tha
 | `domain/`         | Model, indicator, strategy, execution, portfolio | FastAPI, Psycopg hoặc agent provider |
 | `infrastructure/` | Adapter PostgreSQL                               | Strategy rule                         |
 | `web/`            | Presentation dùng API result                    | Tự tính signal, fill hoặc P/L      |
+| `notebooks/`      | Presentation và kiểm tra API result             | Tự tính signal, fill hoặc P/L      |
 
 Dependency đi từ ngoài vào trong:
 
@@ -129,6 +138,16 @@ gọi application use case; agent không tính indicator, signal, fill hoặc P/
 Folder `.agents/` ở project root vẫn chỉ là helper/artifact local của coding agent,
 không phải production agent.
 
+### Frontend dự kiến cho đợt chart
+
+Tách CSS/JavaScript đang inline thành `web/styles.css`, `web/app.js` và
+`web/chart.js`, giữ `web/index.html`. Vendor Lightweight Charts nằm `web/vendor/`;
+`web/package.json` chỉ khai báo ES module cho Node tests. Serve assets qua /static
+cùng FastAPI và khai báo package-data để Docker có đủ file.
+Cây đầy đủ, ownership và test files dự kiến nằm ở
+[plan chart mục 3.7](../plans/candlestick-ui-plan.md#37-cây-frontend-và-các-file-liên-quan-khi-build).
+Đây là cấu trúc sẽ tạo khi build, không phải các file đã tồn tại.
+
 ## 6. Cây local-only
 
 Các đường dẫn sau bị Git ignore:
@@ -137,7 +156,7 @@ Các đường dẫn sau bị Git ignore:
 .env              # credential PostgreSQL local
 .venv/            # Python virtual environment
 .agents/           # helper, scratch và artifact local
-data/              # raw snapshot và preprocessing notebook local
+data/*             # trừ preprocessing.ipynb và dataset_manifest.json
 local_only_docs/   # Gantt/WBS và tài liệu cá nhân
 outputs/           # export backtest
 logs/              # runtime logs
@@ -145,6 +164,11 @@ logs/              # runtime logs
 
 Không commit password, raw market snapshot hoặc output lớn. Fixture nhỏ phục vụ
 test nằm trong `tests/fixtures/`.
+
+Quyết định 15/09: đưa notebook preprocessing và manifest lên Git để review và
+tái lập luồng import. Việc mở tracking không xác nhận dữ liệu đã nhất quán:
+notebook hiện chọn raw 2024–2026 còn manifest mô tả 2019–2023; cần giải quyết
+provenance trước acceptance. Hai file được giữ nguyên nội dung ở bước lập plan.
 
 ## 7. Cách chạy
 

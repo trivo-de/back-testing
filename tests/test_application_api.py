@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 from decimal import Decimal
 import unittest
+from unittest.mock import Mock
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
@@ -78,6 +79,24 @@ class ApplicationApiTest(unittest.TestCase):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn("HPG Backtest", response.text)
+
+    def test_chart_endpoint_uses_requested_run_and_reports_errors(self):
+        run_id = uuid4()
+        payload = {"metadata": {"run_id": str(run_id)}, "bars": []}
+        self.repository.get_chart = Mock(return_value=payload)
+        self.assertEqual(self.client.get(f"/api/backtests/{run_id}/chart").json(), payload)
+        self.repository.get_chart.assert_called_once_with(run_id)
+        self.repository.get_chart.return_value = None
+        self.assertEqual(self.client.get(f"/api/backtests/{run_id}/chart").status_code, 404)
+        self.repository.get_chart.side_effect = ValueError("private details")
+        response = self.client.get(f"/api/backtests/{run_id}/chart")
+        self.assertEqual(response.status_code, 409)
+        self.assertNotIn("private", response.text)
+        self.repository.get_chart.side_effect = RuntimeError("secret storage path")
+        response = self.client.get(f"/api/backtests/{run_id}/chart")
+        self.assertEqual(response.status_code, 500)
+        self.assertNotIn("secret", response.text)
+        self.assertEqual(self.client.get("/api/backtests/not-a-uuid/chart").status_code, 422)
 
 
 if __name__ == "__main__":

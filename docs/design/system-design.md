@@ -1,6 +1,26 @@
-# System Design — Backtest HPG v0
+# System Design — Backtest HPG v0 (legacy implementation)
 
-Cập nhật: 11/09/2026.
+> Target data đã chuyển sang VN30F1M 5 phút và storage plan sang Parquet + JSON (18/09); metadata/session agent c?n ch? ch?t.
+> Xác nhận 17/09: giữ CANSLIM, VN-Index R1 và accounting normalized như baseline;
+> **18/09:** strategy/execution chính dùng 5 phút, 1D chỉ hỗ trợ; mapping indicator,
+> session và support data chờ [C01–C06](../../.agents/checklists/vn30f1m-backtest-checklist.md). Xem
+> [Technical Plan hiện hành](../plans/technical-plan.md); phần dưới mô tả source chưa migrate.
+
+Cập nhật: 15/09/2026.
+
+**Adaptation 18/09 theo C04/C06 mới:** timestamp nguồn = Open; Close/available_at
+= Open + 5 phút (assumption mô phỏng cả ATC). Engine nhận Open/Close time riêng,
+ghi signal/equity tại Close và fill tại Open bar kế tiếp. Chuỗi market độc lập,
+SMA200 dùng 200 market samples đã available. Report 15/03–15/09 theo ngày Open
+UTC+7. Static policy session/rollover bắt buộc trước core theo C05. Composition
+root local intraday dùng Parquet + JSON; root PostgreSQL daily giữ compatibility.
+
+Target 18/09: tái sử dụng luồng API → application → deterministic core → repository
+→ result; notebook gọi cùng API, chưa cần agent. Timestamp intraday phải giữ offset
+qua model/serialization/storage; không ép về date-only. Support data được chọn theo
+available_at tại decision, không lặp daily bar thành nhiều mẫu để tính indicator.
+Equity ghi sau mỗi Close bar 5 phút hợp lệ. Session/gap/14:45 chờ C04–C05.
+Thiết kế daily bên dưới là mô tả baseline, chưa phải runtime VN30F1M.
 
 ## 1. Design goals
 
@@ -28,8 +48,9 @@ flowchart LR
 
 Backend Phase 1 chạy đồng bộ trong một process và persist lịch sử vào PostgreSQL;
 chưa cần queue hoặc background worker. Web UI chỉ trình bày result do API trả về
-hoặc reload từ database. Chart nến chưa thuộc bước triển khai hiện tại và được để
-sang Phase 3.
+hoặc reload từ database. Theo điều chỉnh 15/09, phần nến và fill marker thuộc
+Phase 3 được ưu tiên cho đợt push Docker/notebook/chart trước Phase 2; thiết kế
+triển khai dự kiến trong [kế hoạch chart](../plans/candlestick-ui-plan.md).
 
 ## 3. Container/module view
 
@@ -214,6 +235,6 @@ flowchart LR
 ```
 
 Ở bước hiện tại, UI dùng cards/tables và có thể dùng equity line đơn giản. Chart nến
-và marker trực quan thuộc Phase 3. Khi thêm chart, marker phải dùng `fills`, không
+và marker trực quan thuộc Phase 3, được kéo sớm theo kế hoạch 15/09. Khi thêm chart, marker phải dùng `fills`, không
 dùng signal làm bằng chứng giao dịch. Chi tiết nằm trong
 [web-ui-specification.md](web-ui-specification.md).

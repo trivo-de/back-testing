@@ -1,0 +1,30 @@
+{
+  "dataset_id": "vndirect-hpg-vnindex-daily-2019-2023",
+  "dataset_version": "2026-09-12.1",
+  "content_hash": "4eb8f2515ae34cdea4561516886af5b15d30911617f338cc07abb1abe63493d8",
+  "source": "VNDIRECT dchart snapshot",
+  "extracted_at": "2026-09-12T08:04:10.372795Z",
+  "timeframe": "1D",
+  "timezone": "UTC timestamp mapped to calendar trading_date",
+  "price_unit": "unknown - source not published",
+  "currency": "unknown - expected VND but not source-confirmed",
+  "price_adjustment": "back_adjusted working dataset",
+  "volume_adjustment": "unknown (limitation noted in data-contract.md)",
+  "corporate_action_policy": "unknown - source not published",
+  "symbols": {
+    "HPG": {
+      "bars_count": 1250,
+      "start_date": "2019-01-02",
+      "end_date": "2023-12-29",
+      "content_hash": "24760032f29be857cac9acfe63355d36d7a16e1cc2239c6d34d3f4da6fda0b2f",
+      "raw_file": "raw_hpg_dchart_2019_2023.json"
+    },
+    "VNINDEX": {
+      "bars_count": 1250,
+      "start_date": "2019-01-02",
+      "end_date": "2023-12-29",
+      "content_hash": "3f90f31b2aca13169d48813341d6e9f6833b42b8d3e422a34a6209b35522a69e",
+      "raw_file": "raw_vnindex_dchart_2019_2023.json"
+    }
+  }
+}

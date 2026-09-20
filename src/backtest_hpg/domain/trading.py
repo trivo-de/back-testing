@@ -1,9 +1,9 @@
 """Immutable signal, order, fill, and trade event models."""
 
 from dataclasses import dataclass
-from datetime import date
 from decimal import Decimal
 from typing import Literal
+from .market import BarTime
 
 Side = Literal["BUY", "SELL"]
 
@@ -21,7 +21,7 @@ class FixedSignal:
 class SignalRecord:
     """Auditable signal created after a completed daily Close."""
 
-    signal_date: date
+    signal_date: BarTime
     side: Side
     reason: str
     pivot: Decimal | None
@@ -30,8 +30,8 @@ class SignalRecord:
 class Fill:
     """Executed order event priced at a later session Open."""
 
-    signal_date: date
-    fill_date: date
+    signal_date: BarTime
+    fill_date: BarTime
     side: Side
     price: Decimal
     quantity: int
@@ -41,7 +41,7 @@ class Fill:
 class OrderResult:
     """Execution outcome for one signal, including rejected or pending states."""
 
-    signal_date: date
+    signal_date: BarTime
     side: Side
     status: Literal["FILLED", "REJECTED", "PENDING"]
     reason: str | None = None
@@ -50,8 +50,8 @@ class OrderResult:
 class Trade:
     """Closed round trip with entry, exit, fees, and net realized P/L."""
 
-    entry_date: date
-    exit_date: date
+    entry_date: BarTime
+    exit_date: BarTime
     quantity: int
     entry_price: Decimal
     exit_price: Decimal

@@ -19,6 +19,7 @@ class BacktestService:
 
         run_id, dataset = self.repository.start_run(config)
         try:
+            market_arguments = {"market_bars": dataset.market_bars} if config.symbol == "VN30F1M" else {}
             result = get_strategy(config.strategy_id)(
                 dataset.bars,
                 initial_cash=config.initial_cash,
@@ -26,6 +27,7 @@ class BacktestService:
                 slippage_rate=config.slippage_rate,
                 start_date=config.start_date,
                 end_date=config.end_date,
+                **market_arguments,
             )
             response = result_to_dict(
                 run_id,
@@ -49,3 +51,7 @@ class BacktestService:
         """Return successful persisted runs."""
 
         return self.repository.list_runs()
+
+    def get_chart(self, run_id: UUID) -> dict[str, Any] | None:
+        """Read chart data without executing the strategy again."""
+        return self.repository.get_chart(run_id)

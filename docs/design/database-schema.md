@@ -1,4 +1,9 @@
-# PostgreSQL Schema — Backtest HPG
+# PostgreSQL Schema — Backtest HPG (legacy)
+
+> Storage target 18/09 dùng [Parquet + JSON](../plans/technical-plan.md#6-persistence-parquet-json)
+> cho dataset/result local, thay kế hoạch pickle. SQLite/PostgreSQL cho metadata và
+> session agent còn chờ chốt. Schema dưới mô tả implementation PostgreSQL hiện có;
+> chưa migrate source hoặc xóa database.
 
 Cập nhật: 14/09/2026.
 

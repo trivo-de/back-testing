@@ -1,16 +1,16 @@
 """Aggregated domain models returned by a completed backtest."""
 
 from dataclasses import dataclass
-from datetime import date
 from decimal import Decimal
 from .portfolio import Portfolio, PortfolioSnapshot
 from .trading import Fill, OrderResult, SignalRecord, Trade
+from .market import BarTime
 
 @dataclass(frozen=True)
 class EquityPoint:
     """Portfolio valuation captured at one completed daily Close."""
 
-    trading_date: date
+    trading_date: BarTime
     snapshot: PortfolioSnapshot
 
 @dataclass(frozen=True)
@@ -34,3 +34,4 @@ class BacktestResult:
     trades: tuple[Trade, ...]
     equity_history: tuple[EquityPoint, ...]
     summary: Summary
+    evaluations: tuple[dict, ...] = ()

@@ -1,0 +1,8 @@
+:root{color-scheme:light;--page:#f6f8fb;--surface:#fff;--control:#eef1f4;--text:#182230;--muted:#667085;--border:#c7cdd4;--grid:#e3e8ef;--accent:#1565c0;--error:#a00;--heading:#16324f;--tooltip:#16324f;--tooltip-text:#fff;--tooltip-muted:#d7e7f7}
+:root[data-theme=dark]{color-scheme:dark;--page:#0b1220;--surface:#101b2c;--control:#152238;--text:#dbe7f3;--muted:#9aadc2;--border:#3c5068;--grid:#26364b;--accent:#79b8ff;--error:#ff9a9a;--heading:#152238;--tooltip:#20354d;--tooltip-text:#fff;--tooltip-muted:#b5c7db}
+body{background:var(--page);color:var(--text)}
+input,button{background:var(--control);color:var(--text);border:1px solid var(--border);border-radius:6px}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.theme-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+[data-theme-toggle]{font:inherit;font-size:20px;line-height:1;width:40px;height:36px;padding:6px;cursor:pointer}

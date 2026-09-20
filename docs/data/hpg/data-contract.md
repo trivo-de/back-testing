@@ -1,4 +1,7 @@
-# Data Contract — Backtest HPG v0
+# Data Contract — Backtest HPG v0 (legacy)
+
+> Scope hiện hành dùng [VN30F1M Data Contract](../vn30f1m/data-contract.md). Nội dung
+> dưới được giữ để truy vết snapshot HPG cũ.
 
 Cập nhật: 11/09/2026. Phase 1/MVP dùng snapshot từ VNDIRECT dchart theo profile
 bên dưới; metadata nguồn chưa công bố rõ phải được lưu thành limitation, không
@@ -95,7 +98,7 @@ slippage_rate
 ```
 
 Strategy parameters cố định của `canslim_breakout_v0` được ghi trong
-[canslim-rules.md](canslim-rules.md) và phải được copy vào result metadata.
+[canslim-rules.md](../../strategies/canslim-rules.md) và phải được copy vào result metadata.
 
 ## 7. Result contract
 
@@ -114,6 +117,20 @@ Các field không tồn tại vì chưa fill phải là null/absent theo schema 
 được tạo giá giả.
 
 ## 8. Contract phục vụ Web UI
+
+Triển khai HPG 17/09: `GET /api/backtests/{run_id}/chart` trả metadata
+(run_id, dataset_id/version/hash, symbol, timeframe, timezone, price_unit,
+start_date/end_date) và bars (time là ISO trading_date, OHLCV là decimal strings).
+Query theo dataset_version_id và symbol của persisted run, trong khoảng ngày
+inclusive, chỉ run succeeded. UUID sai trả 422, thiếu/failed run trả 404 với
+RUN_NOT_FOUND, OHLCV/fill thiếu hoặc sai trả 409 CHART_DATA_INCONSISTENT, storage
+lỗi trả 500 CHART_STORAGE_ERROR không lộ nội bộ. Frontend kiểm tra metadata với
+result trước khi vẽ. API không chạy lại strategy hoặc fetch dataset ngoài.
+
+Response chart HPG còn có `market`: mỗi ngày trong run gồm VNINDEX `close` và
+`sma200`. `sma200` là trung bình 200 closes VNINDEX tính tại ngày đó, dùng các
+ngày warm-up cùng immutable dataset trước `start_date`; không dùng dữ liệu sau
+ngày đang vẽ. Thiếu VNINDEX aligned trả lỗi consistency thay vì vẽ SMA sai.
 
 - UI lấy summary, equity, fills, trades và open position từ cùng một response và
   `run_id`; không tự tính lại nghiệp vụ ở frontend.

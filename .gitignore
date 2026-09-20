@@ -17,7 +17,9 @@ Thumbs.db
 # Data / outputs
 *.csv
 *.parquet
-data/
+/data/*
+!/data/preprocessing.ipynb
+!/data/dataset_manifest.json
 outputs/
 logs/
 local_only_docs/

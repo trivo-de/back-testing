@@ -1,3 +1,58 @@
+> **Xác nhận 17/09/2026:** User chốt giữ rule CANSLIM, dùng VN30F1M thay HPG,
+> giữ VN-Index cho R1 và mô hình tiền normalized như baseline.
+> **Cập nhật 18/09:** strategy/execution chính dùng 5 phút, 1D chỉ hỗ trợ.
+> C01–C03 đã chốt window 200/65/50 nến 5 phút; C04 chốt Close/available_at
+> = Open + 5 phút, kể cả ATC. Map tham khảo được user cho phép, giữ vị thế.
+> Source intraday đã implement/test fixture; report thật còn thiếu history.
+> Xem [plan hiện hành](../plans/technical-plan.md).
+
+## Mapping đã xác nhận trong checklist — 18/09
+
+- R1: VN-Index 5 phút, SMA200 dùng 200 nến liên tục qua phiên; thiếu lịch sử
+  thì UNEVALUABLE, không fallback daily.
+- R2: pivot/base-low theo 65 nến 5 phút trước t, không gồm t.
+- R3: volume riêng nến t đã đóng, so với trung bình cộng 50 nến trước t;
+  average > 0, volume[t] >= 1.50 * average. Không reset đầu ngày, không fill.
+- Đây là thay đổi đơn vị window so với baseline daily được user xác nhận;
+  các con số, công thức và thresholds giữ nguyên. Daily specification bên dưới
+  chỉ là baseline lịch sử. C04 nay chốt Open + 5 phút như assumption mô phỏng.
+- C05: giữ vị thế/pending qua nghỉ trưa/qua đêm; fill tại Open bar hợp lệ
+  đầu tiên khi mở lại. Missing expected bar hoặc thiếu static rollover map
+  cho bất kỳ đoạn nào phải fail validation; không nội suy hay tự đóng vị thế.
+- User xác nhận thêm 18/09: cho phép dùng lịch/mã tham khảo của
+  [static map](../data/vn30f1m/vn30f1m-rollover-map.md) làm assumption mô phỏng;
+  **giữ vị thế/pending qua đáo hạn**, không forced exit hoặc price adjustment.
+
+## Quyết định áp dụng VN30F1M — 17/09/2026
+
+- Giữ R1–R4, công thức indicator, các window/threshold, long-only, một vị thế,
+  không vay/pyramiding, stop 7%, target 20% và risk budget 2% như baseline bên dưới.
+- R1 tiếp tục dùng VN-Index Close và SMA200 của VN-Index. Không thay market
+  series bằng VN30 hoặc VN30F1M, không bỏ R1 khi thiếu dữ liệu.
+- Giữ công thức sizing, cash, fees, realized/unrealized P/L và equity cũ.
+  Config báo cáo vẫn là initial_cash 10.000.000, fee_rate 0.001,
+  slippage_rate 0.002. Quantity là đơn vị mô phỏng theo giá nguồn; kết quả mang
+  nhãn `normalized simulation`, không diễn giải thành số hợp đồng hay P/L futures
+  thực tế. Không thêm multiplier, margin, thuế hoặc settlement phái sinh.
+- Giữ nguyên nguyên tắc signal sau Close, fill ở Open kế tiếp. Định nghĩa bar/
+  phiên hợp lệ trên VN30F1M còn chờ chốt; timeframe chính đã chọn 5 phút ngày 18/09.
+- Các window 200/65/50 baseline là phiên ngày; C01–C03 đã xác nhận chuyển
+  đơn vị sang nến 5 phút như mapping bên trên. Chưa duyệt daily aggregation.
+- Snapshot VN-Index phù hợp kỳ chạy, warm-up, session/timestamp và cách xử lý
+  chuỗi VN30F1M qua rollover còn cần đặc tả. Thiếu input thì không đánh giá được;
+  không tự fetch nguồn bổ sung hoặc fill dữ liệu để tạo giao dịch.
+
+Phần VIE/ENG dưới đây giữ đặc tả HPG daily làm baseline công thức. Contract nguồn
+VN30F1M và đề xuất aggregation chưa duyệt nằm tại
+[VN30F1M Data Contract](../data/vn30f1m/data-contract.md).
+
+Confirmed scope: retain CANSLIM rules, VN-Index R1 and baseline normalized
+accounting when replacing HPG with VN30F1M. As of 18/09, evaluation/execution
+use 5-minute bars; daily data is auxiliary only. Window units, volume mapping,
+Open/Close availability uses the approved five-minute simulation convention;
+rollover retains positions under the user-approved reference map. The daily HPG specification
+below is the formula baseline, not an implemented intraday specification.
+
 VIE
 
 # CANSLIM Rule — canslim_breakout_v0
@@ -23,7 +78,7 @@ VIE
 - Chỉ dùng bar ngày đã hoàn tất tại thời điểm ra quyết định. Thiếu dữ liệu
   cần thiết tại `t` thì điều kiện liên quan không đánh giá được, không coi là đạt.
 - Input daily snapshot, warm-up và kỳ báo cáo tuân theo
-  [data-contract.md](data-contract.md); strategy không sở hữu endpoint hoặc data
+  [data-contract.md](../data/hpg/data-contract.md); strategy không sở hữu endpoint hoặc data
   provenance.
 
 ## 3. Điều kiện vào lệnh — tính sau Close phiên t
@@ -112,7 +167,7 @@ ENG
 - Use only completed daily bars at decision time. A missing required input at `t`
   makes the relevant condition unevaluable, never treated as passed.
 - Daily input snapshots, warm-up, provenance, and adjusted-data limitations follow
-  [data-contract.md](data-contract.md); the strategy does not own data endpoints or
+  [data-contract.md](../data/hpg/data-contract.md); the strategy does not own data endpoints or
   source policy.
 
 ## 3. Entry rules — after Close of session t

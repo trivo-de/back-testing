@@ -1,5 +1,6 @@
 from __future__ import annotations
 from decimal import Decimal
+from collections import deque
 from typing import Any, Sequence
 from uuid import UUID, uuid4
 import psycopg
@@ -22,9 +23,69 @@ class PostgresRunRepository:
         self.dsn = dsn
 
     # Run creation and dataset loading
+    def get_chart(self, run_id: UUID) -> dict[str, Any] | None:
+        """Load only the persisted run's symbol, dataset version and report range."""
+        with psycopg.connect(self.dsn, row_factory=dict_row) as connection:
+            header = connection.execute(
+                """SELECT r.dataset_version_id, r.start_date, r.end_date, r.config,
+                          d.name AS dataset_id, dv.version AS dataset_version,
+                          dv.content_hash, dv.timeframe, dv.timezone, dv.price_unit
+                   FROM backtest_runs r JOIN dataset_versions dv ON dv.id=r.dataset_version_id
+                   JOIN datasets d ON d.id=dv.dataset_id
+                   WHERE r.id=%s AND r.status='succeeded'""", (run_id,)
+            ).fetchone()
+            if header is None:
+                return None
+            bars = connection.execute(
+                """SELECT trading_date AS time, open, high, low, close, volume
+                   FROM market_bars WHERE dataset_version_id=%s AND symbol=%s
+                   AND trading_date BETWEEN %s AND %s ORDER BY trading_date""",
+                (header["dataset_version_id"], header["config"]["symbol"], header["start_date"], header["end_date"]),
+            ).fetchall()
+            market_rows = connection.execute(
+                """SELECT trading_date AS time, close FROM market_bars
+                   WHERE dataset_version_id=%s AND symbol='VNINDEX' AND trading_date <= %s
+                   ORDER BY trading_date""",
+                (header["dataset_version_id"], header["end_date"]),
+            ).fetchall()
+            fills = connection.execute("SELECT fill_time,fill_price FROM fills WHERE run_id=%s", (run_id,)).fetchall()
+        previous = None
+        for bar in bars:
+            values = [bar[key] for key in ("open", "high", "low", "close", "volume")]
+            if any(value is None or not value.is_finite() for value in values):
+                raise ValueError("Nonfinite OHLCV")
+            if min(values[:4]) <= 0 or values[4] < 0 or not bar["low"] <= min(bar["open"], bar["close"]) <= max(bar["open"], bar["close"]) <= bar["high"]:
+                raise ValueError("Invalid OHLCV")
+            if previous is not None and bar["time"] <= previous:
+                raise ValueError("Invalid bar order")
+            previous = bar["time"]
+        dates = {bar["time"] for bar in bars}
+        if not bars or any(fill["fill_time"] not in dates or not fill["fill_price"].is_finite() or fill["fill_price"] <= 0 for fill in fills):
+            raise ValueError("Missing chart bars or invalid fills")
+        window = deque(maxlen=200)
+        market = []
+        for row in market_rows:
+            if row["close"] is None or not row["close"].is_finite() or row["close"] <= 0:
+                raise ValueError("Invalid VNINDEX close")
+            window.append(row["close"])
+            if row["time"] in dates:
+                market.append({"time": row["time"], "close": row["close"],
+                               "sma200": sum(window) / 200 if len(window) == 200 else None})
+        if {point["time"] for point in market} != dates:
+            raise ValueError("Missing aligned VNINDEX close")
+        return serialize_result({"metadata": {
+            "run_id": run_id, "dataset_id": header["dataset_id"],
+            "dataset_version": header["dataset_version"], "content_hash": header["content_hash"],
+            "symbol": header["config"]["symbol"], "timeframe": header["timeframe"],
+            "timezone": header["timezone"], "price_unit": header["price_unit"],
+            "start_date": header["start_date"], "end_date": header["end_date"],
+        }, "bars": bars, "market": market})
+
     def start_run(self, config: RunConfig) -> tuple[UUID, DatasetSnapshot]:
         """Create a running record and load its aligned immutable market snapshot."""
 
+        if config.symbol != "HPG":
+            raise ValueError("PostgreSQL baseline supports HPG only; use the intraday application")
         run_id = uuid4()
         strategy_parameters = get_strategy_parameters(config.strategy_id)
         with psycopg.connect(self.dsn, row_factory=dict_row) as connection:

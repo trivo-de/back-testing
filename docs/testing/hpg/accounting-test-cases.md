@@ -1,4 +1,9 @@
-# Test case tính tiền dự kiến
+# Test case tính tiền HPG dự kiến (legacy)
+
+> **Xác nhận 17/09/2026:** User giữ mô hình tiền normalized của baseline khi thay
+> HPG bằng VN30F1M. Giữ các case dưới làm regression cho công thức cash/fees/P&L;
+> chúng không phải nghiệm thu accounting phái sinh thực tế hoặc run VN30F1M.
+> Phạm vi đã chốt nằm trong [CANSLIM Rule](../../strategies/canslim-rules.md).
 
 Ngày tạo: **09/09/2026**.
 
