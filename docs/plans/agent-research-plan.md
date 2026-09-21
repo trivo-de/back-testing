@@ -9,6 +9,8 @@ không phê duyệt thêm strategy hoặc thay scope dữ liệu hiện hành.
 Bảng dưới là snapshot kiểm kê ngày 17/09, không phải trạng thái hiện tại.
 Đến 21/09, source intraday đã có API, engine timestamp và repository Parquet/JSON;
 CANSLIM, VN-Index R1 và normalized accounting đã được chốt. Nghiệm thu đủ kỳ
+15/03–15/09 vẫn phụ thuộc history còn thiếu trước 18/03; có source không đồng
+nghĩa đã nghiệm thu agent hoặc backtest trên dữ liệu thật đủ kỳ.
 
 Đầu ra mong muốn: người dùng nhập “backtest mã xxx nếu giá vượt ...” hoặc
 “dùng thuật toán xxx để backtest”, hệ thống làm rõ yêu cầu, chạy engine và trả
@@ -29,6 +31,165 @@ summary, nến, executed fills, trades, equity và metadata như output hiện c
 “Cổ phiếu xxx” là hướng mở rộng ngoài target VN30F1M hiện hành. Agent không tự
 mở rộng dữ liệu được hỗ trợ. Chọn một mã cho mỗi run trước; portfolio nhiều mã là
 scope riêng, không đồng nghĩa với thay symbol trong prompt.
+
+## 2. Kiến trúc sản phẩm agent
+
+Tham khảo PDF **DNSE MCP Backtest: phân tích kiến trúc sản phẩm và blueprint để
+xây dựng**, trang 3–4 (gateway và storage), 15–19 (tools, workflow và vai trò),
+33 (sơ đồ target). File tham khảo nằm trong `local_only_docs/`; tài liệu này ghi
+đủ mapping để đọc độc lập với PDF. Kiến trúc DNSE trong PDF là phân tích/suy luận
+của tác giả, không phải kiến trúc nội bộ đã được DNSE xác nhận.
+
+Các component dưới đây là **target sản phẩm của project**, còn implementation
+là dự kiến. Khuyến nghị trong PDF không tự trở thành yêu cầu triển khai: giữ
+VN30F1M 5 phút, CANSLIM đã chốt, VN-Index R1 và normalized accounting; không lấy
+daily, rolling six-month window, strategy ví dụ hoặc stack greenfield của PDF
+để thay baseline. Yêu cầu lần này cập nhật thiết kế, chưa triển khai runtime.
+
+### 2.1. Component diagram và implementation dự kiến
+
+Hai diagram nối nhau tại **Domain tools**. Mũi tên liền là luồng gọi/dữ liệu;
+nét đứt nối note implementation đặt cạnh component. Các vai trò AI dùng chung
+một coordinator và một model trước; mỗi box không đồng nghĩa một service hoặc
+một autonomous agent riêng.
+
+```mermaid
+flowchart LR
+    U["User"] --> UI
+    subgraph Client["Client"]
+        UI["Own UI"] -.-> NUI["Dự kiến: thêm chat vào HTML / CSS / ES modules;<br/>tái dùng chart và bảng theo run_id"]
+        HOST["External AI host"] -.-> NHOST["Dự kiến: client MCP bên ngoài;<br/>chỉ kết nối sau khi có gateway và auth"]
+    end
+    subgraph AI["AI — một workflow Python"]
+        CO["Coordinator"] -.-> NCO["Dự kiến: context, hỏi lại, điều phối tools;<br/>giới hạn lượt gọi, timeout và budget"]
+        RE["Research Module"] -.-> NRE["Dự kiến: đọc coverage / provenance từ tools;<br/>research thị trường mở rộng cần data contract"]
+        GE["Strategy Generator"] -.-> NGE["Dự kiến: Bedrock qua provider adapter;<br/>intent → draft config / StrategySpec"]
+        EL["Result Explainer"] -.-> NEL["Dự kiến: dùng chung model với generator;<br/>giải thích số liệu lấy từ persisted result"]
+        CO --> RE
+        RE --> GE
+        CO --> GE
+        CO --> EL
+    end
+    subgraph Gateway["Gateway — kiểm soát phía server"]
+        MCP["MCP Gateway"] -.-> NMCP["Dự kiến: adapter Python mỏng tới domain tools;<br/>SDK / transport / version chưa chọn"]
+        AU["OAuth / Scope / Tenant Policy"] -.-> NAU["Dự kiến: xác thực client, scope theo tool;<br/>kiểm tra quyền với strategy_id / run_id"]
+        TO["Domain tools"] -.-> NTO["Dự kiến: allowlist + typed arguments;<br/>gọi application trực tiếp trong cùng process"]
+        MCP --> AU
+        AU --> TO
+    end
+    UI -->|"chat endpoint FastAPI dự kiến"| CO
+    HOST --> MCP
+    CO -->|"tool call kèm user context"| AU
+    TO -->|"facts / validation / result"| CO
+    EL --> UI
+    TO -->|"tool response"| MCP
+    MCP --> HOST
+    classDef note fill:#fff8dc,stroke:#b58b28,color:#222,stroke-dasharray:4 3;
+    class NUI,NHOST,NCO,NRE,NGE,NEL,NMCP,NAU,NTO note;
+```
+
+Own UI dùng coordinator nội bộ; external AI host tự điều phối qua MCP. Hai đường
+dùng chung tools, quyền truy cập và validator. MCP là adapter giao tiếp; model
+không trực tiếp truy cập filesystem, database hoặc engine internals.
+
+```mermaid
+flowchart LR
+    TO["Domain tools<br/>từ diagram trên"] --> CAP
+    TO --> VAL
+    TO --> EXP
+    TO -->|"get_result"| RUN
+    subgraph SP["Strategy Platform"]
+        CAP["Capability Registry"] -.-> NCAP["Dự kiến: strategy registry + dataset catalog;<br/>chỉ công bố feature / config thực sự hỗ trợ"]
+        VAL["Strategy Validator"] -.-> NVAL["Dự kiến: Pydantic + semantic / scope checks;<br/>thiếu field thì hỏi lại, unsupported thì dừng"]
+        COMP["Strategy Compiler"] -.-> NCOMP["MVP: map config hợp lệ → RunConfig;<br/>P2: compile StrategySpec hữu hạn, không exec code"]
+        EXP["Experiment Manager"] -.-> NEXP["Dự kiến: parent strategy / run, diff và trial count;<br/>compare trước, optimization sau khi rule được duyệt"]
+        CAP --> VAL
+        VAL --> COMP
+        EXP -->|"candidate phải validate lại"| VAL
+    end
+    subgraph Quant["Quant — deterministic Python hiện có"]
+        BT["Backtest Engine"] -.-> NBT["Tái dùng BacktestService + domain/engine.py;<br/>strategy evaluation → signal → execution"]
+        FE["Feature Engine"] -.-> NFE["Tái dùng domain/indicators.py;<br/>window 200 / 65 / 50 nến 5 phút đã chốt"]
+        EX["Execution Simulator"] -.-> NEX["Tái dùng engine + portfolio Decimal;<br/>next valid Open, normalized accounting"]
+        ME["Metrics"] -.-> NME["Tái dùng domain/results.py + result_mapper.py;<br/>summary / fills / trades / equity từ engine"]
+        FE --> BT
+        BT --> EX
+        EX --> ME
+    end
+    subgraph Data["Data — các miền lưu trữ logic"]
+        RAW["Raw Data Lake"] -.-> NRAW["Hiện có: raw JSON bất biến + manifest / hash;<br/>local files, chưa cần object-storage service"]
+        PIT["Point-in-Time Store"] -.-> NPIT["Tái dùng Parquet + timestamp / available_at;<br/>validator kiểm tra session / rollover policy"]
+        FS["Feature Store"] -.-> NFS["MVP: tính trong run, chưa persist riêng;<br/>cache sau nếu đo được nhu cầu, pin version / hash"]
+        META["Metadata / Strategy Store"] -.-> NMETA["Dự kiến: StrategySpec versions, session, audit;<br/>SQLite hoặc PostgreSQL còn chờ chốt"]
+        RUN["Run Artifacts"] -.-> NRUN["Hiện có: FileRunRepository, JSON atomic replace;<br/>result + dataset / policy hashes, chart theo run_id"]
+        RAW -->|"validate / normalize"| PIT
+        PIT --> FE
+        FE --> FS
+    end
+    COMP -->|"validated config / plan"| BT
+    PIT -->|"bars + policy"| BT
+    ME --> RUN
+    EXP <--> META
+    COMP -->|"spec version / hash: dự kiến"| META
+    RUN -->|"result để so sánh"| EXP
+    RUN -->|"result / chart"| OUT["UI / Notebook / Result Explainer"]
+    classDef note fill:#fff8dc,stroke:#b58b28,color:#222,stroke-dasharray:4 3;
+    class NCAP,NVAL,NCOMP,NEXP,NBT,NFE,NEX,NME,NRAW,NPIT,NFS,NMETA,NRUN note;
+```
+
+**Metadata / Strategy Store** tương ứng box *Postgres Metadata* ở trang 33 và
+*Strategy Store* ở trang 4 của PDF. Giữ component, nhưng database cho agent chưa
+chốt; PostgreSQL legacy hiện có không phải bằng chứng đã lưu session/strategy
+agent. Feature Store là boundary logic: MVP tính indicators trong run, không cần
+dựng một dịch vụ lưu feature riêng. PIT ở đây phục vụ bar/support data đã được
+duyệt; chưa hàm ý có fundamentals, tin tức hoặc dữ liệu dòng tiền.
+
+### 2.2. Mapping triển khai và phạm vi từng bước
+
+| Nhóm component                                               | Implementation dự kiến / nền tái sử dụng                                                                                                                           | State ngày 21/09                                                     |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| Own UI, Coordinator, Generator, Explainer                     | Chat endpoint trong`api/`; workflow và provider trong `strategy_agent/` khi bắt đầu implement; dùng chung model Bedrock dự kiến                               | Not started cho agent; model/region/budget chưa chốt                |
+| Research Module                                               | Tool trả coverage, snapshot và policy trước; bổ sung market research khi có nguồn/phạm vi được duyệt                                                         | Not started                                                           |
+| MCP Gateway, OAuth / Scope / Tenant Policy                    | Adapter tới cùng tool handlers; kiểm tra scope và ownership phía server, không dựa vào prompt                                                                    | Not started; cần chốt deployment/auth trước khi mở client ngoài |
+| Capability Registry, Validator, Compiler                      | Tái dùng`domain/strategies/`, `api/backtest_schemas.py`, `application/contracts.py`; lát cắt A chọn strategy/config, lát cắt B mới có IR rule composition | Có nền; agent catalog / compiler Not started                        |
+| Experiment Manager, Metadata / Strategy Store                 | Version spec, parent/diff, tool audit và liên kết run; session store chờ chọn SQLite/PostgreSQL                                                                     | Not started                                                           |
+| Feature Engine, Backtest Engine, Execution Simulator, Metrics | `domain/indicators.py`, `domain/engine.py`, `domain/portfolio.py`, `domain/results.py`, `application/run_backtest.py`, `application/result_mapper.py`        | Có source; không đồng nghĩa nghiệm thu real-data đủ kỳ       |
+| Raw Data Lake, PIT Store, Run Artifacts                       | `infrastructure/snapshot_bundle.py`, `infrastructure/file_repository.py`, `intraday_main.py`; raw → Parquet, result JSON                                          | Có source; history trước 18/03 còn thiếu                         |
+| Feature Store                                                 | Tính trong run trước; cache chỉ khi cần, khóa theo dataset hash + indicator version + parameters + timeframe                                                       | Not started cho persistent cache                                      |
+
+Tool contract dự kiến dùng tên thống nhất cho cả coordinator và MCP:
+
+| Tool                  | Đầu vào → đầu ra                                                                            | Phạm vi                                                            |
+| --------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `list_capabilities` | Context quyền truy cập → strategy/config, datasets, coverage và policy được hỗ trợ       | Lát cắt A                                                         |
+| `validate_spec`     | Draft config/spec → normalized spec hoặc lỗi typed / missing fields                            | Lát cắt A; compiler IR ở lát cắt B                             |
+| `run_backtest`      | Spec đã validate + request key → persisted result và`run_id` hoặc lỗi                     | Lát cắt A; server vẫn revalidate trước chạy                   |
+| `get_result`        | `run_id` → result được phép đọc; UI lấy chart theo cùng run                            | Lát cắt A                                                         |
+| `research_market`   | Câu hỏi + dataset/as-of → facts có nguồn và availability                                    | Mở rộng sau khi có data contract; thiếu nguồn trả unsupported |
+| `compare_backtests` | Các`run_id` được phép đọc → metrics, config/dataset differences và giới hạn so sánh | Mở rộng Experiment Manager; không gọi model tính P/L           |
+
+Luồng sản phẩm: hiểu ý định → đọc capabilities/context → tạo draft → validate và
+compile → chạy deterministic backtest → persist → hiển thị số liệu/chart → giải
+thích. Thiếu thông tin quay về hỏi user; repair chỉ sửa lỗi biểu diễn trong budget,
+không tự đổi threshold/strategy để làm validation hoặc performance tốt hơn.
+Refinement tạo version mới kèm diff và parent, qua validation lại trước khi chạy;
+baseline CANSLIM chỉ được đổi khi có xác nhận riêng. Optimization/OOS chưa nằm
+trong lát cắt A, không coi return cao hơn là đã validated.
+
+Audit dự kiến nối `request_id → session → prompt/model version → spec hash → tool call → run_id → dataset/policy/engine version`. Lưu structured inputs/outputs
+và lỗi, không lưu secret hoặc hidden reasoning. Scope chỉ cho research/strategy/
+backtest, không có đặt lệnh thật hoặc chuyển tiền. Result vẫn đọc được khi model
+hoặc chart lỗi; provider không nằm trên đường tính toán số học của engine.
+
+### 2.3. Điều kiện để coi kiến trúc đã được triển khai
+
+Ngoài bộ eval ở mục 5, cần kiểm tra hai entrypoint chat/MCP dùng cùng validation
+và cho cùng numeric result với API; từ chối truy cập run của user/tenant khác;
+timeout/retry không tạo run trùng; số liệu vẫn hiện khi explainer lỗi; audit nối
+được prompt/spec với persisted run và snapshot. Các kiểm tra agent/MCP này hiện
+**Not run**. Provider, MCP SDK/transport và auth phải xác minh theo tài liệu chính
+thức tại thời điểm triển khai; không lấy version hoặc SLA được nêu trong PDF làm
+quyết định đã được duyệt.
 
 ## 3. Thiết kế agent tối thiểu đề xuất
 
@@ -228,5 +389,4 @@ còn thiếu chặn nghiệm thu backtest đủ kỳ, không chặn thiết kế
 Ngày 17/09 mới xác nhận hiện trạng qua source và tài liệu; chưa chạy agent,
 benchmark provider hoặc acceptance Docker trong bước research này. Sau xác nhận
 user cần chart trên dữ liệu mới, đã implement snapshot viewer VN30F1M và kiểm tra
-browser local. Bằng chứng và giới hạn cụ thể ở [PROGRESS](progress.md); không coi
-snapshot viewer là result backtest hoặc toàn bộ C1–C3 đã hoàn thành.
+browser local.

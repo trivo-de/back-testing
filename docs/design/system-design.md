@@ -32,6 +32,12 @@ Thiết kế daily bên dưới là mô tả baseline, chưa phải runtime VN30
 
 ## 2. Context
 
+Kiến trúc sản phẩm agent dự kiến cập nhật 21/09 nằm tại
+[Agent Research Plan — component diagram và implementation](../plans/agent-research-plan.md#2-kiến-trúc-sản-phẩm-agent--cập-nhật-21092026).
+Sơ đồ đó bao gồm Client, AI, Gateway, Strategy Platform, Quant và Data, với note
+implementation cạnh component và trạng thái riêng. Agent/MCP chưa triển khai;
+context bên dưới tiếp tục mô tả baseline legacy.
+
 ```mermaid
 flowchart LR
     U[User] --> W[Web UI]
