@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from ..application.run_backtest import BacktestService
 from ..config import API
@@ -20,18 +20,38 @@ class WebStaticFiles(StaticFiles):
         return response
 
 
-def create_app(service: BacktestService | None = None, *, snapshot_path: Path | None = None) -> FastAPI:
+class PreviewStaticFiles(WebStaticFiles):
+    async def get_response(self, path, scope):
+        return await super().get_response("preview-theme.mjs" if path == "theme.mjs" else path, scope)
+
+
+def create_app(service: BacktestService | None = None, *, snapshot_path: Path | None = None,
+               preview: bool = False) -> FastAPI:
     app = FastAPI(title=API.title, version=API.version)
     if service is not None:
         app.include_router(create_backtest_router(service))
-    app.include_router(create_market_router(snapshot_path))
     web = Path(__file__).parents[1] / "web"
-    app.mount("/static", WebStaticFiles(directory=web), name="static")
+    static_files = PreviewStaticFiles if preview else WebStaticFiles
+    app.mount("/static", static_files(directory=web), name="static")
+
+    def page(filename):
+        if not preview:
+            return FileResponse(web / filename)
+        html = (web / filename).read_text(encoding="utf-8")
+        html = html.replace('</head>', '<link rel="stylesheet" href="/static/preview.css"></head>')
+        return HTMLResponse(html)
+
+    if preview:
+        @app.get("/market-chart", include_in_schema=False)
+        def preview_market_chart():
+            return page("market-chart.html")
+
+    app.include_router(create_market_router(snapshot_path))
 
     @app.get(API.home_path, include_in_schema=False)
     def index():
         """Serve the packaged single-page backtest interface."""
 
-        return FileResponse(web / ("index.html" if service is not None else "market-chart.html"))
+        return page("index.html" if service is not None else "market-chart.html")
 
     return app

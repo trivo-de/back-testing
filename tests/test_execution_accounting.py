@@ -57,6 +57,7 @@ class ExecutionAccountingTest(unittest.TestCase):
             {bars[0].trading_date: FixedSignal("BUY")},
             initial_cash=1,
             fee_rate="0.001",
+            size_buy=lambda context: int(context.cash // (context.fill_price * (1 + context.fee_rate))),
         )
         self.assertEqual((rejected.orders[0].status, rejected.fills), ("REJECTED", ()))
         self.assertEqual((pending.orders[0].status, pending.fills), ("PENDING", ()))

@@ -7,6 +7,25 @@ const day = value => {
     return value;
 };
 
+export function relatedRows(run, fillId) {
+    const all = {fills: run.fills, trades: run.trades, position: run.open_position ? [run.open_position] : [],
+        signals: run.signals, orders: run.orders, equity: run.equity_history, selected: null};
+    const selected = run.fills.find(fill => fill.fill_id === fillId);
+    if (!selected) return all;
+    const order = run.orders.find(item => item.order_id === selected.order_id);
+    const exactEquity = run.equity_history.filter(point => point.trading_date === selected.fill_time);
+    const sameDay = value => value?.slice(0, 10) === selected.fill_time.slice(0, 10);
+    return {
+        fills: run.fills.filter(fill => sameDay(fill.fill_time)),
+        trades: run.trades.filter(trade => trade.entry_fill_id === fillId || trade.exit_fill_id === fillId),
+        position: run.open_position?.entry_fill_id === fillId ? [run.open_position] : [],
+        signals: run.signals.filter(signal => signal.signal_id === order?.signal_id),
+        orders: order ? [order] : [],
+        equity: exactEquity.length ? exactEquity : run.equity_history.filter(point => sameDay(point.trading_date)),
+        selected,
+    };
+}
+
 export function backtestData(run, payload) {
     for (const key of ['run_id', 'dataset_id', 'dataset_version', 'content_hash']) {
         if (!run.metadata[key] || run.metadata[key] !== payload.metadata[key]) throw Error('Chart và result không cùng run/dataset.');
@@ -58,6 +77,7 @@ export function backtestData(run, payload) {
         markers: fills.map(fill => ({id: fill.fill_id, time: fill.fill_time, price: numeric(fill.fill_price),
             position: fill.side === 'BUY' ? 'atPriceBottom' : 'atPriceTop',
             shape: fill.side === 'BUY' ? 'arrowUp' : 'arrowDown', size: 0.65,
+            borderColor: {light: '#000', dark: '#fff'}, borderWidth: 1.5,
             color: fill.side === 'BUY' ? '#1565c0' : '#ef6c00'})),
     };
 }

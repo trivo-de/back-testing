@@ -32,7 +32,7 @@ summary, nến, executed fills, trades, equity và metadata như output hiện c
 mở rộng dữ liệu được hỗ trợ. Chọn một mã cho mỗi run trước; portfolio nhiều mã là
 scope riêng, không đồng nghĩa với thay symbol trong prompt.
 
-## 2. Kiến trúc sản phẩm agent
+* [ ] 2. Kiến trúc sản phẩm agent
 
 Tham khảo PDF **DNSE MCP Backtest: phân tích kiến trúc sản phẩm và blueprint để
 xây dựng**, trang 3–4 (gateway và storage), 15–19 (tools, workflow và vai trò),
@@ -50,45 +50,46 @@ daily, rolling six-month window, strategy ví dụ hoặc stack greenfield của
 
 Hai diagram nối nhau tại **Domain tools**. Mũi tên liền là luồng gọi/dữ liệu;
 nét đứt nối note implementation đặt cạnh component. Các vai trò AI dùng chung
-một coordinator và một model trước; mỗi box không đồng nghĩa một service hoặc
+một router và một model trước; mỗi box không đồng nghĩa một service hoặc
 một autonomous agent riêng.
 
-```mermaid
-flowchart LR
-    U["User"] --> UI
-    subgraph Client["Client"]
-        UI["Own UI"] -.-> NUI["Dự kiến: thêm chat vào HTML / CSS / ES modules;<br/>tái dùng chart và bảng theo run_id"]
-        HOST["External AI host"] -.-> NHOST["Dự kiến: client MCP bên ngoài;<br/>chỉ kết nối sau khi có gateway và auth"]
-    end
-    subgraph AI["AI — một workflow Python"]
-        CO["Coordinator"] -.-> NCO["Dự kiến: context, hỏi lại, điều phối tools;<br/>giới hạn lượt gọi, timeout và budget"]
-        RE["Research Module"] -.-> NRE["Dự kiến: đọc coverage / provenance từ tools;<br/>research thị trường mở rộng cần data contract"]
-        GE["Strategy Generator"] -.-> NGE["Dự kiến: Bedrock qua provider adapter;<br/>intent → draft config / StrategySpec"]
-        EL["Result Explainer"] -.-> NEL["Dự kiến: dùng chung model với generator;<br/>giải thích số liệu lấy từ persisted result"]
-        CO --> RE
-        RE --> GE
-        CO --> GE
-        CO --> EL
-    end
-    subgraph Gateway["Gateway — kiểm soát phía server"]
-        MCP["MCP Gateway"] -.-> NMCP["Dự kiến: adapter Python mỏng tới domain tools;<br/>SDK / transport / version chưa chọn"]
-        AU["OAuth / Scope / Tenant Policy"] -.-> NAU["Dự kiến: xác thực client, scope theo tool;<br/>kiểm tra quyền với strategy_id / run_id"]
-        TO["Domain tools"] -.-> NTO["Dự kiến: allowlist + typed arguments;<br/>gọi application trực tiếp trong cùng process"]
-        MCP --> AU
-        AU --> TO
-    end
-    UI -->|"chat endpoint FastAPI dự kiến"| CO
-    HOST --> MCP
-    CO -->|"tool call kèm user context"| AU
-    TO -->|"facts / validation / result"| CO
-    EL --> UI
-    TO -->|"tool response"| MCP
-    MCP --> HOST
-    classDef note fill:#fff8dc,stroke:#b58b28,color:#222,stroke-dasharray:4 3;
-    class NUI,NHOST,NCO,NRE,NGE,NEL,NMCP,NAU,NTO note;
-```
+* [ ] 
+  ```mermaid
+  flowchart LR
+      U["User"] --> UI
+      subgraph Client["Client"]
+          UI["Own UI"] -.-> NUI["Dự kiến: thêm chat vào HTML / CSS / ES modules;<br/>tái dùng chart và bảng theo run_id"]
+          HOST["External AI host"] -.-> NHOST["Dự kiến: client MCP bên ngoài;<br/>chỉ kết nối sau khi có gateway và auth"]
+      end
+      subgraph AI["AI — một workflow Python"]
+          CO["Router"] -.-> NCO["Dự kiến: chọn bước tiếp theo và chuyển yêu cầu;<br/>state, giới hạn lượt gọi, timeout và budget thuộc workflow"]
+          RE["Research Module"] -.-> NRE["Dự kiến: đọc coverage / provenance từ tools;<br/>research thị trường mở rộng cần data contract"]
+          GE["Strategy Generator"] -.-> NGE["Dự kiến: Bedrock qua provider adapter;<br/>intent → draft config / StrategySpec"]
+          EL["Result Explainer"] -.-> NEL["Dự kiến: dùng chung model với generator;<br/>giải thích số liệu lấy từ persisted result"]
+          CO --> RE
+          RE --> GE
+          CO --> GE
+          CO --> EL
+      end
+      subgraph Gateway["Gateway — kiểm soát phía server"]
+          MCP["MCP Gateway"] -.-> NMCP["Dự kiến: adapter Python mỏng tới domain tools;<br/>SDK / transport / version chưa chọn"]
+          AU["OAuth / Scope / Tenant Policy"] -.-> NAU["Dự kiến: xác thực client, scope theo tool;<br/>kiểm tra quyền với strategy_id / run_id"]
+          TO["Domain tools"] -.-> NTO["Dự kiến: allowlist + typed arguments;<br/>gọi application trực tiếp trong cùng process"]
+          MCP --> AU
+          AU --> TO
+      end
+      UI -->|"chat endpoint FastAPI dự kiến"| CO
+      HOST --> MCP
+      CO -->|"tool call kèm user context"| AU
+      TO -->|"facts / validation / result"| CO
+      EL --> UI
+      TO -->|"tool response"| MCP
+      MCP --> HOST
+      classDef note fill:#fff8dc,stroke:#b58b28,color:#222,stroke-dasharray:4 3;
+      class NUI,NHOST,NCO,NRE,NGE,NEL,NMCP,NAU,NTO note;
+  ```
 
-Own UI dùng coordinator nội bộ; external AI host tự điều phối qua MCP. Hai đường
+Own UI dùng router nội bộ; external AI host tự điều phối qua MCP. Hai đường
 dùng chung tools, quyền truy cập và validator. MCP là adapter giao tiếp; model
 không trực tiếp truy cập filesystem, database hoặc engine internals.
 
@@ -148,7 +149,7 @@ duyệt; chưa hàm ý có fundamentals, tin tức hoặc dữ liệu dòng ti�
 
 | Nhóm component                                               | Implementation dự kiến / nền tái sử dụng                                                                                                                           | State ngày 21/09                                                     |
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
-| Own UI, Coordinator, Generator, Explainer                     | Chat endpoint trong`api/`; workflow và provider trong `strategy_agent/` khi bắt đầu implement; dùng chung model Bedrock dự kiến                               | Not started cho agent; model/region/budget chưa chốt                |
+| Own UI, Router, Generator, Explainer                     | Chat endpoint trong`api/`; workflow và provider trong `strategy_agent/` khi bắt đầu implement; dùng chung model Bedrock dự kiến                               | Not started cho agent; model/region/budget chưa chốt                |
 | Research Module                                               | Tool trả coverage, snapshot và policy trước; bổ sung market research khi có nguồn/phạm vi được duyệt                                                         | Not started                                                           |
 | MCP Gateway, OAuth / Scope / Tenant Policy                    | Adapter tới cùng tool handlers; kiểm tra scope và ownership phía server, không dựa vào prompt                                                                    | Not started; cần chốt deployment/auth trước khi mở client ngoài |
 | Capability Registry, Validator, Compiler                      | Tái dùng`domain/strategies/`, `api/backtest_schemas.py`, `application/contracts.py`; lát cắt A chọn strategy/config, lát cắt B mới có IR rule composition | Có nền; agent catalog / compiler Not started                        |
@@ -157,7 +158,7 @@ duyệt; chưa hàm ý có fundamentals, tin tức hoặc dữ liệu dòng ti�
 | Raw Data Lake, PIT Store, Run Artifacts                       | `infrastructure/snapshot_bundle.py`, `infrastructure/file_repository.py`, `intraday_main.py`; raw → Parquet, result JSON                                          | Có source; history trước 18/03 còn thiếu                         |
 | Feature Store                                                 | Tính trong run trước; cache chỉ khi cần, khóa theo dataset hash + indicator version + parameters + timeframe                                                       | Not started cho persistent cache                                      |
 
-Tool contract dự kiến dùng tên thống nhất cho cả coordinator và MCP:
+Tool contract dự kiến dùng tên thống nhất cho cả router và MCP:
 
 | Tool                  | Đầu vào → đầu ra                                                                            | Phạm vi                                                            |
 | --------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |

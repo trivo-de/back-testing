@@ -1,16 +1,66 @@
 from __future__ import annotations
 from dataclasses import dataclass, replace
-from bisect import bisect_right
 from datetime import date
 from decimal import Decimal
 from typing import Sequence
 from ...config import CANSLIM_BREAKOUT_V0
-from ..engine import run_engine
-from ..indicators import IndicatorSnapshot, calculate_snapshot
+from ..engine import BuyContext, DecisionContext, run_engine
+from ..indicators import highest, lowest, sma
 from ..market import Bar, StrategyBar, trading_day
-from ..portfolio import Portfolio, decimal
+from ..portfolio import decimal
 from ..results import BacktestResult
-from ..trading import FixedSignal
+from ..trading import Fill, FixedSignal, OrderResult
+
+
+@dataclass(frozen=True)
+class IndicatorSnapshot:
+    """The feature set required by CANSLIM, not a shared engine contract."""
+
+    market_sma200: Decimal
+    pivot: Decimal
+    base_low: Decimal
+    depth: Decimal
+    average_volume: Decimal
+
+
+def calculate_snapshot(
+    highs: Sequence[Decimal | int | str],
+    lows: Sequence[Decimal | int | str],
+    volumes: Sequence[Decimal | int | str],
+    index_closes: Sequence[Decimal | int | str],
+    t: int,
+    *,
+    market_window: int = CANSLIM_BREAKOUT_V0.sma_window,
+    base_window: int = CANSLIM_BREAKOUT_V0.base_window,
+    volume_window: int = CANSLIM_BREAKOUT_V0.volume_window,
+    market_t: int | None = None,
+) -> IndicatorSnapshot | None:
+    """Compose independent formulas using only the approved CANSLIM windows."""
+    if type(t) is not int or not (0 <= t < len(highs) == len(lows) == len(volumes)):
+        raise ValueError("aligned series and a valid t are required")
+    if market_t is None:
+        if len(index_closes) != len(highs):
+            raise ValueError("aligned market series required without market_t")
+        market_t = t
+    if type(market_t) is not int or not -1 <= market_t < len(index_closes):
+        raise ValueError("Invalid market sample index")
+    market_mean = sma(index_closes, market_window, market_t + 1)
+    pivot = highest(highs, base_window, t)
+    base_low = lowest(lows, base_window, t)
+    average_volume = sma(volumes, volume_window, t)
+    if any(value is None for value in (market_mean, pivot, base_low, average_volume)):
+        return None
+    if pivot <= 0:
+        raise ValueError("pivot must be > 0")
+    return IndicatorSnapshot(market_mean, pivot, base_low, (pivot - base_low) / pivot, average_volume)
+
+
+def size_buy(context: BuyContext) -> int:
+    """CANSLIM fixed fractional risk, evaluated only at the fill Open."""
+    risk_quantity = int((context.cash * CANSLIM_BREAKOUT_V0.risk_per_trade_pct)
+                        // (context.fill_price * CANSLIM_BREAKOUT_V0.stop_loss_pct))
+    affordable_quantity = int(context.cash // (context.fill_price * (1 + context.fee_rate)))
+    return min(risk_quantity, affordable_quantity)
 
 
 # Strategy decisions
@@ -59,7 +109,64 @@ def evaluate_exit(
     return Decision(None, "HOLD", pivot)
 
 
-# Registered strategy runner
+class CanslimStrategy:
+    """Per-run state; entry references change only after execution feedback."""
+
+    def __init__(self, *, start_date: date | None = None, independent_market: bool = False):
+        self.start_date = start_date
+        self.independent_market = independent_market
+        self.entry_pivot: Decimal | None = None
+        self.stop_reference: Decimal | None = None
+        self.evaluations: list[dict] = []
+
+    def on_execution(self, signal: FixedSignal, order: OrderResult, fill: Fill | None) -> None:
+        if order.status != "FILLED":
+            return
+        assert fill is not None
+        if signal.side == "BUY":
+            self.entry_pivot = dict(signal.details)["pivot"]
+            self.stop_reference = fill.price * (1 - CANSLIM_BREAKOUT_V0.stop_loss_pct)
+        else:
+            self.entry_pivot = self.stop_reference = None
+
+    def evaluate(self, context: DecisionContext) -> FixedSignal | None:
+        """Evaluate only the completed prefixes supplied by the engine."""
+        bar = context.bars[-1]
+        if self.start_date is not None and trading_day(bar.trading_date) < self.start_date:
+            return None
+        market = context.support_bars
+        market_close = (market[-1].close if market else None) if self.independent_market else bar.index_close
+        indicators = None
+        if context.portfolio.position is not None:
+            if self.entry_pivot is None:
+                raise RuntimeError("strategy position is missing its entry pivot")
+            decision = evaluate_exit(bar.close, context.portfolio.position.entry_price, self.entry_pivot)
+        else:
+            # ponytail: materialize bounded prefixes; use field views if long-history profiling warrants it.
+            indicators = calculate_snapshot(
+                [b.high for b in context.bars],
+                [b.low for b in context.bars],
+                [b.volume for b in context.bars],
+                [b.close for b in market] if self.independent_market else [b.index_close for b in context.bars],
+                len(context.bars) - 1,
+                market_t=len(market) - 1 if self.independent_market else None,
+            )
+            decision = evaluate_entry(bar.close, bar.volume, market_close, indicators)
+            if self.independent_market and indicators is None:
+                reason = "INSUFFICIENT_MARKET_HISTORY" if len(market) < CANSLIM_BREAKOUT_V0.sma_window else "INSUFFICIENT_PRICE_VOLUME_HISTORY"
+                decision = Decision(None, reason)
+        if self.independent_market:
+            self.evaluations.append({
+                "time": bar.closed_at, "side": decision.side, "reason": decision.reason,
+                "status": "UNEVALUABLE" if decision.reason.startswith("INSUFFICIENT_") else "EVALUATED",
+                "market_sample_count": len(market),
+                "market_available_at": market[-1].closed_at if market else None,
+                "market_close": market_close, "indicators": indicators,
+            })
+        if decision.side is None:
+            return None
+        return FixedSignal(decision.side, reason=decision.reason, details=(("pivot", decision.pivot),))
+
 
 def run(
     bars: Sequence[StrategyBar],
@@ -71,68 +178,24 @@ def run(
     end_date: date | None = None,
     market_bars: Sequence[Bar] | None = None,
 ) -> BacktestResult:
-    """Run daily baseline or intraday bars with independently timed market samples."""
-
+    """Create fresh CANSLIM state for daily or independent intraday market data."""
     selected_bars = [bar for bar in bars if end_date is None or trading_day(bar.trading_date) <= end_date]
     if start_date is not None and (not selected_bars or start_date > trading_day(selected_bars[-1].trading_date)):
         raise ValueError("start_date must fall within the selected bars")
-    highs = [bar.high for bar in selected_bars]
-    lows = [bar.low for bar in selected_bars]
-    volumes = [bar.volume for bar in selected_bars]
-    index_closes = [bar.index_close for bar in selected_bars] if market_bars is None else [bar.close for bar in market_bars]
-    market_times = [] if market_bars is None else [bar.closed_at for bar in market_bars]
-    if any(current >= following for current, following in zip(market_times, market_times[1:])):
-        raise ValueError("Market availability timestamps must be strictly increasing")
-    evaluations = []
+    strategy = CanslimStrategy(start_date=start_date, independent_market=market_bars is not None)
 
-    def provide_signal(index: int, portfolio: Portfolio, entry_pivot: Decimal | None) -> FixedSignal | None:
-        """Translate the current strategy decision into a pending intent."""
-
-        bar = selected_bars[index]
-        if start_date is not None and trading_day(bar.trading_date) < start_date:
-            return None
-        market_t = None if market_bars is None else bisect_right(market_times, bar.closed_at) - 1
-        market_close = bar.index_close if market_bars is None else (market_bars[market_t].close if market_t >= 0 else None)
-        indicators = None
-        if portfolio.position is not None:
-            if entry_pivot is None:
-                raise RuntimeError("strategy position is missing its entry pivot")
-            decision = evaluate_exit(bar.close, portfolio.position.entry_price, entry_pivot)
-        else:
-            indicators = calculate_snapshot(
-                highs,
-                lows,
-                volumes,
-                index_closes,
-                index,
-                market_window=CANSLIM_BREAKOUT_V0.sma_window,
-                base_window=CANSLIM_BREAKOUT_V0.base_window,
-                volume_window=CANSLIM_BREAKOUT_V0.volume_window,
-                market_t=market_t,
-            )
-            decision = evaluate_entry(bar.close, bar.volume, market_close, indicators)
-            if market_bars is not None and indicators is None:
-                reason = "INSUFFICIENT_MARKET_HISTORY" if market_t + 1 < CANSLIM_BREAKOUT_V0.sma_window else "INSUFFICIENT_PRICE_VOLUME_HISTORY"
-                decision = Decision(None, reason)
-        if market_bars is not None:
-            evaluations.append({
-                "time": bar.closed_at, "side": decision.side, "reason": decision.reason,
-                "status": "UNEVALUABLE" if decision.reason.startswith("INSUFFICIENT_") else "EVALUATED",
-                "market_sample_count": market_t + 1,
-                "market_available_at": market_times[market_t] if market_t >= 0 else None,
-                "market_close": market_close, "indicators": indicators,
-            })
-        return None if decision.side is None else FixedSignal(decision.side, pivot=decision.pivot, reason=decision.reason)
-
-    execution_bars = [Bar(bar.trading_date, bar.open, bar.close, bar.close_time) for bar in selected_bars]
     result = run_engine(
-        execution_bars,
-        provide_signal,
+        selected_bars,
+        strategy.evaluate,
         initial_cash=initial_cash,
         fee_rate=fee_rate,
         slippage_rate=slippage_rate,
-        risk_per_trade=CANSLIM_BREAKOUT_V0.risk_per_trade_pct,
-        stop_fraction=CANSLIM_BREAKOUT_V0.stop_loss_pct,
+        size_buy=size_buy,
+        on_execution=strategy.on_execution,
+        support_bars=() if market_bars is None else market_bars,
         record_start=start_date,
     )
-    return replace(result, evaluations=tuple(evaluations))
+    details = () if result.portfolio.position is None else (
+        ("entry_pivot", strategy.entry_pivot), ("stop_reference", strategy.stop_reference),
+    )
+    return replace(result, evaluations=tuple(strategy.evaluations), position_details=details)

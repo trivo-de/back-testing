@@ -1,56 +1,35 @@
-from __future__ import annotations
-from dataclasses import dataclass
-from decimal import Decimal
+"""Independent rolling formulas; callers choose windows and availability."""
+
+from decimal import Decimal, InvalidOperation
 from typing import Sequence
-from ..config import CANSLIM_BREAKOUT_V0
 from .portfolio import decimal
 
-@dataclass(frozen=True)
-class IndicatorSnapshot:
-    """Indicator values available after the Close at one session index."""
-    market_sma200: Decimal
-    pivot: Decimal
-    base_low: Decimal
-    depth: Decimal
-    average_volume: Decimal
 
-def calculate_snapshot(
-    highs: Sequence[Decimal | int | str],
-    lows: Sequence[Decimal | int | str],
-    volumes: Sequence[Decimal | int | str],
-    index_closes: Sequence[Decimal | int | str],
-    t: int,
-    *,
-    market_window: int = CANSLIM_BREAKOUT_V0.sma_window,
-    base_window: int = CANSLIM_BREAKOUT_V0.base_window,
-    volume_window: int = CANSLIM_BREAKOUT_V0.volume_window,
-    market_t: int | None = None,
-) -> IndicatorSnapshot | None:
-    """Calculate indicators at index ``t`` without reading any value after ``t``."""
+def _window(series: Sequence[Decimal | int | str], window: int, end_exclusive: int) -> tuple[Decimal, ...] | None:
+    if type(window) is not int or window <= 0:
+        raise ValueError("window must be a positive integer")
+    if type(end_exclusive) is not int or not 0 <= end_exclusive <= len(series):
+        raise ValueError("end_exclusive must be an integer within the series")
+    try:
+        values = tuple(decimal(value) for value in series[max(0, end_exclusive - window):end_exclusive])
+    except (InvalidOperation, TypeError, ValueError) as error:
+        raise ValueError("indicator samples must be finite numbers") from error
+    return values if end_exclusive >= window else None
 
-    if not (0 <= t < len(highs) == len(lows) == len(volumes)):
-        raise ValueError("aligned series and a valid t are required")
-    if market_t is None:
-        if len(index_closes) != len(highs):
-            raise ValueError("aligned market series required without market_t")
-        market_t = t
-    if not -1 <= market_t < len(index_closes):
-        raise ValueError("Invalid market sample index")
-    if t < max(base_window, volume_window) or market_t + 1 < market_window:
-        return None
 
-    prior_highs = tuple(decimal(value) for value in highs[t - base_window : t])
-    prior_lows = tuple(decimal(value) for value in lows[t - base_window : t])
-    prior_volumes = tuple(decimal(value) for value in volumes[t - volume_window : t])
-    market_values = tuple(decimal(value) for value in index_closes[market_t - market_window + 1 : market_t + 1])
-    pivot = max(prior_highs)
-    if pivot <= 0:
-        raise ValueError("pivot must be > 0")
-    base_low = min(prior_lows)
-    return IndicatorSnapshot(
-        sum(market_values) / market_window,
-        pivot,
-        base_low,
-        (pivot - base_low) / pivot,
-        sum(prior_volumes) / volume_window,
-    )
+def sma(series: Sequence[Decimal | int | str], window: int, end_exclusive: int) -> Decimal | None:
+    """Mean of [end-window:end], or None during warm-up."""
+    values = _window(series, window, end_exclusive)
+    return None if values is None else sum(values) / window
+
+
+def highest(series: Sequence[Decimal | int | str], window: int, end_exclusive: int) -> Decimal | None:
+    """Highest value in [end-window:end], or None during warm-up."""
+    values = _window(series, window, end_exclusive)
+    return None if values is None else max(values)
+
+
+def lowest(series: Sequence[Decimal | int | str], window: int, end_exclusive: int) -> Decimal | None:
+    """Lowest value in [end-window:end], or None during warm-up."""
+    values = _window(series, window, end_exclusive)
+    return None if values is None else min(values)

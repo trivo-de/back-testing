@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
 from .portfolio import Portfolio, PortfolioSnapshot
-from .trading import Fill, OrderResult, SignalRecord, Trade
+from .trading import Fill, OrderResult, SignalRecord, StrategyDetails, Trade, validate_details
 from .market import BarTime
 
 @dataclass(frozen=True)
@@ -35,3 +35,7 @@ class BacktestResult:
     equity_history: tuple[EquityPoint, ...]
     summary: Summary
     evaluations: tuple[dict, ...] = ()
+    position_details: StrategyDetails = ()
+
+    def __post_init__(self) -> None:
+        validate_details(self.position_details)

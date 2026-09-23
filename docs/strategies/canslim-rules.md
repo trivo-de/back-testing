@@ -8,6 +8,14 @@
 
 ## Mapping đã xác nhận trong checklist — 18/09
 
+Refactor R1–R2 (21/09) giữ mọi công thức/threshold bên dưới. Snapshot indicator,
+fixed fractional sizing 2%/stop 7% và entry pivot thuộc module CANSLIM. Pivot
+đi theo pending intent; chỉ thành state vị thế sau BUY fill, BUY reject không
+giữ pivot, SELL fill mới xóa state. State mới cho mỗi run. Stop reference được
+strategy xác định từ giá fill; mapper chỉ xuất projection tương thích, không
+tính lại. Ledger không sở hữu pivot/stop; quantity vẫn tính tại Open execution
+sau slippage, cash trước fill và fee như baseline.
+
 - R1: VN-Index 5 phút, SMA200 dùng 200 nến liên tục qua phiên; thiếu lịch sử
   thì UNEVALUABLE, không fallback daily.
 - R2: pivot/base-low theo 65 nến 5 phút trước t, không gồm t.

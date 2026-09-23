@@ -1,0 +1,35 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+test('preview toggles, persists, syncs tabs and updates charts without touching legacy preference', async () => {
+    const button = new EventTarget();
+    button.dataset = {};
+    button.setAttribute = (name, value) => { button[name] = value; };
+    globalThis.window = new EventTarget();
+    globalThis.document = {documentElement: {dataset: {}}, querySelectorAll: () => [button]};
+    const storage = new Map([['backtest-theme', 'dark']]);
+    globalThis.localStorage = {getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value)};
+    globalThis.getComputedStyle = () => ({fontFamily: 'system-ui', getPropertyValue: () => document.documentElement.dataset.theme});
+    let updates = 0;
+    window.addEventListener('themechange', () => updates++);
+    const theme = await import('../../src/backtest_hpg/web/preview-theme.mjs');
+    assert.equal(document.documentElement.dataset.theme, 'light');
+    button.dispatchEvent(new Event('click'));
+    assert.equal(storage.get('backtest-preview-theme'), 'dark');
+    assert.equal(button['aria-pressed'], 'true');
+    assert.equal(button['aria-label'], 'Chuyển sang giao diện sáng');
+    assert.equal(theme.chartTheme().layout.background.color, 'dark');
+    await import('../../src/backtest_hpg/web/preview-theme.mjs?reload');
+    assert.equal(document.documentElement.dataset.theme, 'dark');
+    button.dispatchEvent(new Event('click'));
+    assert.equal(document.documentElement.dataset.theme, 'light');
+    assert.equal(storage.get('backtest-theme'), 'dark');
+    const event = new Event('storage');
+    Object.assign(event, {key: 'backtest-preview-theme', newValue: 'dark'});
+    window.dispatchEvent(event);
+    assert.equal(document.documentElement.dataset.theme, 'dark');
+    localStorage.setItem = () => { throw Error('Storage blocked'); };
+    button.dispatchEvent(new Event('click'));
+    assert.equal(document.documentElement.dataset.theme, 'light');
+    assert.ok(updates >= 5);
+});

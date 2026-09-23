@@ -15,12 +15,11 @@ def decimal(value: Decimal | int | str) -> Decimal:
 
 @dataclass(frozen=True)
 class Position:
-    """One long position with its entry cost and fixed entry pivot."""
+    """One long position with its entry cost; strategy state lives elsewhere."""
 
     quantity: int
     entry_price: Decimal
     entry_fee: Decimal
-    entry_pivot: Decimal | None = None
 
     @property
     def cost_basis(self) -> Decimal:
@@ -60,7 +59,6 @@ class Portfolio:
         quantity: int,
         fill_price: Decimal | int | str,
         fee_rate: Decimal | int | str,
-        entry_pivot: Decimal | int | str | None = None,
     ) -> Portfolio:
         """Apply one full BUY fill and return the updated portfolio."""
 
@@ -75,8 +73,7 @@ class Portfolio:
         cost = price * quantity + fee
         if cost > self.cash:
             raise ValueError("insufficient cash")
-        pivot = None if entry_pivot is None else decimal(entry_pivot)
-        return Portfolio(self.cash - cost, Position(quantity, price, fee, pivot), self.realized_pnl, self.fees + fee)
+        return Portfolio(self.cash - cost, Position(quantity, price, fee), self.realized_pnl, self.fees + fee)
 
     def sell(self, fill_price: Decimal | int | str, fee_rate: Decimal | int | str) -> Portfolio:
         """Close the current position and realize P/L after fees."""

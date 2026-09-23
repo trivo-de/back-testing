@@ -26,7 +26,7 @@
     <label>Đến ngày<input type="date" name="end_date" value="2023-12-31" required></label>
     <label>Vốn ban đầu<input type="number" name="initial_cash" value="10000000" min="1" required></label>
     <label>Phí<input type="number" name="fee_rate" value="0.001" min="0" step="0.0001" required></label>
-    <label>Slippage<input type="number" name="slippage_rate" value="0.002" min="0" max="0.9999" step="0.0001" required></label>
+    <label>Slippage<input type="number" name="slippage_rate" value="0" min="0" max="0.9999" step="0.0001" required></label>
     <button type="submit">Chạy backtest</button>
   </form>
   <p id="state" class="muted">Sẵn sàng.</p>
@@ -38,22 +38,23 @@
       <h2>HPG daily · Backtest CANSLIM</h2>
       <p id="chart-status" role="status" aria-live="polite"></p>
       <button type="button" id="fit-run">Vừa khung</button>
-      <p class="muted">Rê chuột vào mũi tên BUY/SELL để xem chi tiết fill.</p>
+      <p class="muted">Rê chuột để xem chi tiết; bấm mũi tên BUY/SELL để lọc các bảng và bấm vùng trống để bỏ lọc.</p>
       <div id="price-chart-wrap"><div id="price-chart" aria-label="Nến HPG, volume và executed BUY/SELL"></div><div id="fill-tooltip" role="tooltip" hidden></div></div>
       <h3>VN-Index Close / SMA200</h3><div id="market-chart" aria-label="VN-Index Close và SMA200 dùng trong điều kiện thị trường"></div>
       <h3>Equity</h3><div id="equity-chart" aria-label="Equity từ kết quả backtest"></div>
       <details><summary>Run và dataset của chart</summary><pre id="chart-metadata"></pre></details>
       <p>Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">TradingView Lightweight Charts™</a></p>
     </section>
+    <p id="table-filter" class="muted" role="status" aria-live="polite" hidden></p>
     <section><h2>Fills</h2><div id="fills"></div></section>
     <section><h2>Closed trades</h2><div id="trades"></div></section>
     <section><h2>Open position</h2><div id="position"></div></section>
     <section><h2>Signals / orders</h2><div id="audit"></div><div id="orders"></div></section>
-    <section><h2>Equity history</h2><div id="equity"></div></section>
+    <section><h2>Equity history <button type="button" id="toggle-equity" aria-controls="equity" aria-expanded="true">Thu gọn</button></h2><div id="equity"></div></section>
   </main>
   <!-- Reloadable persisted run history -->
   <section><h2>Run history</h2><div id="history"></div></section>
   <script type="module" src="/static/theme.mjs?v=20260918"></script>
-  <script type="module" src="/static/backtest-app.mjs?v=20260918"></script>
+  <script type="module" src="/static/backtest-app.mjs?v=20260922-4"></script>
 </body>
 </html>

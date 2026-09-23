@@ -24,6 +24,9 @@ Thiết kế daily bên dưới là mô tả baseline, chưa phải runtime VN30
 
 ## 1. Design goals
 
+Contract refactor được duyệt 21/09 tại [mục 12](#12-contract-core-r0r2--21092026)
+thay phần ownership pivot/sizing của baseline bên dưới; không thay trading rules.
+
 - Correct-by-construction về timing và không look-ahead.
 - Có thể kiểm thử từng layer bằng fixture nhỏ.
 - Rule strategy không phụ thuộc framework hoặc backtest library bên ngoài.
@@ -244,3 +247,32 @@ flowchart LR
 và marker trực quan thuộc Phase 3, được kéo sớm theo kế hoạch 15/09. Khi thêm chart, marker phải dùng `fills`, không
 dùng signal làm bằng chứng giao dịch. Chi tiết nằm trong
 [web-ui-specification.md](web-ui-specification.md).
+
+## 12. Contract core R0–R2 — 21/09/2026
+
+- `indicators.py` chỉ có `sma/highest/lowest(series, window, end_exclusive)`.
+  Window nguyên dương, end trong `[0, len(series)]`; mẫu được đọc phải finite.
+  Chưa đủ history trả None; bounds/window/value sai báo lỗi. CANSLIM tự phối hợp
+  snapshot/depth, gồm market sample hiện tại đã available, loại primary bar t
+  khỏi pivot/volume windows. Không tính feature không được strategy yêu cầu.
+- Engine cấp context Close với immutable primary prefix và support prefix có
+  `available_at <= decision`, cùng portfolio hiện tại. Không đưa full arrays vào
+  evaluator. Đây là boundary cho trusted strategy code, không phải sandbox Python.
+  Named requirements/catalog và nhiều support series thuộc R3 trở đi.
+- Engine nhận BUY sizing callable với cash, fill price đã gồm slippage và fee;
+  không truyền future Close/High/Low. Quantity cố định không cần stop giả. Ledger
+  kiểm tra positive integer/cash/fee; unsupported side/partial SELL bị từ chối.
+- Thứ tự giữ: pending tại Open → ledger → feedback filled/rejected → mark Close
+  → evaluate → pending mới. Feedback gồm intent, order outcome và optional fill;
+  CANSLIM giữ entry pivot/stop riêng từng run, chỉ cập nhật theo fill thực sự.
+- Intent/SignalRecord có `details` bất biến: tuple các cặp tên duy nhất và finite
+  Decimal, schema nội bộ v1. Engine chỉ chuyển tiếp audit, không đọc details để
+  sizing/fill. CANSLIM dùng key `pivot`; result có position details do strategy
+  cung cấp (`entry_pivot`, `stop_reference`). Không nhét strategy state vào ledger.
+- API tiếp tục projection `signals[].pivot`, `open_position.entry_pivot` và
+  `stop_reference`; không áp dụng thì null. CANSLIM DTO cũ giữ nguyên, JSON/hash
+  run cũ không rewrite; PostgreSQL chỉ tiếp tục đường CANSLIM legacy. Mapper
+  compatibility này cần cho R2, không phải mở API đa chiến lược của R3.
+- Không thêm framework/dependency hoặc đổi model accounting/data policy. Chạy
+  cùng input phải giữ signals/orders/fills/trades/equity/summary và projection
+  CANSLIM; kiểm tra prefix chỉ so event đến cutoff, không so final summary khác kỳ.

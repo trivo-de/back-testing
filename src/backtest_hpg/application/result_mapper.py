@@ -58,7 +58,7 @@ def result_to_dict(
         signal_id = uuid5(run_id, f"signal:{sequence}")
         order_id = uuid5(run_id, f"order:{sequence}")
         order_ids[key] = order_id
-        signals.append({"signal_id": signal_id, "sequence_no": sequence, "signal_time": signal.signal_date, "side": signal.side, "reason": signal.reason, "pivot": signal.pivot})
+        signals.append({"signal_id": signal_id, "sequence_no": sequence, "signal_time": signal.signal_date, "side": signal.side, "reason": signal.reason, "pivot": dict(signal.details).get("pivot")})
         orders.append({"order_id": order_id, "signal_id": signal_id, "created_time": signal.signal_date, "side": order.side, "status": "unfilled" if order.status == "PENDING" else order.status.lower(), "rejection_reason": order.reason})
 
     fill_ids: dict[tuple[date, str], UUID] = {}
@@ -79,8 +79,8 @@ def result_to_dict(
     if result.portfolio.position is not None:
         position = result.portfolio.position
         entry_fill = next(fill for fill in reversed(result.fills) if fill.side == "BUY")
-        stop_loss_pct = Decimal(strategy_parameters["STOP_LOSS_PCT"])
-        open_position = {"entry_fill_id": fill_ids[(entry_fill.fill_date, "BUY")], "quantity": position.quantity, "entry_price": position.entry_price, "entry_pivot": position.entry_pivot, "stop_reference": position.entry_price * (1 - stop_loss_pct), "market_value": last_snapshot.market_value, "unrealized_pnl": last_snapshot.unrealized_pnl}
+        details = dict(result.position_details)
+        open_position = {"entry_fill_id": fill_ids[(entry_fill.fill_date, "BUY")], "quantity": position.quantity, "entry_price": position.entry_price, "entry_pivot": details.get("entry_pivot"), "stop_reference": details.get("stop_reference"), "market_value": last_snapshot.market_value, "unrealized_pnl": last_snapshot.unrealized_pnl}
 
     response = {
         "metadata": {**metadata, "run_id": run_id, "engine_version": BACKTEST.engine_version, "label": BACKTEST.result_label, "config": config, "strategy_parameters": strategy_parameters},

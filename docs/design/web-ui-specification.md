@@ -38,6 +38,9 @@ không triển khai lại strategy, execution hoặc accounting logic.
 - Open position cuối kỳ.
 - Audit signals và rejected/unfilled orders.
 - Run ID, dataset version/hash và strategy parameters.
+- Trong JSON "Run và dataset của chart", hiển thị toàn bộ `metadata.config`, gồm
+  dataset, symbol, kỳ chạy, strategy, vốn ban đầu, `fee_rate` và `slippage_rate`;
+  không lấy lại giá trị hiện có trong form để mô tả run cũ.
 - Danh sách các run đã lưu và khả năng mở lại kết quả sau service restart.
 
 ### Chart tối thiểu — ưu tiên cho đợt push Docker + notebook + chart
@@ -49,10 +52,16 @@ Implementation chưa bắt đầu. [Kế hoạch triển khai](../plans/candlest
 - Mỗi executed fill có marker BUY/SELL tại đúng `fill_time` và `fill_price`.
 - Phân biệt BUY/SELL bằng chữ và hình dạng, kèm màu; có chú giải.
 - Hover/click marker xem ngày, giá khớp, quantity, fee, signal time và reason.
+- Click marker lọc các bảng theo fill được chọn: fills cùng ngày, signal/order liên
+  quan, equity tại thời điểm fill, closed trade chứa fill và open position bắt đầu
+  từ fill đó. Click vùng trống trên chart để bỏ lọc.
 - Giữ bảng fills để tra cứu bằng bàn phím và đối chiếu với chart.
 - Volume histogram lấy trực tiếp từ OHLCV, chung trục ngày với nến.
 - Equity line riêng lấy từ equity_history; giữ bảng equity và summary hiện có.
+- Bảng Equity history có nút thu gọn/mở rộng, không làm thay đổi dữ liệu.
 - Bảng trades bổ sung entry_price, exit_price và fees đã có trong response.
+- Form đặt `slippage_rate` mặc định là `0`; người dùng có thể nhập giá trị khác
+  trong giới hạn validation của API.
 
 ### Phần Phase 3 còn lại theo baseline
 
@@ -64,6 +73,7 @@ Implementation chưa bắt đầu. [Kế hoạch triển khai](../plans/candlest
 | UI component | Backend source | Quy tắc |
 | --- | --- | --- |
 | Summary cards | `summary` | Không tính lại ở frontend |
+| Run/dataset JSON | `chart metadata` + `metadata.config` | Hiển thị đúng input đã lưu của từng run |
 | Equity table/line | `equity_history` | Một điểm tại Close mỗi phiên |
 | Fill table | `fills` | Hiển thị đúng fill time/price |
 | Trade table | `trades` | Chỉ giao dịch đã đóng |
@@ -94,6 +104,8 @@ trong backend. Loading phải ngăn submit trùng và hide/xóa kết quả củ
 
 - BUY/SELL marker đặt tại `fill_time` và `fill_price`.
 - Tooltip marker có side, quantity, fee, signal time và reason.
+- Chọn marker chỉ lọc dữ liệu đã có trong cùng response; không tính lại signal,
+  execution, position, P/L hoặc equity ở frontend.
 - Rejected/unfilled order không tạo marker giao dịch.
 - Nếu chart không có bar khớp `fill_time`, báo data consistency error; không tự dời
   marker sang bar gần nhất.
@@ -108,6 +120,9 @@ trong backend. Loading phải ngăn submit trùng và hide/xóa kết quả củ
 - Khi đổi run, xóa chart/tooltip cũ; bỏ qua response đến muộn của run trước.
 - Không có fill: vẫn vẽ nến và báo chưa có giao dịch đã khớp. Vị thế đang mở
   chỉ hiển thị các marker fill thực có, không tạo exit giả cuối kỳ.
+- Lightweight Charts 5.2 không có thuộc tính viền native cho series marker. UI mở
+  rộng marker bằng primitive canvas, dùng `borderWidth` trực tiếp trên hình mũi tên;
+  `borderColor` là đen ở Light mode và trắng ở Dark mode, không đổi màu BUY/SELL.
 
 ### Acceptance chart tối thiểu của đợt push
 
@@ -142,6 +157,28 @@ trong backend. Loading phải ngăn submit trùng và hide/xóa kết quả củ
 - BUY/SELL, summary, equity và trade history nhất quán với cùng backend response.
 
 ## 8. Lựa chọn triển khai và quyết định còn mở
+
+### Runway UI — duyệt áp dụng web chính 23/09/2026
+
+- User duyệt áp dụng [DESIGN.md](DESIGN.md), gồm light/dark mode, cho
+  `backtest_hpg.main:app` tại port 8000. Bỏ banner `Runway · UI preview`.
+  `backtest_hpg.preview_main:app` tại port 8001 vẫn dùng cùng bộ style.
+- Tái sử dụng HTML/controller và API hiện có, thêm stylesheet và theme riêng ở
+  preview. Giữ form, history, filter marker, equity collapse, metadata.
+- User duyệt bổ sung dark mode: nền espresso, chữ kem, CTA amber chữ espresso.
+  Nút chuyển theme có accessible label; lưu bằng `backtest-preview-theme`, độc lập
+  với theme cũ. Mặc định light khi chưa lưu; đồng bộ tab và cập nhật chart qua
+  `themechange`, không tải lại run hoặc tính lại dữ liệu.
+- Nền cream, card trắng, viền linen, chữ espresso, nút chính amber; các màu
+  nến/BUY/SELL giữ semantics và contract chart hiện hành. Không thêm widget giả.
+- Font dùng Interphases/Inter Variable nếu máy có, fallback system sans-serif;
+  chưa có font asset được cung cấp, không tải font bên ngoài.
+- Hai process dùng chung DATABASE_URL: xem lại run không ghi dữ liệu; bấm chạy
+  backtest vẫn lưu run vào lịch sử chung. Đây là tách giao diện, không clone DB.
+- Chạy từ repo bằng `.venv/Scripts/python.exe -m uvicorn
+  backtest_hpg.preview_main:app --host 127.0.0.1 --port 8001`.
+  Web chính chạy với entrypoint `backtest_hpg.main:app` và port 8000;
+  không cần migration hoặc thay đổi dữ liệu để áp dụng giao diện.
 
 - HTML/CSS/JavaScript ES modules; FastAPI phục vụ /static cùng backend.
 - Chart library: Lightweight Charts v5 standalone ESM. Người triển khai tự chọn

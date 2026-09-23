@@ -2,7 +2,6 @@
 
 > **Storage 18/09/2026:** [Parquet + JSON](technical-plan.md#6-persistence-parquet-json) thay target pickle trong kế hoạch bên dưới. Raw nguồn giữ nguyên; SQLite/PostgreSQL cho metadata/session agent còn chờ chốt. Nội dung implementation/mốc cũ giữ để truy vết; chưa migrate code hoặc nghiệm thu storage mới.
 
-
 **Bàn giao 17/09:** đã implement lát cắt chart snapshot VN30F1M thật, gồm nến,
 volume, crosshair, lọc ngày và bảng; chạy riêng không cần DB. Chưa hoàn tất chart
 theo run/executed fills/equity hoặc pickle. Bằng chứng và trạng thái C1–C3 ở
@@ -28,8 +27,7 @@ vẫn là PostgreSQL cho tới bước implementation sau khi tài liệu source
 
 ## 1. Mục tiêu và phạm vi
 
-Đợt bàn giao tiếp theo gom Docker, notebook kết quả, preprocessing/manifest và
-chart VN30F1M. Yêu cầu tối thiểu: người xem biết từng executed fill (lần khớp)
+Yêu cầu tối thiểu: người xem biết từng executed fill (lần khớp)
 đã xảy ra ở bar nào và giá nào trên chart nến. Quy tắc presentation và acceptance do
 [Web UI Specification](../design/web-ui-specification.md) sở hữu; dữ liệu theo
 [Data Contract](../data/vn30f1m/data-contract.md), lịch theo [Backtest Plan](backtest-plan-v0.md).
@@ -41,27 +39,27 @@ chart VN30F1M. Yêu cầu tối thiểu: người xem biết từng executed fil
 
 ### Chức năng và dữ liệu
 
-| ID | Chức năng | Hành vi |
-| --- | --- | --- |
-| UI-01 | Form/chạy backtest | Dataset/version, ngày, vốn, phí/slippage; validation; khóa submit khi POST đang chạy |
-| UI-02 | History/mở lại run | Chọn run đã lưu; tải đúng result và chart sau restart |
-| UI-03 | Nến VN30F1M | OHLC 5 phút của run; timezone UTC+7, crosshair, zoom/scroll, fit view, resize |
-| UI-04 | Entry/exit | Một marker mỗi fill; side/action + hình + màu; tooltip/click detail đúng timestamp/giá/quantity/fee/reason |
-| UI-05 | Volume | Histogram từ bars.volume, chung trục ngày với nến |
-| UI-06 | Equity | Line riêng từ equity_history; giữ bảng để đối chiếu |
-| UI-07 | Summary/bảng | Giữ fills/trades/open position/audit; thêm entry_price, exit_price, fees có sẵn vào bảng trades |
-| UI-08 | State/lỗi | Loading, no-fill, open-position, input/API/consistency error; thử tải lại; không ghép hai run |
-| UI-09 | Khả năng sử dụng | Responsive, keyboard/focus/label, aria-live; side/action không chỉ phân biệt bằng màu |
+| ID    | Chức năng          | Hành vi                                                                                                          |
+| ----- | -------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| UI-01 | Form/chạy backtest  | Dataset/version, ngày, vốn, phí/slippage; validation; khóa submit khi POST đang chạy                        |
+| UI-02 | History/mở lại run | Chọn run đã lưu; tải đúng result và chart sau restart                                                     |
+| UI-03 | Nến VN30F1M         | OHLC 5 phút của run; timezone UTC+7, crosshair, zoom/scroll, fit view, resize                                   |
+| UI-04 | Entry/exit           | Một marker mỗi fill; side/action + hình + màu; tooltip/click detail đúng timestamp/giá/quantity/fee/reason |
+| UI-05 | Volume               | Histogram từ bars.volume, chung trục ngày với nến                                                            |
+| UI-06 | Equity               | Line riêng từ equity_history; giữ bảng để đối chiếu                                                      |
+| UI-07 | Summary/bảng        | Giữ fills/trades/open position/audit; thêm entry_price, exit_price, fees có sẵn vào bảng trades             |
+| UI-08 | State/lỗi           | Loading, no-fill, open-position, input/API/consistency error; thử tải lại; không ghép hai run                |
+| UI-09 | Khả năng sử dụng | Responsive, keyboard/focus/label, aria-live; side/action không chỉ phân biệt bằng màu                       |
 
 ### Phần baseline có thể làm thêm nhanh
 
-| Phần | Quyết định | Cơ sở / effort tăng sơ bộ |
-| --- | --- | --- |
-| P3.1 volume | Thêm vào bắt buộc | OHLCV đã có volume; thêm histogram khoảng 1–2h |
-| P3.3 cột trade đã có | Thêm vào bắt buộc | Backend đã trả giá vào/ra, quantity, fees, net_pnl; khoảng 0,5h |
-| P3.4 equity line | Thêm vào bắt buộc | equity_history đã có; thêm line series khoảng 1–2h |
-| P3.2 indicators | Để sau | Thiếu indicator-series contract và mapping backend; cần test riêng |
-| Trade return và tương tác chart nâng cao | Để sau | Chưa có field/quy ước return từng trade; chưa cần để xem vị trí fill |
+| Phần                                         | Quyết định         | Cơ sở / effort tăng sơ bộ                                                  |
+| --------------------------------------------- | --------------------- | ------------------------------------------------------------------------------- |
+| P3.1 volume                                   | Thêm vào bắt buộc | OHLCV đã có volume; thêm histogram khoảng 1–2h                            |
+| P3.3 cột trade đã có                      | Thêm vào bắt buộc | Backend đã trả giá vào/ra, quantity, fees, net_pnl; khoảng 0,5h           |
+| P3.4 equity line                              | Thêm vào bắt buộc | equity_history đã có; thêm line series khoảng 1–2h                        |
+| P3.2 indicators                               | Để sau              | Thiếu indicator-series contract và mapping backend; cần test riêng          |
+| Trade return và tương tác chart nâng cao | Để sau              | Chưa có field/quy ước return từng trade; chưa cần để xem vị trí fill |
 
 Effort tăng đã gộp trong mục 4, không cộng lần nữa. P3.3/P3.4 chỉ hoàn thành toàn
 bộ khi toàn bộ phần tương ứng của WBS đã được nghiệm thu.
@@ -108,16 +106,16 @@ Không sửa engine để phục vụ chart và không nhét OHLCV vào endpoint
 
 ### 3.2. Stack frontend và cách chạy
 
-| Thành phần | Lựa chọn triển khai | Cách dùng |
-| --- | --- | --- |
-| Frontend | HTML5 + CSS thuần + JavaScript ES modules | Một trang; tách markup, style, controller và chart; tái dùng UI hiện có |
-| Chart library | TradingView Lightweight Charts v5, standalone ESM | Candlestick, price-position marker, histogram volume và line equity |
-| HTTP | fetch + AbortController native | Cùng origin; request sequence ID loại response cũ; không tự retry POST |
-| State | Biến module trong app.js | phase, activeRunId, requestSequence, result, chartPayload, selectedFillId |
-| Static server | FastAPI StaticFiles tại /static; GET / trả index.html | Resolve đường dẫn theo package; phục vụ cùng backend process |
-| CSS/format | Grid/Flex, native input, font hệ thống, Intl.NumberFormat | Breakpoint 768px; giá theo metadata; chỉ format % cho return có sẵn |
-| Package/Docker | Vendor asset pin version và checksum, đi cùng Python package | Không tải chart library qua CDN khi người dùng mở web |
-| Tests | unittest/TestClient; Node 22 node:test; browser checks | Python deps/Node đã có; Node chỉ dùng khi test JS |
+| Thành phần   | Lựa chọn triển khai                                          | Cách dùng                                                                    |
+| -------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Frontend       | HTML5 + CSS thuần + JavaScript ES modules                      | Một trang; tách markup, style, controller và chart; tái dùng UI hiện có |
+| Chart library  | TradingView Lightweight Charts v5, standalone ESM               | Candlestick, price-position marker, histogram volume và line equity           |
+| HTTP           | fetch + AbortController native                                  | Cùng origin; request sequence ID loại response cũ; không tự retry POST    |
+| State          | Biến module trong app.js                                       | phase, activeRunId, requestSequence, result, chartPayload, selectedFillId      |
+| Static server  | FastAPI StaticFiles tại /static; GET / trả index.html         | Resolve đường dẫn theo package; phục vụ cùng backend process            |
+| CSS/format     | Grid/Flex, native input, font hệ thống, Intl.NumberFormat     | Breakpoint 768px; giá theo metadata; chỉ format % cho return có sẵn        |
+| Package/Docker | Vendor asset pin version và checksum, đi cùng Python package | Không tải chart library qua CDN khi người dùng mở web                    |
+| Tests          | unittest/TestClient; Node 22 node:test; browser checks          | Python deps/Node đã có; Node chỉ dùng khi test JS                         |
 
 Không thêm React/Vue hoặc bundler. Library đã được chọn trong plan; chọn patch
 release cụ thể là việc kỹ thuật ở C1, không cần user confirm. Docs hiện có
@@ -282,12 +280,12 @@ Estimate mới: **20–28h (2,5–3,5 ngày công)**, thay 16–24h; đã gồm 
 cột trade có sẵn và kiểm tra. Chưa gồm xử lý provenance/lỗi hạ tầng có sẵn.
 Ngày bắt đầu/kết thúc chưa cam kết. State/bằng chứng từng bước ở [PROGRESS](progress.md).
 
-| Bước | WBS               | Việc và file dự kiến                                                                                                                             | Effort              | Phụ thuộc                                      |
-| ------ | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | ------------------------------------------------ |
-| C1 | P3.1 | Contract/error, chart query; pin asset/license; static route/package; fixture/API checks | 4–6h | Có thể dùng fixture offline, không cần CFM-01 |
-| C2 | P3.1 + phần P3.3/P3.4 | Tách HTML/CSS/JS; nến, marker/tooltip, volume, equity, cột trade; state và mapper tests | 10–14h | C1 |
-| C3 | P1.7 + phần P3.4 | Browser, assets trong image, pickle/restart reload, notebook, regression, README | 6–8h | C2; phần dữ liệu thật cần CFM-01 |
-| R1     | Release           | Review diff/secret/output/ignore; commit và push chung theo yêu cầu sau khi đạt acceptance                                                      | Tính sau kiểm tra | C3 và Docker/notebook được xác minh         |
+| Bước | WBS                    | Việc và file dự kiến                                                                        | Effort              | Phụ thuộc                                        |
+| ------ | ---------------------- | ----------------------------------------------------------------------------------------------- | ------------------- | -------------------------------------------------- |
+| C1     | P3.1                   | Contract/error, chart query; pin asset/license; static route/package; fixture/API checks        | 4–6h               | Có thể dùng fixture offline, không cần CFM-01 |
+| C2     | P3.1 + phần P3.3/P3.4 | Tách HTML/CSS/JS; nến, marker/tooltip, volume, equity, cột trade; state và mapper tests     | 10–14h             | C1                                                 |
+| C3     | P1.7 + phần P3.4      | Browser, assets trong image, pickle/restart reload, notebook, regression, README                | 6–8h               | C2; phần dữ liệu thật cần CFM-01              |
+| R1     | Release                | Review diff/secret/output/ignore; commit và push chung theo yêu cầu sau khi đạt acceptance | Tính sau kiểm tra | C3 và Docker/notebook được xác minh           |
 
 P3.1 chỉ tính hoàn thành khi cả nến và volume được nghiệm thu;
 P3.3 chỉ tính hoàn thành toàn bộ khi phần bảng trade/P&L theo WBS cũng được nghiệm
@@ -319,32 +317,32 @@ docker compose restart app
 
 ### 5.2. Test cases
 
-| ID / chức năng | Input và thao tác | Expected result | Cấp kiểm tra |
-| --- | --- | --- | --- |
-| TC-01 / UI-01 | Ngày bắt đầu sau kết thúc, vốn <=0 hoặc field thiếu | Lỗi form, không gửi input sai; bypass client vẫn bị backend từ chối | Browser + API |
-| TC-02 / UI-01 | Double-click Chạy khi POST chưa xong | Chỉ một POST; submit khóa; mở lại sau kết thúc/lỗi | Browser |
-| TC-03 / UI-02 | Tạo run hoặc mở run cũ | Cùng run/version/hash; OHLCV đúng dataset và khoảng ngày inclusive | API + Browser |
-| TC-04 / UI-03 | Bar O=100,H=105,L=98,C=103, ngày cố định | Thân/râu/crosshair đúng số, không đổi ngày theo timezone | JS + Browser |
-| TC-05 / UI-04 | BUY 2026-01-05 giá 101, SELL 2026-01-07 giá 110, có bars tương ứng | Đúng hai marker với fill IDs, ngày/giá/side; tooltip khớp bảng | JS + Browser |
-| TC-06 / UI-04 | Signal thứ Sáu 02/01/2026, fill thứ Hai 05/01 | Marker tại 05/01, không ở ngày signal/cuối tuần | JS + Browser |
-| TC-07 / UI-04 | Fill price=106, bar high=105 do slippage giả lập | Marker ở 106, thấy được; không ép về high | JS + Browser |
-| TC-08 / UI-04 | Hai order IDs có reason khác nhau; đổi thứ tự arrays | Join đúng IDs, không join reason bằng chỉ số/ngày | JS |
-| TC-09 / UI-08 | fills rỗng, orders pending/rejected, equity_history hợp lệ | Không marker; vẫn nến/volume/equity và giải thích chưa có fill | JS + Browser |
-| TC-10 / UI-07 | Chỉ BUY đã khớp, open_position cuối kỳ | Một BUY, không tạo SELL; unrealized tách realized | JS + Browser |
-| TC-11 / UI-08 | Thiếu bar của fill, trùng/đảo ngày, sai OHLC, null/NaN/Infinity | Reject payload, lỗi consistency; không sort/fill/dời marker | JS + API |
-| TC-12 / UI-08 | Lệch lần lượt run_id, dataset_id/version, hash | Không render dữ liệu trộn; báo lỗi | JS + Browser |
-| TC-13 / UI-02 | Chọn A rồi B; response A đến sau B | Chỉ B được hiển thị; tooltip/listeners của A được dọn | Browser |
-| TC-14 / UI-08 | POST thành công, chart GET lỗi; thử lại; history GET lỗi riêng | Chỉ GET lại run/chart, không POST mới; history lỗi không hủy result đã tải | Browser |
-| TC-15 / UI-05 | Volume 0 và 1.000 ở hai ngày của bars | Giá trị đúng 0/1000, không mất ngày, chung time scale với nến | JS + Browser |
-| TC-16 / UI-06 | Equity 1000,1100,900 ở ba phiên; summary cuối=900 | Line đúng ba điểm, cuối khớp summary; không tự tính equity | JS + Browser |
-| TC-17 / UI-07 | Trade có giá vào/ra, quantity, fees, net_pnl; summary return=0.1 | Cột đúng payload, return format 10%; không tự tính trade return | Browser |
-| TC-18 / UI-03,09 | Zoom/scroll/fit; resize 1280px rồi 390px; mở run nhiều lần | Marker đúng tọa độ, volume không che nến, không tràn trang/nhân canvas/listeners | Browser |
-| TC-19 / UI-09 | Bàn phím, click marker trên mobile, không dựa vào màu | Form/bảng có focus/label; detail đọc được; aria-live báo state | Browser |
-| TC-20 / UI-08 | Reason/API message chứa HTML có event handler | Hiển thị như text, không thực thi HTML/script | Browser |
-| TC-21 / UI-02,03 | GET /, CSS, JS, vendor sau build/install image; chặn CDN | Assets đúng MIME, chart tải được, attribution hiện trên trang | API + Docker/Browser |
-| TC-22 / API | UUID sai, run không có, run failed, bars mất, pickle lỗi/sai version | Lần lượt 422/404/404/409/500; không lộ path hoặc stack trace | API |
-| TC-23 / UI-02 | Restart backend/containers giữ volume, mở cùng run | Chart/fills/summary/equity/notebook nhất quán; không chạy lại strategy để xem | Pickle + Browser |
-| TC-24 / regression | Cùng input/config; chạy tests cũ và so business result | Accounting/strategy/timing/causality không đổi; fixture UI không giả làm dữ liệu nghiệm thu | Python + integration |
+| ID / chức năng   | Input và thao tác                                                      | Expected result                                                                                      | Cấp kiểm tra       |
+| ------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- | -------------------- |
+| TC-01 / UI-01      | Ngày bắt đầu sau kết thúc, vốn <=0 hoặc field thiếu             | Lỗi form, không gửi input sai; bypass client vẫn bị backend từ chối                           | Browser + API        |
+| TC-02 / UI-01      | Double-click Chạy khi POST chưa xong                                   | Chỉ một POST; submit khóa; mở lại sau kết thúc/lỗi                                           | Browser              |
+| TC-03 / UI-02      | Tạo run hoặc mở run cũ                                               | Cùng run/version/hash; OHLCV đúng dataset và khoảng ngày inclusive                             | API + Browser        |
+| TC-04 / UI-03      | Bar O=100,H=105,L=98,C=103, ngày cố định                             | Thân/râu/crosshair đúng số, không đổi ngày theo timezone                                    | JS + Browser         |
+| TC-05 / UI-04      | BUY 2026-01-05 giá 101, SELL 2026-01-07 giá 110, có bars tương ứng | Đúng hai marker với fill IDs, ngày/giá/side; tooltip khớp bảng                                | JS + Browser         |
+| TC-06 / UI-04      | Signal thứ Sáu 02/01/2026, fill thứ Hai 05/01                         | Marker tại 05/01, không ở ngày signal/cuối tuần                                                | JS + Browser         |
+| TC-07 / UI-04      | Fill price=106, bar high=105 do slippage giả lập                       | Marker ở 106, thấy được; không ép về high                                                    | JS + Browser         |
+| TC-08 / UI-04      | Hai order IDs có reason khác nhau; đổi thứ tự arrays               | Join đúng IDs, không join reason bằng chỉ số/ngày                                             | JS                   |
+| TC-09 / UI-08      | fills rỗng, orders pending/rejected, equity_history hợp lệ            | Không marker; vẫn nến/volume/equity và giải thích chưa có fill                               | JS + Browser         |
+| TC-10 / UI-07      | Chỉ BUY đã khớp, open_position cuối kỳ                             | Một BUY, không tạo SELL; unrealized tách realized                                                | JS + Browser         |
+| TC-11 / UI-08      | Thiếu bar của fill, trùng/đảo ngày, sai OHLC, null/NaN/Infinity    | Reject payload, lỗi consistency; không sort/fill/dời marker                                       | JS + API             |
+| TC-12 / UI-08      | Lệch lần lượt run_id, dataset_id/version, hash                       | Không render dữ liệu trộn; báo lỗi                                                             | JS + Browser         |
+| TC-13 / UI-02      | Chọn A rồi B; response A đến sau B                                   | Chỉ B được hiển thị; tooltip/listeners của A được dọn                                     | Browser              |
+| TC-14 / UI-08      | POST thành công, chart GET lỗi; thử lại; history GET lỗi riêng    | Chỉ GET lại run/chart, không POST mới; history lỗi không hủy result đã tải                 | Browser              |
+| TC-15 / UI-05      | Volume 0 và 1.000 ở hai ngày của bars                                | Giá trị đúng 0/1000, không mất ngày, chung time scale với nến                               | JS + Browser         |
+| TC-16 / UI-06      | Equity 1000,1100,900 ở ba phiên; summary cuối=900                     | Line đúng ba điểm, cuối khớp summary; không tự tính equity                                  | JS + Browser         |
+| TC-17 / UI-07      | Trade có giá vào/ra, quantity, fees, net_pnl; summary return=0.1      | Cột đúng payload, return format 10%; không tự tính trade return                                | Browser              |
+| TC-18 / UI-03,09   | Zoom/scroll/fit; resize 1280px rồi 390px; mở run nhiều lần           | Marker đúng tọa độ, volume không che nến, không tràn trang/nhân canvas/listeners           | Browser              |
+| TC-19 / UI-09      | Bàn phím, click marker trên mobile, không dựa vào màu             | Form/bảng có focus/label; detail đọc được; aria-live báo state                               | Browser              |
+| TC-20 / UI-08      | Reason/API message chứa HTML có event handler                          | Hiển thị như text, không thực thi HTML/script                                                   | Browser              |
+| TC-21 / UI-02,03   | GET /, CSS, JS, vendor sau build/install image; chặn CDN                | Assets đúng MIME, chart tải được, attribution hiện trên trang                                | API + Docker/Browser |
+| TC-22 / API        | UUID sai, run không có, run failed, bars mất, pickle lỗi/sai version | Lần lượt 422/404/404/409/500; không lộ path hoặc stack trace                                   | API                  |
+| TC-23 / UI-02      | Restart backend/containers giữ volume, mở cùng run                    | Chart/fills/summary/equity/notebook nhất quán; không chạy lại strategy để xem                 | Pickle + Browser     |
+| TC-24 / regression | Cùng input/config; chạy tests cũ và so business result               | Accounting/strategy/timing/causality không đổi; fixture UI không giả làm dữ liệu nghiệm thu | Python + integration |
 
 Test status/actual ở PROGRESS hoặc evidence được liên kết từ đó. Expected trong
 plan không phải test đã pass; kiểm tra ignore không phải preprocessing acceptance.

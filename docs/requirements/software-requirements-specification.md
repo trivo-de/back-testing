@@ -20,6 +20,13 @@ toàn bộ Phase 3. Acceptance tối thiểu và phần để sau nằm trong
 
 ## 1. Mục tiêu
 
+**Bổ sung R0–R2, 21/09/2026:** chuẩn bị core cho nhiều strategy trong cùng
+single-long/full-exit/normalized profile. Tách indicator, sizing và state riêng
+CANSLIM mà giữ response/numerical result baseline. Fixed-signal fixture không
+pivot/stop/VNINDEX phải chạy được qua core; chưa công bố strategy production thứ
+hai, chưa mở params/rule tùy biến qua API. R3–R5 và P2 ngoài lượt này. Kế hoạch
+và gate tại [Technical Plan](../plans/technical-plan.md#refactor-engine-r0r2--duyệt-21092026).
+
 Xây một backtest có thể tái lập và giải thích được cho
 `canslim_breakout_v0` trên HPG daily: từ dữ liệu, signal, simulated execution đến
 cash, position, P/L, equity, API và Web UI hiển thị kết quả.

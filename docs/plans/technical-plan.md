@@ -217,6 +217,48 @@ Hệ quả:
 - Thiếu expected next bar phải tạo trạng thái/lỗi kiểm tra được, không tự nhảy qua
   khoảng trống dữ liệu.
 
+## Refactor engine R0–R2 — duyệt 21/09/2026
+
+User duyệt hướng P0/P1 của review đa chiến lược, yêu cầu thực hiện **R0 → R2**;
+P2 chỉ xét khi có upgrade. Lượt này không mở rộng registry/API thành sản phẩm
+đa chiến lược, không thêm strategy giao dịch hoặc dataset mới.
+
+| Bước | Phạm vi và acceptance | Trạng thái sau implementation |
+| --- | --- | --- |
+| R0 | Chốt contract bên dưới, chạy baseline 29 tests; pin response CANSLIM trước refactor cho closed/open/pending/rejected và intraday | Done |
+| R1 | Hàm `sma/highest/lowest` độc lập với config; snapshot/depth/window thuộc CANSLIM; validate bounds/window/finite values, thiếu history trả None | Done |
+| R2 | Engine nhận sizing callable và execution feedback; pivot/stop thuộc state CANSLIM theo run; ledger chỉ giữ tiền/quantity/cost; CANSLIM response giữ tương thích | Done |
+| R3–R5 | Registry/requirements/params, multi-strategy API, adapter/UI và production strategy thứ hai | Not started; ngoài lượt R0–R2 |
+
+Supported matrix của proof: CANSLIM giữ rule/data/sizing đã duyệt; fixed-signal
+fixture dùng primary bars, quantity cố định, không pivot/stop/VNINDEX. Fixture
+chỉ kiểm chứng contract core, không đăng ký làm strategy production. Cả hai giữ
+single-long, BUY khi flat, SELL toàn bộ, next-valid-Open, Decimal normalized.
+Short, partial exit/fill, limit order, leverage và multi-symbol chưa hỗ trợ.
+
+Giữ approved bundle VN30F1M/VNINDEX và validation integrity hiện có. CANSLIM
+vẫn cần 200 market samples, 65 primary highs/lows và 50 volumes trước decision;
+fixed-signal fixture không cần warm-up. Không migrate PostgreSQL hoặc sửa run cũ.
+R2 chỉ sửa mapper đủ để lấy pivot/stop projection do strategy cung cấp thay vì
+đọc ledger/tính stop lại; evaluation status/registry/typed params để R3.
+
+Nghiệm thu bằng regression baseline, ACC-01–03, lifecycle fill/reject/pending,
+sizing tại Open không đọc Close tương lai, context prefix/market availability,
+determinism và API/file reload hiện có. Real-data report vẫn chờ history trước
+18/03; refactor không thay gate đó. Contract chi tiết ở
+[System Design](../design/system-design.md#12-contract-core-r0r2--21092026).
+
+Evidence 21/09: `.venv/Scripts/python.exe -m unittest discover -s tests -v`
+chạy **36 tests pass**, gồm 29 tests nền và 7 tests mới. Năm response CANSLIM
+(closed/open/pending/rejected/intraday) khớp hash chụp trước refactor; ACC-01–03,
+prefix/availability, deterministic, API/file reload và notebook fixture đều pass.
+Không chạy real-data acceptance, live PostgreSQL hoặc browser trong lượt này.
+Core có thay đổi Python signature: `run_engine` nhận `DecisionContext`,
+`size_buy`, `on_execution`; `run_fixed_signals` cần quantity hoặc sizing rõ ràng,
+không còn sizing CANSLIM ngầm. Snapshot chuyển sang module CANSLIM. HTTP DTO
+CANSLIM giữ nguyên. Prefix tuple đang có chi phí copy O(n²) theo số bar toàn run;
+chỉ thay bằng bounded view nếu profiling history lớn yêu cầu.
+
 ## 6. Persistence Parquet JSON
 
 Quyết định 18/09/2026 thay kế hoạch pickle 15/09; chưa migrate hoặc nghiệm thu

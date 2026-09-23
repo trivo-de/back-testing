@@ -1,5 +1,5 @@
-import {backtestData} from './backtest-data.mjs';
-import {clearCharts, renderCharts} from './backtest-chart.mjs';
+import {backtestData, relatedRows} from './backtest-data.mjs?v=20260922-2';
+import {clearCharts, renderCharts} from './backtest-chart.mjs?v=20260922-2';
 
 const $ = selector => document.querySelector(selector);
 const percent = new Intl.NumberFormat('vi-VN', {style: 'percent', maximumFractionDigits: 2});
@@ -39,18 +39,24 @@ async function show(run, current) {
         card.textContent = `${key}: ${key === 'total_return' ? percent.format(value) : value}`;
         $('#summary').append(card);
     }
-    table('#fills', run.fills, ['fill_time', 'side', 'fill_price', 'quantity', 'fee']);
-    table('#trades', run.trades, ['entry_date', 'exit_date', 'entry_price', 'exit_price', 'quantity', 'fees', 'net_pnl', 'close_reason']);
-    table('#position', run.open_position ? [run.open_position] : [], ['quantity', 'entry_price', 'market_value', 'unrealized_pnl']);
-    table('#audit', run.signals, ['signal_time', 'side', 'reason', 'pivot']);
-    table('#orders', run.orders, ['created_time', 'side', 'status', 'rejection_reason']);
-    table('#equity', run.equity_history, ['trading_date', 'cash', 'quantity', 'market_value', 'equity', 'unrealized_pnl']);
+    const renderTables = fillId => {
+        const rows = relatedRows(run, fillId);
+        table('#fills', rows.fills, ['fill_time', 'side', 'fill_price', 'quantity', 'fee']);
+        table('#trades', rows.trades, ['entry_date', 'exit_date', 'entry_price', 'exit_price', 'quantity', 'fees', 'net_pnl', 'close_reason']);
+        table('#position', rows.position, ['quantity', 'entry_price', 'market_value', 'unrealized_pnl']);
+        table('#audit', rows.signals, ['signal_time', 'side', 'reason', 'pivot']);
+        table('#orders', rows.orders, ['created_time', 'side', 'status', 'rejection_reason']);
+        table('#equity', rows.equity, ['trading_date', 'cash', 'quantity', 'market_value', 'equity', 'unrealized_pnl']);
+        $('#table-filter').hidden = !rows.selected;
+        $('#table-filter').textContent = rows.selected ? `Đang lọc theo ${rows.selected.side} lúc ${rows.selected.fill_time}. Bấm vùng trống trên chart để bỏ lọc.` : '';
+    };
+    renderTables();
     clearCharts();
     $('#chart-status').textContent = 'Đang tải chart…';
     try {
         const payload = await getJSON(`/api/backtests/${run.metadata.run_id}/chart`);
         if (current !== sequence) return;
-        renderCharts(backtestData(run, payload), payload.metadata);
+        renderCharts(backtestData(run, payload), {...payload.metadata, ...run.metadata.config}, renderTables);
         $('#state').textContent = 'Đã tải kết quả, trade history và chart.';
     } catch (error) {
         if (current !== sequence) return;
@@ -85,6 +91,12 @@ async function history(openLatest = false) {
     } catch (error) {$('#history').textContent = `Không tải được history: ${error.message}`;}
 }
 $('#retry-run').onclick = () => load(activeRunId);
+$('#toggle-equity').onclick = event => {
+    const expanded = $('#equity').hidden;
+    $('#equity').hidden = !expanded;
+    event.currentTarget.textContent = expanded ? 'Thu gọn' : 'Mở rộng';
+    event.currentTarget.setAttribute('aria-expanded', String(expanded));
+};
 $('#run-form').onsubmit = async event => {
     event.preventDefault(); if (posting) return;
     posting = true; const submit = event.target.querySelector('[type=submit]'); submit.disabled = true;

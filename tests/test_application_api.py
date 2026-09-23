@@ -65,6 +65,8 @@ class ApplicationApiTest(unittest.TestCase):
         result = created.json()
         run_id = result["metadata"]["run_id"]
         self.assertEqual(result["summary"]["final_equity"], "10000000.000000")
+        self.assertEqual(result["metadata"]["config"]["fee_rate"], "0.001000")
+        self.assertEqual(result["metadata"]["config"]["slippage_rate"], "0.002000")
         self.assertEqual(self.client.get(f"/api/backtests/{run_id}").json(), result)
         self.assertEqual(self.client.get("/api/backtests").json(), [result])
 
