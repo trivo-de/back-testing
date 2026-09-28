@@ -19,6 +19,23 @@ def bars():
 
 
 class EngineContractTest(unittest.TestCase):
+    def test_scheduled_exit_cancels_pending_and_uses_open(self):
+        data = bars()
+        data[2] = replace(data[2], open=D(110), close=D(999))
+        def evaluate(context):
+            return FixedSignal("BUY", 2) if context.portfolio.position is None else FixedSignal("SELL")
+        result = run_engine(data[:3], evaluate, initial_cash=1000, fee_rate="0.001",
+                            slippage_rate="0.01", flat_dates=frozenset([data[2].trading_date]))
+        self.assertEqual([o.status for o in result.orders], ["FILLED", "REJECTED", "FILLED"])
+        self.assertEqual(result.signals[-1].reason, "SCHEDULED_EXIT")
+        self.assertEqual(result.fills[-1].price, D("108.90"))
+        self.assertIsNone(result.portfolio.position)
+        self.assertEqual(len(result.trades), 1)
+        pending_buy = run_engine(data[:2], evaluate, initial_cash=1000, fee_rate=0,
+                                 slippage_rate=0, flat_dates=frozenset([data[1].trading_date]))
+        self.assertEqual(pending_buy.fills, ())
+        self.assertEqual(pending_buy.orders[0].reason, "SCHEDULED_FLAT_DAY")
+
     def test_fixed_quantity_without_stop_or_market_and_mapper_compatibility(self):
         data = bars()
         result = run_fixed_signals(data, {data[0].trading_date: FixedSignal("BUY", 2)},

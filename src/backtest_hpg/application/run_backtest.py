@@ -1,6 +1,9 @@
 from typing import Any, Sequence
+from dataclasses import replace
+from copy import deepcopy
+from datetime import date
 from uuid import UUID
-from ..domain.strategies import get_strategy, get_strategy_parameters
+from ..domain.strategies import get_strategy_definition
 from .contracts import RunConfig
 from .ports import RunRepository
 from .result_mapper import result_to_dict
@@ -17,11 +20,30 @@ class BacktestService:
     def run(self, config: RunConfig) -> dict[str, Any]:
         """Load a fixed dataset, run the selected strategy, and persist the result."""
 
+        definition = get_strategy_definition(config.strategy_id, config.strategy_version)
+        values = {} if config.strategy_params is None else config.strategy_params
+        params = definition.parameter_model.model_validate(values)
+        requirements = definition.data_requirements(params)
+        if set(requirements) - {"primary", "market"}:
+            raise ValueError("UNSUPPORTED_DATA_REQUIREMENTS")
+        if "market" in requirements and requirements["market"].get("symbol") != "VNINDEX":
+            raise ValueError("UNSUPPORTED_DATA_REQUIREMENTS: market symbol")
+        # Sao chép yêu cầu để các lần chạy không dùng chung đối tượng tham số.
+        config = replace(config, strategy_version=definition.version,
+                         strategy_params=deepcopy(values))
         run_id, dataset = self.repository.start_run(config)
         try:
-            market_arguments = {"market_bars": dataset.market_bars} if config.symbol == "VN30F1M" else {}
-            result = get_strategy(config.strategy_id)(
+            market_arguments = {}
+            if "market" in requirements:
+                if dataset.market_bars:
+                    market_arguments["market_bars"] = dataset.market_bars
+                elif any(bar.index_close is None for bar in dataset.bars):
+                    raise ValueError("MISSING_REQUIRED_DATA: market")
+            if dataset.metadata.get("rollover_action") == "close_at_expiry_open":
+                market_arguments["flat_dates"] = frozenset(date.fromisoformat(value) for value in dataset.metadata["expiry_dates"])
+            result = definition.runner(
                 dataset.bars,
+                params=params,
                 initial_cash=config.initial_cash,
                 fee_rate=config.fee_rate,
                 slippage_rate=config.slippage_rate,
@@ -34,7 +56,7 @@ class BacktestService:
                 dataset.metadata,
                 config,
                 result,
-                strategy_parameters=get_strategy_parameters(config.strategy_id),
+                strategy_parameters=params.model_dump(mode="json"),
             )
             self.repository.complete_run(run_id, result, response)
             return response

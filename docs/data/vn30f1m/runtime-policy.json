@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "timezone": "Asia/Ho_Chi_Minh",
-  "rollover_action": "hold",
+  "rollover_action": "close_at_expiry_open",
   "trading_dates": [
     "2026-03-02",
     "2026-03-03",
@@ -278,51 +278,97 @@
   "session_basis": "Static source timestamp grids; retain all optional market records. Simulation convention, not a source certification.",
   "rollover": [
     {
-      "start": "2026-03-01",
+      "start": "2026-01-01",
+      "end": "2026-01-15",
+      "contract": "VN30F2601",
+      "expiry": "2026-01-15",
+      "expiry_unix": 1768410000
+    },
+    {
+      "start": "2026-01-16",
+      "end": "2026-02-13",
+      "contract": "VN30F2602",
+      "expiry": "2026-02-13",
+      "expiry_unix": 1770915600
+    },
+    {
+      "start": "2026-02-14",
       "end": "2026-03-19",
       "contract": "VN30F2603",
-      "expiry": "2026-03-19"
+      "expiry": "2026-03-19",
+      "expiry_unix": 1773853200
     },
     {
       "start": "2026-03-20",
       "end": "2026-04-16",
       "contract": "VN30F2604",
-      "expiry": "2026-04-16"
+      "expiry": "2026-04-16",
+      "expiry_unix": 1776272400
     },
     {
       "start": "2026-04-17",
       "end": "2026-05-21",
       "contract": "VN30F2605",
-      "expiry": "2026-05-21"
+      "expiry": "2026-05-21",
+      "expiry_unix": 1779296400
     },
     {
       "start": "2026-05-22",
       "end": "2026-06-18",
       "contract": "VN30F2606",
-      "expiry": "2026-06-18"
+      "expiry": "2026-06-18",
+      "expiry_unix": 1781715600
     },
     {
       "start": "2026-06-19",
       "end": "2026-07-16",
       "contract": "VN30F2607",
-      "expiry": "2026-07-16"
+      "expiry": "2026-07-16",
+      "expiry_unix": 1784134800
     },
     {
       "start": "2026-07-17",
       "end": "2026-08-20",
       "contract": "VN30F2608",
-      "expiry": "2026-08-20"
+      "expiry": "2026-08-20",
+      "expiry_unix": 1787158800
     },
     {
       "start": "2026-08-21",
       "end": "2026-09-17",
       "contract": "VN30F2609",
-      "expiry": "2026-09-17"
+      "expiry": "2026-09-17",
+      "expiry_unix": 1789578000
+    },
+    {
+      "start": "2026-09-18",
+      "end": "2026-10-15",
+      "contract": "VN30F2610",
+      "expiry": "2026-10-15",
+      "expiry_unix": 1791997200
+    },
+    {
+      "start": "2026-10-16",
+      "end": "2026-11-19",
+      "contract": "VN30F2611",
+      "expiry": "2026-11-19",
+      "expiry_unix": 1795021200
+    },
+    {
+      "start": "2026-11-20",
+      "end": "2026-12-17",
+      "contract": "VN30F2612",
+      "expiry": "2026-12-17",
+      "expiry_unix": 1797440400
     }
   ],
   "rollover_source": {
     "path": "docs/data/vn30f1m/vn30f1m-rollover-map.md",
-    "content_hash": "1d0f0c8297e97dc045f223a926100259feaad6fbaf7f9cc55e918161e0294877",
-    "status": "user-approved theoretical simulation assumption"
+    "content_hash": "7bd133dda3eb76c3f27c207c32076dd3e1d85b1a3083da908b8faef40baece37",
+    "publisher": "VPBank",
+    "status": "VPBank expiry calendar supplied by user",
+    "expiry_year": 2026,
+    "expiry_unix_basis": "Unix seconds at 00:00:00 Asia/Ho_Chi_Minh on the expiry date",
+    "contract_label_basis": "Existing VN30FYYMM month labels retained"
   }
 }

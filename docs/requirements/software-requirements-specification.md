@@ -20,6 +20,17 @@ toàn bộ Phase 3. Acceptance tối thiểu và phần để sau nằm trong
 
 ## 1. Mục tiêu
 
+**Điều chỉnh thiết kế 28/09/2026:** yêu cầu chạy mới nhận dữ liệu JSON và định
+nghĩa chiến lược trực tiếp, không bắt nhập ID/phiên bản dữ liệu hoặc chiến lược.
+Kiểm tra nội dung và khả năng thực thi, không yêu cầu đã lưu mẫu. Source ngày
+26/09 bên dưới chưa đáp ứng luồng này; xem [đặc tả API](../design/backtest-api-specification.md).
+
+**Bổ sung 26/09/2026:** API nhận bộ tham số riêng theo chiến lược, kiểm tra bằng
+mẫu của chiến lược và truyền vào lần chạy; công bố cấu trúc tham số qua
+`GET /api/strategies`. Bộ mặc định v0 giữ nguyên. Phạm vi triển khai và phần v1
+còn lại nằm trong [đặc tả API](../design/backtest-api-specification.md).
+Giới hạn không mở tham số của đợt R0–R2 bên dưới là phạm vi lịch sử.
+
 **Bổ sung R0–R2, 21/09/2026:** chuẩn bị core cho nhiều strategy trong cùng
 single-long/full-exit/normalized profile. Tách indicator, sizing và state riêng
 CANSLIM mà giữ response/numerical result baseline. Fixed-signal fixture không

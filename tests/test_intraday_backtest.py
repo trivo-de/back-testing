@@ -160,6 +160,18 @@ class IntradayApiStorageTest(unittest.TestCase):
         self.assertIn("DATASET_HASH_MISMATCH", response.text)
         self.assertEqual(self.client.get("/api/backtests").json(), [])
 
+    def test_strategy_parameters_persist_after_restart_and_change_run(self):
+        payload = {**self.payload, "strategy_version": "1", "strategy_params": {"volume_multiplier": "2.0000001"}}
+        response = self.client.post("/api/backtests", json=payload)
+        self.assertEqual(response.status_code, 201, response.text)
+        result = response.json()
+        self.assertEqual(result["fills"], [])
+        self.assertEqual(result["metadata"]["strategy_parameters"]["volume_multiplier"], "2.0000001")
+        restarted = TestClient(create_app(BacktestService(FileRunRepository(self.store, self.policy_path))))
+        self.assertEqual(restarted.get("/api/backtests/" + result["metadata"]["run_id"]).json(), result)
+        original = restarted.post("/api/backtests", json=self.payload).json()
+        self.assertEqual(len(original["fills"]), 2)
+
     def test_interrupted_publish_does_not_expose_success(self):
         real_replace = os.replace
 
@@ -201,6 +213,33 @@ class IntradayApiStorageTest(unittest.TestCase):
         self.assertEqual(namespace["result"], namespace["reloaded_result"])
         self.assertEqual(len(namespace["result"]["fills"]), 2)
         self.assertGreater(display.call_count, 10)
+
+    def test_expiry_policy_closes_at_open_and_round_trips(self):
+        self.policy["rollover_action"] = "close_at_expiry_open"
+        self.policy["rollover"][0]["expiry"] = "2026-03-09"
+        self.policy_path.write_text(json.dumps(self.policy), encoding="utf-8")
+        raw_path = self.root / "VN30F1M.json"
+        payload = json.loads(raw_path.read_bytes())
+        payload["c"][202] = 100
+        raw_path.write_text(json.dumps(payload), encoding="utf-8")
+        bundle = capture_bundle(self.root / "raw", {s: self.root / f"{s}.json" for s in ("VN30F1M", "VNINDEX")})
+        manifest = json.loads(prepare_dataset(bundle, self.store).read_bytes())
+        request = {**self.payload, "end_date": "2026-03-09", "dataset_version": manifest["dataset_version"]}
+        response = self.client.post("/api/backtests", json=request)
+        self.assertEqual(response.status_code, 201, response.text)
+        result = response.json()
+        self.assertEqual(len(result["fills"]), 2)
+        self.assertEqual(result["fills"][-1]["fill_time"], "2026-03-09T09:00:00+07:00")
+        self.assertEqual(result["fills"][-1]["fill_price"], "99.800000")
+        self.assertEqual(result["trades"][0]["close_reason"], "SCHEDULED_EXIT")
+        self.assertIsNone(result["open_position"])
+        self.assertEqual(self.client.get(f"/api/backtests/{result['metadata']['run_id']}").json(), result)
+        repeat = self.client.post("/api/backtests", json=request).json()
+        self.assertEqual(repeat["summary"], result["summary"])
+        self.assertEqual(repeat["equity_history"], result["equity_history"])
+        del self.policy["rollover"][0]["expiry"]
+        self.policy_path.write_text(json.dumps(self.policy), encoding="utf-8")
+        self.assertIn("ROLLOVER_EXPIRY_REQUIRED", self.client.post("/api/backtests", json=request).text)
 
     def test_reference_rollover_keeps_position_without_forced_sell(self):
         self.policy["rollover"] = [

@@ -1,3 +1,8 @@
+> **Cập nhật 25/09/2026:** VN30F1M với policy `close_at_expiry_open` đóng toàn bộ
+> tại Open đầu phiên đáo hạn, hủy pending cũ và không entry trong ngày đó.
+> Phí/slippage giữ nguyên; policy `hold` cũ vẫn đọc/chạy được. Các mô tả hold
+> bên dưới thuộc baseline trước quyết định này; HPG không thay đổi.
+>
 > **Xác nhận 17/09/2026:** User chốt giữ rule CANSLIM, dùng VN30F1M thay HPG,
 > giữ VN-Index cho R1 và mô hình tiền normalized như baseline.
 > **Cập nhật 18/09:** strategy/execution chính dùng 5 phút, 1D chỉ hỗ trợ.
@@ -5,6 +10,16 @@
 > = Open + 5 phút, kể cả ATC. Map tham khảo được user cho phép, giữ vị thế.
 > Source intraday đã implement/test fixture; report thật còn thiếu history.
 > Xem [plan hiện hành](../plans/technical-plan.md).
+
+## Tham số theo lần chạy — 26/09/2026
+
+Theo yêu cầu tổng quát hóa API, các chu kỳ/ngưỡng dưới đây là bộ mặc định v0.
+Người gọi có thể truyền các giá trị riêng qua `strategy_params`; công thức,
+thứ tự đánh giá và thời điểm khớp giữ nguyên. Không truyền tham số thì dùng đúng
+bộ mặc định. Giá trị được kiểm tra và lưu riêng từng lần chạy, không sửa cấu hình
+chung. Danh sách và giới hạn được công bố tại `GET /api/strategies/canslim_breakout_v0`.
+Tham số tăng chu kỳ chỉ làm tăng lịch sử cần thiết; thiếu lịch sử vẫn chưa đánh giá
+được, không tự lùi báo cáo. Xem [đặc tả API](../design/backtest-api-specification.md).
 
 ## Mapping đã xác nhận trong checklist — 18/09
 

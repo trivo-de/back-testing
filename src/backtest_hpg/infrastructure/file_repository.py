@@ -151,8 +151,8 @@ def validate_policy(policy: dict, rows: dict[str, list[dict]], config: RunConfig
     """Require a static calendar and complete roll map; never infer them from prices."""
     if policy.get("schema_version") != 1 or policy.get("timezone") != "Asia/Ho_Chi_Minh":
         raise ValueError("POLICY_SCHEMA_INVALID")
-    if policy.get("rollover_action") != "hold":
-        raise ValueError("ROLLOVER_ACTION_MUST_BE_HOLD")
+    if policy.get("rollover_action") not in ("hold", "close_at_expiry_open"):
+        raise ValueError("ROLLOVER_ACTION_UNSUPPORTED")
     days = [date.fromisoformat(value) for value in policy.get("trading_dates", [])]
     if not days or any(a >= b for a, b in zip(days, days[1:])):
         raise ValueError("TRADING_CALENDAR_REQUIRED")
@@ -196,6 +196,13 @@ def validate_policy(policy: dict, rows: dict[str, list[dict]], config: RunConfig
         start, end = map(date.fromisoformat, (segment["start"], segment["end"]))
         if start > end or not isinstance(segment.get("contract"), str) or not segment["contract"].strip():
             raise ValueError("ROLLOVER_MAP_INVALID")
+        if policy["rollover_action"] == "close_at_expiry_open":
+            try:
+                expiry = date.fromisoformat(segment.get("expiry", ""))
+            except (ValueError, TypeError):
+                raise ValueError("ROLLOVER_EXPIRY_REQUIRED") from None
+            if expiry != end:
+                raise ValueError("ROLLOVER_EXPIRY_MISMATCH")
         parsed.append((start, end))
     if any(a[1] >= b[0] for a, b in zip(parsed, parsed[1:])):
         raise ValueError("ROLLOVER_MAP_OVERLAP_OR_ORDER")
@@ -255,6 +262,10 @@ class FileRunRepository:
                         "start": values[0].trading_date.isoformat() if values else None,
                         "end": values[-1].closed_at.isoformat() if values else None,
                     } for symbol, values in warmup.items()}}
+        if policy["rollover_action"] == "close_at_expiry_open":
+            metadata.update(rollover_action=policy["rollover_action"],
+                            expiry_dates=[segment["expiry"] for segment in policy["rollover"]])
+            metadata["assumptions"]["rollover"] = "close at expiry session Open; reject prior pending; no entry on expiry date; no price adjustment"
         run_id = uuid4()
         _publish_json(self.store / "runs" / f"{run_id}.json", {"schema_version": 1, "status": "running"})
         return run_id, DatasetSnapshot(metadata, tuple(bars), tuple(market))

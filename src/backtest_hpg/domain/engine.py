@@ -43,6 +43,7 @@ def run_engine(
     on_execution: ExecutionFeedback | None = None,
     support_bars: Sequence[Bar] = (),
     record_start: date | None = None,
+    flat_dates: frozenset[date] = frozenset(),
 ) -> BacktestResult:
     """Execute pending signals at Open, then evaluate new signals after Close.
 
@@ -84,6 +85,17 @@ def run_engine(
         raw_open = decimal(bar.open)
         if raw_open <= 0:
             raise ValueError("Open must be > 0")
+        if trading_day(bar.trading_date) in flat_dates:
+            if pending is not None:
+                signal_date, signal = pending
+                orders.append(OrderResult(signal_date, signal.side, "REJECTED", "SCHEDULED_FLAT_DAY"))
+                if on_execution is not None:
+                    on_execution(signal, orders[-1], None)
+                pending = None
+            if portfolio.position is not None:
+                signal = FixedSignal("SELL", reason="SCHEDULED_EXIT")
+                signal_records.append(SignalRecord(bar.trading_date, signal.side, signal.reason, signal.details))
+                pending = (bar.trading_date, signal)
         if pending is not None:
             signal_date, signal = pending
             fill_price = raw_open * (1 + slippage) if signal.side == "BUY" else raw_open * (1 - slippage)
@@ -125,6 +137,8 @@ def run_engine(
             support_index += 1
         # ponytail: prefix copies cost O(n^2) over a run; use bounded read-only views if history scale requires it.
         signal = signal_provider(DecisionContext(tuple(completed), tuple(available_support), portfolio))
+        if trading_day(bar.trading_date) in flat_dates:
+            signal = None
         if signal is not None:
             if signal.side not in ("BUY", "SELL"):
                 raise ValueError("signal side must be BUY or SELL")

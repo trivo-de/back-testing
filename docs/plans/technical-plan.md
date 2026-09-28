@@ -1,12 +1,26 @@
 # Kế hoạch kỹ thuật backtest VN30F1M
 
-Cập nhật quyết định scope: 18/09/2026.
+**Ngoại lệ riêng cho VN30F1M chạy CANSLIM v0 ngày 25/09:** user chọn giữ strategy 5 phút và
+lùi ngày bắt đầu, không giảm window 200/65/50. Kỳ của bản v0 này: **25/03–15/09/2026**.
+Bundle hiện có đủ warm-up trước đầu phiên 25/03: 245 nến VN30F1M và 240 nến
+VNINDEX (18–24/03). SMA200 đủ lần đầu 24/03 lúc 09:55 UTC+7; API nhận ngày
+nên chọn phiên tiếp theo để toàn kỳ đủ điều kiện đánh giá. Validation tĩnh
+coverage/session/rollover đã pass cả warm-up và report. Cập nhật contract,
+runbook và default notebook, rồi kiểm tra API thật/reload/determinism và notebook.
+Giữ nguyên raw, dataset version, policy, strategy và accounting normalized.
+Ngoại lệ này chỉ áp dụng VN30F1M v0 trong bản chạy nói trên.
+
+Đã cập nhật contract/runbook/notebook. Kỳ mới chạy bundle thật qua TestClient:
+5.831 evaluated, 0 unevaluable; POST/GET/chart, đọc lại bằng app/repository mới,
+lặp summary/evaluations/equity và mọi code cell notebook pass. Evidence/run_id
+tại [runbook](vn30f1m-backtest-runbook.md#evidence-kỳ-mới--25092026).
+Không coi kiểm tra in-process là browser/Docker hoặc server HTTP acceptance.
 
 Ưu tiên: source → API → `notebooks/backtest-results.ipynb` chạy backtest
 VN30F1M 5 phút, chưa cần agent. Đầu việc, dependency, field user xác nhận và
 acceptance tại [checklist local hiện hành](../../.agents/checklists/vn30f1m-backtest-checklist.md).
 
-**State hiện hành sau triển khai:** Open/Close/available_at và rollover giữ vị
+**State tại mốc triển khai 18/09 (trước đổi kỳ 25/09):** Open/Close/available_at và rollover giữ vị
 thế đã được user chốt, runtime policy tĩnh đã có. Intraday engine/repository/API
 và notebook implement, tests dùng fixture synthetic. Hai JSON mới đã import
 raw + lossless Parquet; source chưa đủ report 15/03–15/09 vì thiếu 16–17/03
@@ -143,16 +157,16 @@ luồng runtime nằm trong [System Design](../design/system-design.md).
 
 ## 2. Bộ tài liệu kỹ thuật
 
-| Tài liệu                                       | Câu hỏi được trả lời                                            |
-| ------------------------------------------------ | ---------------------------------------------------------------------- |
-| [SRS](../requirements/software-requirements-specification.md)     | Hệ thống phải làm gì và điều kiện nghiệm thu là gì?        |
-| [CANSLIM Rule](../strategies/canslim-rules.md)                   | Baseline hiện có là gì và phần nào chưa áp dụng được?            |
-| [System Design](../design/system-design.md)                 | Các module, dependency, state transition và runtime flow là gì?    |
-| [VN30F1M Data Contract](../data/vn30f1m/data-contract.md) | Input/output 5 phút, session, validation và provenance ra sao?   |
-| [Kế hoạch Parquet + JSON](#6-persistence-parquet-json)    | MVP lưu/reload dataset và run local thế nào?                       |
-| [Web UI Specification](../design/web-ui-specification.md)   | UI tối thiểu và ranh giới chart Phase 3 là gì?                   |
+| Tài liệu                                                      | Câu hỏi được trả lời                                            |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| [SRS](../requirements/software-requirements-specification.md)    | Hệ thống phải làm gì và điều kiện nghiệm thu là gì?        |
+| [CANSLIM Rule](../strategies/canslim-rules.md)                   | Baseline hiện có là gì và phần nào chưa áp dụng được?     |
+| [System Design](../design/system-design.md)                      | Các module, dependency, state transition và runtime flow là gì?    |
+| [VN30F1M Data Contract](../data/vn30f1m/data-contract.md)        | Input/output 5 phút, session, validation và provenance ra sao?       |
+| [Kế hoạch Parquet + JSON](#6-persistence-parquet-json)         | MVP lưu/reload dataset và run local thế nào?                       |
+| [Web UI Specification](../design/web-ui-specification.md)        | UI tối thiểu và ranh giới chart Phase 3 là gì?                   |
 | [Accounting Test Cases](../testing/hpg/accounting-test-cases.md) | Cash, fee, P/L và equity kỳ vọng bằng số cụ thể là bao nhiêu? |
-| [Backtest Plan v0](backtest-plan-v0.md)           | Phase, lịch và output quản lý công việc là gì?                 |
+| [Backtest Plan v0](backtest-plan-v0.md)                          | Phase, lịch và output quản lý công việc là gì?                 |
 
 ## 3. Kiến trúc tổng thể
 
@@ -184,19 +198,19 @@ Luồng xử lý chi tiết, state machine và interface nằm tại
 
 ## 4. Thành phần cần triển khai
 
-| Thành phần           | Trách nhiệm                                                         | Không được làm                                 |
-| ---------------------- | --------------------------------------------------------------------- | --------------------------------------------------- |
-| Data loader/validator  | Đọc snapshot, chuẩn hóa field, kiểm tra schema và chronology    | Tự điền dữ liệu thiếu hoặc tìm nguồn khác |
-| Indicator calculator   | Chỉ tính indicator của strategy đã duyệt                           | Dùng bar tương lai hoặc coi thiếu dữ liệu là pass |
-| Strategy evaluator     | Áp dụng đúng strategy version đã duyệt, tạo signal và reason       | Tạo fill hoặc sửa portfolio                      |
-| Execution simulator    | Thực thi timing/slippage/cost theo specification đã duyệt          | Khớp tại Close đã tạo signal                     |
-| Portfolio ledger       | Cash, position, fees, realized/unrealized P/L, equity                 | Sửa lịch sử sau khi đã ghi                     |
-| Result mapper          | Signals, orders/fills, trades, equity history và summary             | Suy diễn giao dịch từ signal                     |
-| Application service    | Điều phối một run và trả lỗi có cấu trúc                    | Chứa rule nghiệp vụ                              |
-| Persistence repository | Lưu/reload snapshot Parquet và result JSON theo version/run ID | Công bố partial run hoặc đưa I/O vào domain core |
-| Artifact storage       | Lưu raw snapshot/export lớn theo content hash                       | Làm system of record cho query history             |
-| API adapter            | Validate request, gọi application service, serialize response        | Gọi trực tiếp từng module domain                |
-| Web UI                 | Hiển thị summary, equity, fills và trade history từ API           | Tự tính signal, fill hoặc P/L khác backend      |
+| Thành phần           | Trách nhiệm                                                         | Không được làm                                       |
+| ---------------------- | --------------------------------------------------------------------- | --------------------------------------------------------- |
+| Data loader/validator  | Đọc snapshot, chuẩn hóa field, kiểm tra schema và chronology    | Tự điền dữ liệu thiếu hoặc tìm nguồn khác       |
+| Indicator calculator   | Chỉ tính indicator của strategy đã duyệt                        | Dùng bar tương lai hoặc coi thiếu dữ liệu là pass |
+| Strategy evaluator     | Áp dụng đúng strategy version đã duyệt, tạo signal và reason | Tạo fill hoặc sửa portfolio                            |
+| Execution simulator    | Thực thi timing/slippage/cost theo specification đã duyệt         | Khớp tại Close đã tạo signal                         |
+| Portfolio ledger       | Cash, position, fees, realized/unrealized P/L, equity                 | Sửa lịch sử sau khi đã ghi                           |
+| Result mapper          | Signals, orders/fills, trades, equity history và summary             | Suy diễn giao dịch từ signal                           |
+| Application service    | Điều phối một run và trả lỗi có cấu trúc                    | Chứa rule nghiệp vụ                                    |
+| Persistence repository | Lưu/reload snapshot Parquet và result JSON theo version/run ID      | Công bố partial run hoặc đưa I/O vào domain core    |
+| Artifact storage       | Lưu raw snapshot/export lớn theo content hash                       | Làm system of record cho query history                   |
+| API adapter            | Validate request, gọi application service, serialize response        | Gọi trực tiếp từng module domain                      |
+| Web UI                 | Hiển thị summary, equity, fills và trade history từ API           | Tự tính signal, fill hoặc P/L khác backend            |
 
 ## 5. Event order — 5 phút, session/mapping còn chờ chốt
 
@@ -223,12 +237,12 @@ User duyệt hướng P0/P1 của review đa chiến lược, yêu cầu thực 
 P2 chỉ xét khi có upgrade. Lượt này không mở rộng registry/API thành sản phẩm
 đa chiến lược, không thêm strategy giao dịch hoặc dataset mới.
 
-| Bước | Phạm vi và acceptance | Trạng thái sau implementation |
-| --- | --- | --- |
-| R0 | Chốt contract bên dưới, chạy baseline 29 tests; pin response CANSLIM trước refactor cho closed/open/pending/rejected và intraday | Done |
-| R1 | Hàm `sma/highest/lowest` độc lập với config; snapshot/depth/window thuộc CANSLIM; validate bounds/window/finite values, thiếu history trả None | Done |
-| R2 | Engine nhận sizing callable và execution feedback; pivot/stop thuộc state CANSLIM theo run; ledger chỉ giữ tiền/quantity/cost; CANSLIM response giữ tương thích | Done |
-| R3–R5 | Registry/requirements/params, multi-strategy API, adapter/UI và production strategy thứ hai | Not started; ngoài lượt R0–R2 |
+| Bước | Phạm vi và acceptance                                                                                                                                                   | Trạng thái sau implementation   |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| R0     | Chốt contract bên dưới, chạy baseline 29 tests; pin response CANSLIM trước refactor cho closed/open/pending/rejected và intraday                                  | Done                              |
+| R1     | Hàm`sma/highest/lowest` độc lập với config; snapshot/depth/window thuộc CANSLIM; validate bounds/window/finite values, thiếu history trả None                   | Done                              |
+| R2     | Engine nhận sizing callable và execution feedback; pivot/stop thuộc state CANSLIM theo run; ledger chỉ giữ tiền/quantity/cost; CANSLIM response giữ tương thích | Done                              |
+| R3–R5 | Registry/requirements/params, multi-strategy API, adapter/UI và production strategy thứ hai                                                                             | Not started; ngoài lượt R0–R2 |
 
 Supported matrix của proof: CANSLIM giữ rule/data/sizing đã duyệt; fixed-signal
 fixture dùng primary bars, quantity cố định, không pivot/stop/VNINDEX. Fixture
@@ -264,14 +278,14 @@ chỉ thay bằng bounded view nếu profiling history lớn yêu cầu.
 Quyết định 18/09/2026 thay kế hoạch pickle 15/09; chưa migrate hoặc nghiệm thu
 runtime. Parquet là định dạng bảng, không thay chức năng transaction của database.
 
-| Dữ liệu | Hướng lưu |
-| --- | --- |
-| Raw nguồn | Giữ nguyên file để đối chiếu provenance |
-| OHLCV đã validate, snapshot VN30F1M/VN-Index | Parquet bất biến theo dataset version |
-| Manifest | JSON: schema version, dataset ID/version, hash, nguồn, extraction time, số dòng, khoảng thời gian, raw/derived paths và hashes |
-| Config, summary, complete result nhỏ | JSON theo run ID, giữ DTO và precision hiện có |
-| Fills, trades, equity history lớn | Tách Parquet khi kích thước thực tế cần; chưa bắt buộc |
-| Session, trạng thái run, tool-call audit của agent | SQLite hoặc PostgreSQL còn chờ chốt theo nhu cầu query/concurrency |
+| Dữ liệu                                             | Hướng lưu                                                                                                                         |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Raw nguồn                                            | Giữ nguyên file để đối chiếu provenance                                                                                       |
+| OHLCV đã validate, snapshot VN30F1M/VN-Index        | Parquet bất biến theo dataset version                                                                                              |
+| Manifest                                              | JSON: schema version, dataset ID/version, hash, nguồn, extraction time, số dòng, khoảng thời gian, raw/derived paths và hashes |
+| Config, summary, complete result nhỏ                 | JSON theo run ID, giữ DTO và precision hiện có                                                                                   |
+| Fills, trades, equity history lớn                    | Tách Parquet khi kích thước thực tế cần; chưa bắt buộc                                                                     |
+| Session, trạng thái run, tool-call audit của agent | SQLite hoặc PostgreSQL còn chờ chốt theo nhu cầu query/concurrency                                                              |
 
 Demo local bắt đầu bằng Parquet + JSON; chưa cần database server mới. Agent đọc
 qua tool/backend, không nạp toàn bộ bảng giá vào context LLM.

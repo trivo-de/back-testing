@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from ..application.run_backtest import BacktestService
 from ..config import API
-from .backtest_routes import create_backtest_router
+from .backtest_routes import create_backtest_router, create_strategy_router
 from .market_routes import create_market_router
 
 
@@ -30,6 +30,7 @@ def create_app(service: BacktestService | None = None, *, snapshot_path: Path | 
     app = FastAPI(title=API.title, version=API.version)
     if service is not None:
         app.include_router(create_backtest_router(service))
+        app.include_router(create_strategy_router())
     web = Path(__file__).parents[1] / "web"
     static_files = PreviewStaticFiles if preview else WebStaticFiles
     app.mount("/static", static_files(directory=web), name="static")

@@ -9,7 +9,9 @@ trong `data/<dataset>/`.
 
 ## Design
 
+- [Đặc tả API backtest — tham số v0/v1](design/backtest-api-specification.md)
 - [System Design](design/system-design.md)
+- [CANSLIM v1 execution/accounting — đặc tả một phần](design/canslim-v1-execution-accounting.md)
 - [Database Schema](design/database-schema.md)
 - [Project Structure](design/project-structure.md)
 - [Web UI Specification](design/web-ui-specification.md)
@@ -17,15 +19,18 @@ trong `data/<dataset>/`.
 ## Strategy
 
 - [CANSLIM Rules](strategies/canslim-rules.md)
+- [CANSLIM v1 — rule đã chốt và mục còn trống](strategies/canslim-v1-rules.md)
 
 ## Data contracts
 
 - [HPG data contract](data/hpg/data-contract.md)
 - [VN30F1M data contract](data/vn30f1m/data-contract.md)
+- [VN30 futures data contract v1](data/vn30f1m/data-contract-v1.md)
 
 ## Testing
 
 - [HPG accounting test cases](testing/hpg/accounting-test-cases.md)
+- [CANSLIM v1 test cases — khung S10 chưa điền](testing/vn30f1m/canslim-v1-test-cases.md)
 
 ## Plans and status
 

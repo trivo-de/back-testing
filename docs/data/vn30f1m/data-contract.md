@@ -3,28 +3,38 @@
 > **Storage 18/09/2026:** [Parquet + JSON](../../plans/technical-plan.md#6-persistence-parquet-json) thay target pickle trong kế hoạch bên dưới. Raw nguồn giữ nguyên; SQLite/PostgreSQL cho metadata/session agent còn chờ chốt. Nội dung implementation/mốc cũ giữ để truy vết; chưa migrate code hoặc nghiệm thu storage mới.
 
 
-Cập nhật: 18/09/2026. Contract dữ liệu này không tự quyết định strategy.
+Cập nhật: 25/09/2026. Contract dữ liệu này không tự quyết định strategy.
+
+**Quyết định mới 25/09 — đóng trước đáo hạn:** policy mới dùng
+`rollover_action=close_at_expiry_open`. Tại Open đầu phiên đáo hạn, hủy pending
+cũ và đóng toàn bộ vị thế với phí/slippage hiện hành; không entry trong ngày
+đáo hạn. Ngày sau tiếp tục đánh giá bình thường. Lịch phải có expiry hợp lệ;
+thiếu bar/session vẫn fail validation. Quyết định này thay `hold` cho run mới;
+policy và run lịch sử không sửa. Các ghi chú hold bên dưới là scope cũ.
 
 **Xác nhận 18/09:** strategy/execution chính dùng VN30F1M 5 phút; 1D chỉ hỗ trợ,
 không thay bằng backtest daily. Ưu tiên source → API → notebook, chưa cần agent.
 C01–C03 đã chốt window 200/65/50 nến 5 phút; C04 đã chốt Open + 5 phút,
 ATC và price points; user cho phép rollover map tham khảo, giữ vị thế qua đáo hạn.
 Policy tại [runtime-policy.json](runtime-policy.json). Source/API/notebook đã
-implement và test fixture; report 15/03–15/09 còn thiếu lịch sử trước 18/03.
+implement và test fixture; riêng VN30F1M chạy CANSLIM v0 ngày 25/09 dùng report 25/03–15/09.
 Thứ tự triển khai tại [Technical Plan](../../plans/technical-plan.md).
 
 ## Snapshot warm-up mới được phép lấy — C06
 
 ### JSON user cung cấp và assumption C04/C06 mới
 
-- Kỳ báo cáo đã chốt: **15/03/2026–15/09/2026**, inclusive theo UTC+7.
+- Kỳ báo cáo riêng bản chạy VN30F1M v0 đã điều chỉnh: **25/03/2026–15/09/2026**,
+  inclusive theo UTC+7, giữ window 200/65/50.
 - `data/30f1m_5&from=1772323200&to=1789516800.json`: 6.076 rows,
   18/03 09:00–15/09 14:45; SHA-256
   `0a64c66974969070dbcdf811be40e3c6400d541f5b2834430c3fac188c4e9557`.
 - `data/VNINDEX_5&from=1772323200&to=1789516800.json`: 6.227 rows,
   18/03 09:15–15/09 15:05; SHA-256
   `c5810cdcf96b42936c9d403092ee3361fcd694d108c269f1adb1af5098a5def6`.
-- Cả hai có 124 ngày quan sát, không có warm-up trước report start. Source
+- Cả hai có 124 ngày quan sát. Warm-up 18–24/03 trước kỳ mới gồm 245 nến
+  VN30F1M và 240 nến VNINDEX. SMA200 đủ lần đầu tại 24/03 09:55 UTC+7;
+  chọn 25/03 vì request theo ngày, cần đủ input ngay từ đầu phiên. Source
   extraction time chưa xác nhận: null; import time là field riêng.
 - Timestamp đầu bar; bar_close_at/available_at = bar_open_at + 5 phút là
   assumption user chốt cho mô phỏng, áp dụng cả record ATC 14:45. Không bỏ
@@ -37,9 +47,9 @@ Thứ tự triển khai tại [Technical Plan](../../plans/technical-plan.md).
   ngày inclusive và contract. Không lấy observed dates làm lịch đã xác nhận.
 - Runtime policy có nguồn lịch nghỉ HNX và map user cung cấp. User chốt
   rollover_action=hold, cho phép mã tham khảo như assumption; không forced exit.
-- User xác nhận giữ report 15/03–15/09 và bổ sung intraday history. Với input
-  hiện tại actual POST /api/backtests trả 422 MISSING_EXPECTED_BAR ngày 16/03.
-  Không đổi range, fill hoặc dùng daily để tạo run thành công. Runbook tại
+- Kỳ cũ 15/03–15/09 từng trả 422 MISSING_EXPECTED_BAR ngày 16/03. User đã
+  cho phép lùi report; kỳ mới qua validation coverage/session/rollover với
+  bundle hiện có, không cần bổ sung daily hoặc sửa raw/policy. Runbook tại
   [API/notebook](../../plans/vn30f1m-backtest-runbook.md).
 - Thiếu policy/map, expected bar/session hoặc range map không phủ input thì
   fail validation trước core. Không pin dữ liệu thiếu thành run thành công.

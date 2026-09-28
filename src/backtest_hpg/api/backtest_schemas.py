@@ -1,7 +1,7 @@
 # HTTP request schemas for backtest endpoints.
 from datetime import date
 from decimal import Decimal
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from ..config import BACKTEST, CANSLIM_BREAKOUT_V0
 
 class RunRequest(BaseModel):
@@ -14,6 +14,8 @@ class RunRequest(BaseModel):
     start_date: date
     end_date: date
     strategy_id: str = CANSLIM_BREAKOUT_V0.strategy_id
+    strategy_version: str | None = Field(default=None, min_length=1)
+    strategy_params: dict[str, JsonValue] = Field(default_factory=dict)
     initial_cash: Decimal = Field(gt=0)
     fee_rate: Decimal = Field(ge=0)
     slippage_rate: Decimal = Field(ge=0, lt=1)

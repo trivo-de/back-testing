@@ -87,7 +87,7 @@ class PostgresRunRepository:
         if config.symbol != "HPG":
             raise ValueError("PostgreSQL baseline supports HPG only; use the intraday application")
         run_id = uuid4()
-        strategy_parameters = get_strategy_parameters(config.strategy_id)
+        strategy_parameters = get_strategy_parameters(config.strategy_id, config.strategy_params, config.strategy_version)
         with psycopg.connect(self.dsn, row_factory=dict_row) as connection:
             version = connection.execute(
                 """SELECT dv.*, d.name AS dataset_name
@@ -105,7 +105,7 @@ class PostgresRunRepository:
                 (
                     run_id, version["id"], config.strategy_id, BACKTEST.engine_version,
                     config.start_date, config.end_date, serialize_result(config.initial_cash),
-                    Jsonb({"symbol": config.symbol, "fee_rate": serialize_result(config.fee_rate), "slippage_rate": serialize_result(config.slippage_rate)}),
+                    Jsonb(serialize_result(config.to_dict())),
                     Jsonb(strategy_parameters),
                 ),
             )
@@ -231,6 +231,7 @@ class PostgresRunRepository:
                     "start_date": header["start_date"], "end_date": header["end_date"], "strategy_id": header["strategy_id"],
                     "initial_cash": header["initial_cash"], "fee_rate": Decimal(header["config"]["fee_rate"]),
                     "slippage_rate": Decimal(header["config"]["slippage_rate"]),
+                    **{key: header["config"][key] for key in ("strategy_version", "strategy_params") if key in header["config"]},
                 },
                 "strategy_parameters": header["strategy_parameters"],
             },

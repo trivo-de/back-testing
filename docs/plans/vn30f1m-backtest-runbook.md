@@ -1,6 +1,12 @@
 # VN30F1M 5 phút — chạy API và notebook
 
-Kỳ báo cáo user chốt: **15/03/2026–15/09/2026**. Không cần agent hoặc PostgreSQL
+**Policy mới 25/09:** `close_at_expiry_open` đóng toàn bộ tại Open đầu phiên
+đáo hạn, hủy pending cũ, không entry trong ngày đáo hạn. Signal audit là
+`SCHEDULED_EXIT`; phí/slippage áp dụng như SELL thường. Chạy lại notebook để
+tạo run mới; các kết quả/ghi chú `hold` trước đó vẫn là lịch sử, không rewrite.
+
+Runbook này dành cho bản chạy **VN30F1M — CANSLIM v0** đã điều chỉnh kỳ ngày 25/09:
+**25/03/2026–15/09/2026**. Không cần agent hoặc PostgreSQL
 cho app intraday. App HPG cũ vẫn có composition root riêng.
 
 ## 1. Dependencies và import offline
@@ -15,13 +21,11 @@ Manifest pin cả hai raw hashes và Parquet hashes. Raw files user giữ nguyê
 artifact chuẩn hóa nằm trong `data/backtest-store/`, được Git ignore. Giá/volume
 trong Parquet dùng chuỗi Decimal; timestamp Unix int64 giữ nguyên.
 
-Bundle hiện tại chỉ có **18/03–15/09**, không đủ kỳ báo cáo đã chốt và không có
-warm-up trước kỳ. File/query name bắt đầu 01/03 không chứng minh payload có range
-đó. User đã chọn bổ sung lịch sử 5 phút cho cả hai symbol, không đổi report range.
-Range đề xuất bổ sung: **01/03–17/03**, gồm hết phiên 17/03. Cần ít nhất 200
-VNINDEX closes và 65 VN30F1M bars trước phiên đầu report, cùng các phiên 16–17/03.
-Sau khi có file bổ sung, kiểm tra provenance/overlap và tạo version mới trước run;
-không tự thay dataset_version trong manifest hiện có.
+Bundle hiện tại có **18/03–15/09**. User cho phép lùi report, giữ window
+200/65/50 nến 5 phút. Dùng 18–24/03 làm warm-up: 245 nến VN30F1M và 240 nến
+VNINDEX. SMA200 đủ lần đầu 24/03 lúc 09:55 UTC+7; chọn đầu phiên 25/03 vì API
+nhận start_date theo ngày. Không cần daily, không sửa raw/version hoặc policy.
+File/query name bắt đầu 01/03 không chứng minh payload có range đó.
 
 ## 2. Static policy
 
@@ -60,7 +64,7 @@ local paths vào HTTP request. Request example với bundle hiện tại:
   "dataset_id": "vndirect-vn30f1m-vnindex-5m-20260301-20260915",
   "dataset_version": "52ca9fbe68ce00878bf9cc10d65a088e47eb80b84086f4ec26deb67a1f4e4f9b",
   "symbol": "VN30F1M",
-  "start_date": "2026-03-15",
+  "start_date": "2026-03-25",
   "end_date": "2026-09-15",
   "strategy_id": "canslim_breakout_v0",
   "initial_cash": "10000000",
@@ -69,9 +73,9 @@ local paths vào HTTP request. Request example với bundle hiện tại:
 }
 ```
 
-Với input hiện tại expected response là **422 MISSING_EXPECTED_BAR** ngày 16/03,
-không phải result thành công. Sau khi bổ sung đầy đủ, version trong request phải
-pin bundle mới. Không dùng fixture output làm acceptance dữ liệu thật.
+Kỳ mới đã pass validation coverage/session/rollover, gồm cả warm-up. Kỳ cũ
+15/03 vẫn bị từ chối do thiếu expected bars ngày 16/03; không nới validator.
+Không dùng fixture output làm acceptance dữ liệu thật.
 
 Result thêm `evaluations` và `evaluation_status`: EVALUABLE, PARTIALLY_EVALUABLE
 hoặc UNEVALUABLE. No-trade không đồng nghĩa đủ input. Signal/equity tại Close,
@@ -102,3 +106,15 @@ Tests intraday dùng fixture synthetic cho timing, independent market samples,
 causality, determinism, HTTP, Parquet/Decimal round-trip, reload/restart, missing
 policy/roll map/bar và interrupted publish. Các kết quả đó không chứng minh
 snapshot hiện tại đã đủ report coverage; evidence runtime ghi ở checklist local.
+
+### Evidence kỳ mới — 25/09/2026
+
+- Bundle thật đã pin ở trên; report 25/03–15/09, warm-up VN30F1M/VNINDEX:
+  245/240 nến. `evaluation_status=EVALUABLE`: 5.831 evaluated, 0 unevaluable.
+- Run `9330a365-78d6-40a7-a010-929750f2e8e1`: 1 fill, 0 closed trades;
+  không ép đóng vị thế cuối kỳ. Kết quả lưu tại file store local.
+- FastAPI TestClient chạy POST/GET/chart; tạo app/repository mới đọc lại khớp
+  result. Run lặp khớp summary/evaluations/equity/evaluation_status.
+- Tất cả code cell notebook chạy với bundle thật qua TestClient, POST và GET
+  cùng run_id khớp nhau. Đây là kiểm tra in-process; chưa kiểm tra server HTTP
+  độc lập hoặc giao diện browser/Docker trong lượt này.

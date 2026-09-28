@@ -83,7 +83,7 @@ def result_to_dict(
         open_position = {"entry_fill_id": fill_ids[(entry_fill.fill_date, "BUY")], "quantity": position.quantity, "entry_price": position.entry_price, "entry_pivot": details.get("entry_pivot"), "stop_reference": details.get("stop_reference"), "market_value": last_snapshot.market_value, "unrealized_pnl": last_snapshot.unrealized_pnl}
 
     response = {
-        "metadata": {**metadata, "run_id": run_id, "engine_version": BACKTEST.engine_version, "label": BACKTEST.result_label, "config": config, "strategy_parameters": strategy_parameters},
+        "metadata": {**metadata, "run_id": run_id, "engine_version": BACKTEST.engine_version, "label": BACKTEST.result_label, "config": config.to_dict(), "strategy_parameters": strategy_parameters},
         "signals": signals,
         "orders": orders,
         "fills": fills,
@@ -92,7 +92,7 @@ def result_to_dict(
         "equity_history": [{"trading_date": point.trading_date, **point.snapshot.__dict__} for point in result.equity_history],
         "summary": result.summary.__dict__,
     }
-    if config.symbol == "VN30F1M":
+    if result.evaluations:
         unevaluable = sum(row["status"] == "UNEVALUABLE" for row in result.evaluations)
         response["evaluations"] = result.evaluations
         response["evaluation_status"] = {

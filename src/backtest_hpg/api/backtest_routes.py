@@ -1,8 +1,10 @@
 from uuid import UUID
 from fastapi import APIRouter, HTTPException
+from pydantic import ValidationError
 from ..application.contracts import RunConfig
 from ..application.run_backtest import BacktestService
 from ..config import API
+from ..domain.strategies import describe_strategy, strategies
 from .backtest_schemas import RunRequest
 
 def create_backtest_router(service: BacktestService) -> APIRouter:
@@ -15,6 +17,12 @@ def create_backtest_router(service: BacktestService) -> APIRouter:
 
         try:
             return service.run(RunConfig(**request.model_dump()))
+        except ValidationError as error:
+            raise HTTPException(status_code=422, detail=[
+                {"loc": ["body", "strategy_params", *item["loc"]], "type": item["type"],
+                 "msg": "Tham số không hợp lệ", "reason": item["msg"]}
+                for item in error.errors(include_input=False, include_context=False)
+            ]) from error
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         except (OSError, KeyError, TypeError) as error:
@@ -52,5 +60,24 @@ def create_backtest_router(service: BacktestService) -> APIRouter:
         if chart is None:
             raise HTTPException(404, detail={"code": "RUN_NOT_FOUND"})
         return chart
+
+    return router
+
+
+def create_strategy_router() -> APIRouter:
+    router = APIRouter(prefix="/api/strategies", tags=["strategies"])
+
+    @router.get("")
+    def list_strategies():
+        return [{"strategy_id": key, "strategy_version": value.version,
+                 "required_capabilities": sorted(value.required_capabilities)}
+                for key, value in strategies.items()]
+
+    @router.get("/{strategy_id}")
+    def get_strategy_schema(strategy_id: str, version: str | None = None):
+        try:
+            return describe_strategy(strategy_id, version)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     return router
