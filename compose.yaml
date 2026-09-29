@@ -5,12 +5,15 @@ services:
       db:
         condition: service_healthy
     environment:
+      BACKTEST_LEGACY_BACKEND: postgres
+      BACKTEST_STORE_PATH: /app/backtest-store
       DATABASE_URL: "host=db port=5432 dbname=${POSTGRES_DB:-backtest_hpg} user=${POSTGRES_USER:-postgres} password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
     ports:
       - "${APP_PORT:-8000}:8000"
     restart: unless-stopped
     volumes:
       - ./data:/app/data:ro
+      - ./data/backtest-store:/app/backtest-store
 
   db:
     image: postgres:16-alpine

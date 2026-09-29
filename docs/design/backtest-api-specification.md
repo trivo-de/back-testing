@@ -1,8 +1,13 @@
 # Đặc tả API backtest — nhận dữ liệu và định nghĩa chiến lược trực tiếp
 
-Cập nhật: 28/09/2026. **Thiết kế đầu vào mới; source hiện vẫn dùng API đã triển
-khai ngày 26/09.** Phần 8 ghi rõ khác biệt. Lượt này sửa đặc tả, chưa triển khai
-bộ đọc quy tắc JSON hoặc thay luồng chạy hiện tại.
+Cập nhật: 28/09/2026. **U03 đã có schema và POST /api/backtests/validate** để
+kiểm tra payload JSON, tham chiếu và cây điều kiện. U04 đã tách khớp lệnh/tính
+tiền khỏi vòng lặp. U05/U06 đã nối tiếp nhận JSON, ánh xạ dữ liệu và lưu/đọc kết
+quả hợp đồng. U07/U08 (29/09) đã nối bộ thực thi cây JSON và giao diện nhập trực tiếp.
+POST /api/backtests chỉ nhận payload JSON trực tiếp. CANSLIM v0 và v1 đều được
+biểu diễn bằng `trade_data`, `market_data`, `strategy`, `execution`, `accounting`
+và `initial_cash`; không chọn nhánh chạy bằng strategy ID.
+Xem [phạm vi U07–U08](../plans/engine-upgrade-u07-u08.md); U09 nghiệm thu dữ liệu thật còn riêng.
 
 ## 1. Quyết định về đầu vào
 
@@ -20,8 +25,8 @@ bộ đọc quy tắc JSON hoặc thay luồng chạy hiện tại.
 - Lưu kết quả hoặc mẫu là việc riêng; không cần tạo mẫu trước khi thử chiến lược.
 
 Các yêu cầu bắt buộc ID/phiên bản và chọn chiến lược đã đăng ký trong thiết kế
-ngày 26/09 không còn là hướng thiết kế API mới. Source cũ chưa được đổi theo
-quyết định này; lịch sử đã lưu vẫn cần đọc được.
+ngày 26/09 không còn là hướng thiết kế API mới. Bộ kiểm tra và lệnh chạy mới
+không dùng các ID đó; lịch sử kết quả cũ vẫn đọc được.
 
 ## 2. Phân biệt tham số và định nghĩa chiến lược
 
@@ -55,17 +60,17 @@ JSON như khi gọi thư viện trong cùng tiến trình.
 
 ## 3. Các nhóm dữ liệu trong yêu cầu mới
 
-Tên nhóm dưới đây là đề xuất kỹ thuật, chưa phải mẫu JSON gửi chạy được.
+Các nhóm dưới đây gửi được tới API kiểm tra; chưa gửi chạy được vào API v0.
 
-| Nhóm       | Nội dung                                                                                                              |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------- |
-| trade_data  | Bắt buộc: chuỗi OHLCV giao dịch trực tiếp bằng JSON, khung thời gian, đơn vị và thời gian khả dụng      |
-| market_data | VNINDEX tham chiếu bằng JSON; bắt buộc nếu chiến lược sử dụng, có thể bỏ hoặc null nếu không sử dụng |
-| strategy    | Định nghĩa chỉ báo/quy tắc/hành động và các tham số dùng trong lần thử                                  |
-| report      | Tùy chọn: start_date/end_date để chọn kỳ báo cáo; bỏ hoặc null thì xét toàn khoảng trade_data            |
-| execution   | Quy tắc khớp, trượt giá và xử lý phiên/đáo hạn áp dụng cho lần chạy                                    |
-| initial_cash | Số vốn ban đầu của tài khoản backtest; giữ ngoài accounting |
-| accounting | Hệ số hợp đồng, tỷ lệ ký quỹ, thuế suất và phí sàn/bù trừ/môi giới |
+| Nhóm        | Nội dung                                                                                                              |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| trade_data   | Bắt buộc: chuỗi OHLCV giao dịch trực tiếp bằng JSON, khung thời gian, đơn vị và thời gian khả dụng      |
+| market_data  | VNINDEX tham chiếu bằng JSON; bắt buộc nếu chiến lược sử dụng, có thể bỏ hoặc null nếu không sử dụng |
+| strategy     | Định nghĩa chỉ báo/quy tắc/hành động và các tham số dùng trong lần thử                                  |
+| report       | Tùy chọn: start_date/end_date để chọn kỳ báo cáo; bỏ hoặc null thì xét toàn khoảng trade_data            |
+| execution    | Quy tắc khớp, trượt giá và xử lý phiên/đáo hạn áp dụng cho lần chạy                                    |
+| initial_cash | Số vốn ban đầu của tài khoản backtest; giữ ngoài accounting                                                   |
+| accounting   | Mô hình tính tiền: `normalized` dùng tỷ lệ phí theo giá trị; `contract` dùng hệ số hợp đồng, ký quỹ, thuế và phí |
 
 Cách tính tiền được xác định rõ từ cấu hình tài khoản, không suy từ tên chiến
 lược. VN30F1M chạy mô hình v0 vẫn khác mô hình tiền hợp đồng của v1.
@@ -73,19 +78,15 @@ Thông số phái sinh tuân theo [tài liệu tính tiền v1](canslim-v1-execu
 
 ### 3.1. Payload minh họa
 
-Đây là **mẫu cấu trúc đề xuất**, chưa gửi chạy được vào API hiện tại. Giá và khối
+Mẫu này gửi được tới **POST /api/backtests/validate**, chưa gửi chạy được. Giá và khối
 lượng là dữ liệu giả minh họa; hai nến không đủ để chạy các chỉ báo v0/v1.
 `strategy` dưới đây biểu diễn CANSLIM v1 theo cách `all`/`any`: SMA20, EMA5,
 BB(20,2), MACD, MFI14; vào long/short và thoát theo stop/TP/trailing/thời gian.
 Các con số lấy từ [rule v1](../strategies/canslim-v1-rules.md). Tên trường/nút mới
 là thiết kế biểu diễn, chưa có bộ thực thi tương ứng trong source.
 
-`trade_data.daily_bars` và `trade_data.contract_map` đang để mảng rỗng làm chỗ
-điền dữ liệu ngày trước và bảng mã hợp đồng thực theo data contract v1. Khi chạy
-thật phải có đủ đầu vào này và lịch sử 150 nến VNINDEX; không coi mẫu hai nến
-là bộ dữ liệu đủ điều kiện. Lịch phiên và thông số phí/ký quỹ lấy từ cấu hình v1
-đã chốt, không thêm accounting_model vào request. Broker fee 0 trong ví dụ là
-lựa chọn mô phỏng tường minh; vốn demo là 100.000.000 VND.
+contract_map đã có lịch năm 2026 trong payload. Hai nến minh họa chưa đủ
+150 nến VNINDEX khởi tạo. Vốn demo là 100.000.000 VND.
 
 ```json
 {
@@ -94,7 +95,7 @@ lựa chọn mô phỏng tường minh; vốn demo là 100.000.000 VND.
     "resolution": "5",
     "bars": [
       {
-        "open_time": 1773800100,
+        "time": 1773800100,
         "open": "1300.0",
         "high": "1302.0",
         "low": "1299.0",
@@ -102,7 +103,7 @@ lựa chọn mô phỏng tường minh; vốn demo là 100.000.000 VND.
         "volume": 1000
       },
       {
-        "open_time": 1773800400,
+        "time": 1773800400,
         "open": "1301.0",
         "high": "1303.0",
         "low": "1300.0",
@@ -110,14 +111,26 @@ lựa chọn mô phỏng tường minh; vốn demo là 100.000.000 VND.
         "volume": 1200
       }
     ],
-    "daily_bars": [],
-    "contract_map": []
+    "contract_map": [
+      {"contract_code": "VN30F2601", "expiry_date": "2026-01-15", "expiry_unix": 1768410000},
+      {"contract_code": "VN30F2602", "expiry_date": "2026-02-13", "expiry_unix": 1770915600},
+      {"contract_code": "VN30F2603", "expiry_date": "2026-03-19", "expiry_unix": 1773853200},
+      {"contract_code": "VN30F2604", "expiry_date": "2026-04-16", "expiry_unix": 1776272400},
+      {"contract_code": "VN30F2605", "expiry_date": "2026-05-21", "expiry_unix": 1779296400},
+      {"contract_code": "VN30F2606", "expiry_date": "2026-06-18", "expiry_unix": 1781715600},
+      {"contract_code": "VN30F2607", "expiry_date": "2026-07-16", "expiry_unix": 1784134800},
+      {"contract_code": "VN30F2608", "expiry_date": "2026-08-20", "expiry_unix": 1787158800},
+      {"contract_code": "VN30F2609", "expiry_date": "2026-09-17", "expiry_unix": 1789578000},
+      {"contract_code": "VN30F2610", "expiry_date": "2026-10-15", "expiry_unix": 1791997200},
+      {"contract_code": "VN30F2611", "expiry_date": "2026-11-19", "expiry_unix": 1795021200},
+      {"contract_code": "VN30F2612", "expiry_date": "2026-12-17", "expiry_unix": 1797440400}
+    ]
   },
   "market_data": {
     "resolution": "5",
     "bars": [
       {
-        "open_time": 1773800100,
+        "time": 1773800100,
         "open": "1249.0",
         "high": "1252.0",
         "low": "1248.0",
@@ -125,7 +138,7 @@ lựa chọn mô phỏng tường minh; vốn demo là 100.000.000 VND.
         "volume": 10000
       },
       {
-        "open_time": 1773800400,
+        "time": 1773800400,
         "open": "1250.0",
         "high": "1253.0",
         "low": "1249.0",
@@ -148,13 +161,7 @@ lựa chọn mô phỏng tường minh; vốn demo là 100.000.000 VND.
         "signal_period": 9,
         "histogram": "line"
       },
-      "mfi14": {"type": "MFI", "source": "market_data", "period": 14},
-      "daily_pivot": {
-        "type": "CLASSIC_PIVOT",
-        "source": "trade_data.daily_bars",
-        "session": "previous_completed",
-        "match": "contract_code"
-      }
+      "mfi14": {"type": "MFI", "source": "market_data", "period": 14}
     },
     "entry": {
       "require_flat": true,
@@ -192,12 +199,12 @@ lựa chọn mô phỏng tường minh; vốn demo là 100.000.000 VND.
     "exit": {
       "targets": {
         "LONG": {
-          "TP1": {"max": [{"ref": "daily_pivot.r1"}, {"add": [{"ref": "position.entry_price"}, 6]}]},
-          "TP2": {"max": [{"ref": "daily_pivot.r2"}, {"add": [{"ref": "position.entry_price"}, 12]}]}
+          "TP1": {"add": [{"ref": "position.entry_price"}, 6]},
+          "TP2": {"add": [{"ref": "position.entry_price"}, 12]}
         },
         "SHORT": {
-          "TP1": {"min": [{"ref": "daily_pivot.s1"}, {"sub": [{"ref": "position.entry_price"}, 6]}]},
-          "TP2": {"min": [{"ref": "daily_pivot.s2"}, {"sub": [{"ref": "position.entry_price"}, 12]}]}
+          "TP1": {"sub": [{"ref": "position.entry_price"}, 6]},
+          "TP2": {"sub": [{"ref": "position.entry_price"}, 12]}
         }
       },
       "intrabar": {
@@ -262,9 +269,10 @@ lựa chọn mô phỏng tường minh; vốn demo là 100.000.000 VND.
       }
     }
   },
-  "execution": {"entry_fill_at": "next_open", "slippage_rate": "0"},
+  "execution": {"entry_fill_policy": "next_open", "slippage_rate": "0"},
   "initial_cash": "100000000",
   "accounting": {
+    "model": "contract",
     "contract_multiplier": "100000",
     "margin_rate": "0.17",
     "pit_rate": "0.001",
@@ -280,8 +288,8 @@ symbol của chuỗi này. Nó là dữ liệu tham chiếu, không phải tài 
 Ví dụ giữ OHLCV giả minh họa của VNINDEX để thể hiện trường market_data trong API.
 CANSLIM v1 bắt buộc market_data: SMA/EMA/BB/MACD lấy market_data.close,
 MFI lấy HLCV market_data; các so sánh Close ở entry cũng dùng VNINDEX.
-Giá khớp, stop, trailing và P/L vẫn lấy hợp đồng trong trade_data. Daily pivot
-lấy từ trade_data.daily_bars để tạo mức giá chốt lời trên chính hợp đồng.
+Giá khớp, stop, trailing và P/L lấy hợp đồng trong trade_data.
+TP1/TP2 bằng giá khớp vào cộng 6/12 điểm khi long, trừ 6/12 điểm khi short.
 Giá truyền bằng chuỗi thập phân; bộ tiếp nhận mới cần chuyển thành Decimal và
 kiểm tra số hữu hạn. Đây không phải định dạng raw VNDIRECT mà validate_bars()
 hiện đang nhận; không coi hai định dạng đã dùng thay nhau được.
@@ -309,8 +317,8 @@ bắt người gọi lặp lại trong mỗi payload:
   SMA N mẫu, BB dùng `ddof=0`, MFI xử lý dòng tiền bằng 0 theo rule đã chốt.
   Chu kỳ, nguồn dữ liệu và hệ số BB vẫn truyền được. `histogram: "line"` vẫn
   giữ tường minh vì đây là cách biểu diễn riêng đã chọn cho v1.
-- Kiểm tra dữ liệu: thiếu đầu vào thì không đánh giá; lịch sử chỉ báo v1 lấy VNINDEX; daily pivot tách theo
-  hợp đồng và loại nến theo data contract, không biến chúng thành cờ bật/tắt.
+- Kiểm tra dữ liệu: thiếu đầu vào thì không đánh giá; lịch sử chỉ báo v1 lấy VNINDEX; dữ liệu
+  khớp lệnh tách theo hợp đồng và loại nến theo data contract, không biến chúng thành cờ bật/tắt.
 - Vào lệnh: đánh giá sau Close; khung giờ gồm cả hai đầu.
 - Stop/target: tạo từ giá khớp vào, có hiệu lực ngay sau khớp; target giữ
   nguyên cho vị thế, mỗi mức chốt một lần. Gap stop khớp Open, gap target
@@ -339,8 +347,6 @@ quả để chạy lại được; không chỉ lưu payload rút gọn.
   MACD line = EMA12 − EMA26; histogram bằng line; signal EMA9 chỉ hiển thị.
   MFI theo TP=(H+L+C)/3 và dòng tiền TP×Volume; TP không đổi thì bỏ dòng đó;
   hai dòng cùng bằng 0 ưu tiên MFI=50 trước hai quy tắc một dòng bằng 0.
-- CLASSIC_PIVOT là thành phần dự kiến: P=(H+L+C)/3, R1=2P−L, R2=P+(H−L),
-  S1=2P−H, S2=P−(H−L). Chỉ lấy daily phiên trước của cùng hợp đồng đã khả dụng.
 - `entry` và `exit` bắt buộc. `all` yêu cầu tất cả điều kiện đạt; `any` yêu cầu
   ít nhất một điều kiện đạt. Giá trị là mảng không rỗng, có thể lồng các nhóm.
   Chuỗi trong any tham chiếu conditions trong cùng nhóm, không tra mẫu đã lưu.
@@ -350,11 +356,11 @@ quả để chạy lại được; không chỉ lưu payload rút gọn.
   cùng chuỗi VNINDEX. Số thập phân cần đọc bằng Decimal, không tính qua float.
 - `entry.conditions.LONG/SHORT` là hai nhánh AND. any xét hai hướng; cả hai đạt
   thì không giao dịch và ghi SIGNAL_CONFLICT. Chỉ xét khi flat, không pending,
-  đủ input kể cả daily pivot, trong giờ tín hiệu gồm hai đầu. LONG mở mua, SHORT
+  đủ dữ liệu chỉ báo, trong giờ tín hiệu gồm hai đầu. LONG mở mua, SHORT
   mở bán; không tăng thêm vị thế hoặc đổi hướng/vào lại trong nến vừa thoát.
-- `exit.targets` tạo tại entry fill: long max(R1, entry+6), max(R2, entry+12);
-  short min(S1, entry−6), min(S2, entry−12). Không cập nhật lại target mỗi nến.
-  Thiếu daily pivot thì không mở lệnh. Target/stop active ngay sau Open fill.
+- `exit.targets` tạo tại entry fill: long entry+6, entry+12;
+  short entry−6, entry−12. Không cập nhật lại target mỗi nến.
+  Target/stop active ngay sau Open fill.
 - `exit.intrabar` chỉ xét khi còn vị thế: protective stop kết hợp stop ban đầu
   cách entry 6 điểm và trailing theo mức chặt hơn (long max, short min).
   Gap stop khớp Open, chạm trong nến khớp stop; gap target vẫn khớp target.
@@ -385,9 +391,9 @@ quả để chạy lại được; không chỉ lưu payload rút gọn.
 - Bộ tiếp nhận kiểm tra toán tử/tham chiếu rồi đánh giá trực tiếp cây JSON;
   không chạy chuỗi bằng eval và không yêu cầu đã lưu mẫu chiến lược.
 
-Đây mới là biểu diễn được chọn trong đặc tả; chưa triển khai bộ tiếp nhận này.
-Các cấu trúc protective_stop/target_touch/risk_and_margin là khai báo cho các
-thành phần thực thi cần bổ sung; chưa phải phép toán engine hiện tại hiểu được.
+U03 đã kiểm tra các khai báo này và tính được cây phép toán trên giá trị đã
+khả dụng. U04 có khớp stop/target/trailing riêng; việc chuyển toàn bộ strategy
+JSON thành hành vi chạy, gồm risk_and_margin, đã triển khai ở U08.
 
 ### Thời gian và đơn vị: trường bắt buộc/tùy chọn
 
@@ -400,17 +406,17 @@ chuỗi; ký hiệu dữ liệu ngày không có nghĩa engine đã hỗ trợ m
 
 | Trường            | Bắt buộc                                          | Khi không truyền                                                                                 |
 | ------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| bars[].open_time    | Có                                                 | Không suy thời điểm mở nến                                                                   |
-| bars[].close_time   | Không, với nến 5 phút theo quy ước đã chốt | open_time + 300 giây                                                                              |
+| bars[].time         | Có                                                 | Thời điểm mở nến                                                                             |
+| bars[].close_time   | Không, với nến 5 phút theo quy ước đã chốt | `time + 300` giây                                                                             |
 | bars[].available_at | Không, với cùng quy ước mô phỏng             | Bằng close_time sau khi xác định thời điểm đóng                                           |
 | timestamp_unit      | Không                                              | "s": Unix giây; truyền "ms" nếu dữ liệu dùng mili giây, không tự đoán qua độ dài số |
 | timezone            | Không trong phạm vi thị trường Việt Nam       | "Asia/Ho_Chi_Minh", dùng xác định ngày báo cáo và giờ phiên                              |
 | price_unit          | Không cho thử logic trên giá                    | Không tự gán đơn vị hoặc nhân/chia giá; giữ giá trị đầu vào                         |
 
-Ví dụ payload trên bỏ các trường tùy chọn này. Với open_time=1773800100,
+Ví dụ payload trên bỏ các trường tùy chọn này. Với time=1773800100,
 hệ thống xác định close_time=1773800400 và available_at=1773800400. Nếu khai báo
 timestamp_unit="ms", quy đổi về cùng đơn vị nội bộ trước khi cộng thời lượng.
-Khi cung cấp thời gian tường minh, kiểm tra open_time < close_time <= available_at;
+Khi cung cấp thời gian tường minh, kiểm tra time < close_time <= available_at;
 không ghi đè thời gian công bố đã có bằng giả định close_time.
 
 available_at tự tính là giả định mô phỏng, không phải bằng chứng thời điểm nguồn
@@ -476,8 +482,6 @@ v1 chỉ vì API không bắt nhập symbol ở cấp chung.
   Mỗi nến thị trường chỉ là một mẫu chỉ báo, không nhân bản để khớp số nến trade.
   Thiếu market_data mà quy tắc có tham chiếu thì báo lỗi; thiếu lịch sử cần thiết
   thì chưa đánh giá được, không tự coi điều kiện thị trường đã đạt.
-- VNINDEX không thay dữ liệu daily của hợp đồng. V1 dùng chỉ báo 5 phút VNINDEX, đồng thời vẫn cần OHLC ngày trước của cùng hợp đồng để tính pivot.
-  `market_data` không tự được dùng thay đầu vào daily đó.
 - Nến intraday phải xác định thời điểm mở/đóng và thời điểm dữ liệu được phép
   sử dụng. Có thể khai báo quy ước chung nếu áp dụng đồng nhất theo hợp đồng dữ
   liệu; không mặc định mọi chuỗi có cùng thời gian khả dụng.
@@ -557,34 +561,84 @@ lý phiên bản dữ liệu/chiến lược. Chỉ lưu mã băm mà bỏ nội
 Giữ run_id để đọc lại kết quả là độc lập với việc bắt nhập dataset_id/strategy_id.
 Không sửa kết quả v0 đã lưu. Các trường kết quả tài khoản phái sinh theo đặc tả v1.
 
-## 7. Phần cần định nghĩa tiếp
+## 7. Phạm vi cây công thức hiện tại
 
-- Các phép so sánh, all/any, tham chiếu, entry/exit và tham số quản trị v1 đã
-  biểu diễn tại mục 3.1. Cần triển khai kiểm tra cấu trúc và các thành phần có
-  trạng thái (stop/target/trailing/sizing), không chỉ bộ tính boolean.
+- Các phép so sánh, all/any, tham chiếu, entry/exit đã có bộ kiểm tra và hàm
+  tính cây công thức. Stop/target/trailing, sổ tiền, dữ liệu và trạng thái đều
+  được nối trong cùng luồng chạy JSON.
 - Phép giao cắt chỉ bổ sung khi có chiến lược cần; v1 hiện dùng so sánh.
-- Ánh xạ mẫu chuỗi giá tại mục 3.1 vào bộ tiếp nhận và cấu trúc bảng phụ v1
-  (daily hợp đồng, lịch, ký quỹ) theo hợp đồng dữ liệu.
+- Mã hợp đồng lấy từ `trade_data.contract_map`; lịch phiên lấy từ policy máy chủ;
+  ký quỹ, phí và hệ số hợp đồng lấy từ `accounting`.
 
-Đây là các quyết định về cách biểu diễn, không yêu cầu người dùng chốt lại quy
-tắc CANSLIM v1 đã có. Chưa thêm một ngôn ngữ công thức hoặc cơ chế thực thi mã
-Python từ HTTP trong lượt sửa tài liệu này.
+Các việc còn lại là triển khai những quyết định đã có, không yêu cầu người dùng
+chốt lại rule. Cây chỉ nhận các toán tử đã liệt kê; không thực thi mã Python từ HTTP.
 
-## 8. Source hiện có và phần chưa triển khai
+## 8. Source hiện có
 
-Hiện POST /api/backtests vẫn nhận:
+`POST /api/backtests` chỉ nhận payload JSON trực tiếp:
 
 ```text
-dataset_id, dataset_version, symbol, start_date, end_date,
-strategy_id, strategy_version, strategy_params, initial_cash, fee_rate, slippage_rate
+trade_data, market_data, strategy, execution, accounting, initial_cash, report
 ```
 
-API hiện tra danh sách đăng ký trước khi kiểm tra tham số. Đã hỗ trợ tham số riêng
-của v0 và lưu/đọc lại chúng; chưa nhận dữ liệu JSON trực tiếp hoặc định nghĩa
-chiến lược mới ngay trong yêu cầu. GET /api/strategies hiện trả các chiến lược
-đã đăng ký, không phải bộ kiểm tra mọi chiến lược do người dùng gửi.
-Request hiện cũng chưa có `trade_data` hoặc `market_data`; VNINDEX đang được
-nạp từ bộ dữ liệu đã lưu. Hai trường mới ở mục 3 là thiết kế cần triển khai.
+CANSLIM v0 dùng `accounting.model=normalized`, BUY/SELL và sizing
+`fixed_fractional`; CANSLIM v1 dùng `accounting.model=contract`, LONG/SHORT và
+sizing `risk_and_margin`. Cả hai đều được kiểm tra và chạy từ cây `strategy` trong
+request, không tra `strategy_id`, `strategy_version` hoặc `dataset_version`.
+`GET /api/strategies` chỉ là danh mục mẫu cũ; sự tồn tại trong danh mục không phải
+điều kiện chạy. Payload manifest cũ bị HTTP 422 tại endpoint POST.
+
+### API kiểm tra đã triển khai ở U03
+
+`POST /api/backtests/validate` nhận payload mục 3.1, không truy cập kho mẫu,
+không chạy backtest và không lưu kết quả. Thành công trả HTTP 200:
+
+```text
+status: STRUCTURE_VALID
+runnable: true
+data_status: RESOLVED
+pending: []
+data: kỳ báo cáo, số nến trước kỳ, map hợp đồng, các khoảng thiếu dữ liệu
+payload: nội dung đã kiểm tra, kèm mặc định công khai như contract_multiplier
+```
+
+Sai cấu trúc, toán tử, tham chiếu, kiểu, thứ tự nến, OHLC, thời gian hoặc thiếu
+market/volume được rule sử dụng: HTTP 422. Trường không được hỗ trợ cũng bị
+từ chối, không bị bỏ qua. Xem schema đầy đủ tại `/docs`, endpoint `/validate`.
+Chỉ báo được kiểm tra khai báo ở đây; hàm tính SMA/EMA/BB/MACD/MFI đã có trong indicators.py.
+U05 đã ánh xạ thời gian, độ phủ map, lịch phiên và các khoảng thiếu dữ liệu.
+`STRUCTURE_VALID` không xác nhận đủ 150 mẫu chỉ báo liên tục hoặc đủ điều kiện
+giao dịch; bộ thực thi xét trạng thái đó tại từng nến. Không ghép theo số thứ tự dòng.
+
+### Chạy và đọc kết quả sau U05/U06
+
+- `POST /api/backtests`: chỉ nhận payload JSON trực tiếp, không cần ID/phiên bản;
+  thực thi cây quy tắc, trả HTTP 201 và lưu kết quả. `accounting.model=normalized`
+  chạy BUY/SELL với `fixed_fractional`; `accounting.model=contract` chạy
+  LONG/SHORT/CLOSE với `risk_and_margin`. Tổ hợp chưa hỗ trợ trả HTTP 422.
+- `GET /api/backtests` và `GET /api/backtests/{run_id}`: đọc kết quả cũ nguyên
+  dạng và kết quả hợp đồng có `schema_version: 2`.
+- `GET /api/backtests/{run_id}/input`: trả payload đầy đủ đã áp mặc định, lịch
+  đã dùng và thông tin dữ liệu của lần chạy mới, giúp tái lập kết quả.
+- `GET /api/backtests/{run_id}/chart`: kết quả mới lấy giá từ bản input đã lưu,
+  không cần dataset_version; có cả bars và market_bars. Giao diện U07 đọc các chuỗi này.
+
+Kết quả phiên bản 2 gồm metadata, signals, orders, fills, trades, open_position,
+equity_history và summary. Strategy details chỉ xuất khi có. Mỗi fill có
+position_id/order_id riêng, direction, contract_code và từng khoản exchange_fee,
+clearing_fee, broker_fee, pit; mỗi lần đóng giữ entry_fill_id/exit_fill_id.
+Equity có required_margin, available_cash, margin_breach. Không có pivot mặc định.
+`evaluations` ghi thời điểm Close, trạng thái đánh giá, lý do và giá trị chỉ báo
+đã khả dụng. `evaluation_status` tổng hợp số nến thiếu dữ liệu; không có lệnh
+không đồng nghĩa mọi điều kiện đã được đánh giá. `bar_time` trong fill là Open
+của nến chứa lần khớp, dùng gắn mũi tên; `fill_time` giữ quy ước khớp thực tế.
+Metadata lưu input_hash, policy_hash, accounting và đơn vị. Tệp kết quả kèm
+result_hash; hash sai, thiếu input hoặc phiên bản không hỗ trợ trả HTTP 409 khi đọc.
+
+Ứng dụng chung `backtest_hpg.main:app`; `intraday_main:app` là tên tương thích.
+`BACKTEST_LEGACY_BACKEND=file|postgres` chỉ chọn nơi đọc lịch sử cũ; không chọn
+cách chạy CANSLIM v0 cho yêu cầu mới.
+JSON mới dùng `BACKTEST_STORE_PATH`; PostgreSQL không bị chuyển đổi/xóa tự động.
 
 Các kiểm thử từ lượt 26/09 chỉ xác nhận luồng tham số đã triển khai; không chứng
 minh thiết kế ngày 28/09 đã chạy. Phần tham số đó có thể tái sử dụng ở các thành

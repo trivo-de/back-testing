@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Literal
 from .market import BarTime
 
-Side = Literal["BUY", "SELL"]
+Side = Literal["BUY", "SELL", "LONG", "SHORT", "CLOSE"]
 StrategyDetails = tuple[tuple[str, Decimal], ...]
 
 

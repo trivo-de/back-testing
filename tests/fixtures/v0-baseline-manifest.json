@@ -1,0 +1,47 @@
+{
+  "commit": "a496823911fab4dcf370dd745b10c616fc8ae365",
+  "sources": {
+    "src\\backtest_hpg\\__init__.py": "a9cec636ed05f15dbb213159e8d4885fcac02efe9cc139413674da3b69c92dda",
+    "src\\backtest_hpg\\api\\__init__.py": "9dad905cfc81e0e91cfa72360b2d158a62adf55d282335caa2ffa7fa552fda6b",
+    "src\\backtest_hpg\\api\\app.py": "c4bb9ff176d7ce0898103a56e3c0ec26ef68d0bb4dab49d7f3449c8ea659dd88",
+    "src\\backtest_hpg\\api\\backtest_routes.py": "ee83bc15532848d7e9712b2d37c68bba447b9f0d5543932f5a690105d56884c3",
+    "src\\backtest_hpg\\api\\backtest_schemas.py": "e73caf4c440ba19722b7fdeba86d764ccda32d2c94ec5a881886cd0e8d3fbe89",
+    "src\\backtest_hpg\\api\\market_routes.py": "d9c4eff3f506cc79da0c760ff87057e9c6b38028b4b417621e3935efb46924c9",
+    "src\\backtest_hpg\\application\\__init__.py": "ca9b7cf027121474ecee50103f437c4a451a4e5e0c75468b080a1bab706894d0",
+    "src\\backtest_hpg\\application\\contracts.py": "30f4ac0157a7df78709df2964ddf2f02c58d7b552e432753c407724c175726dd",
+    "src\\backtest_hpg\\application\\ports.py": "cb3baeb124b292b2055567a2bee6111b0da0e38dcd34187ca6c2382bf4fb11f8",
+    "src\\backtest_hpg\\application\\result_mapper.py": "dc492e1b560f24a7ebfaed0a2b42c2f7fd79b25e2c3ccc79dfd049c52aa5f2e2",
+    "src\\backtest_hpg\\application\\run_backtest.py": "837357bf5efc165474ad3d1ac3217e02cb5b79c9860121847454fd1f74c3c47c",
+    "src\\backtest_hpg\\chart_main.py": "384734f19a43aad91f9556aa9bed2519b9ef10567cd4e5ad267885bb48fe9aeb",
+    "src\\backtest_hpg\\config.py": "2d6de992e81656b3cd9feef8416a2f44699e3ccff62d820140e07187925ffb21",
+    "src\\backtest_hpg\\domain\\__init__.py": "cb4942afbddcc402188bda406a5aaaf9023541bbcb3c9385f93f98927f83c6f0",
+    "src\\backtest_hpg\\domain\\engine.py": "6449c6fa04ba04db9b82c5fba641a1fc2434886d02b63239047d5a631c496536",
+    "src\\backtest_hpg\\domain\\indicators.py": "5523a675b841071ac77ffe3e951864719be9a410f571108fcd4e87c19c38a935",
+    "src\\backtest_hpg\\domain\\market.py": "923fcd7b570901ac657cf86fe339b3a680fe70e493038b01ff4cd536f92a764e",
+    "src\\backtest_hpg\\domain\\portfolio.py": "83a2ae4e4321833766778b885a1d6427be9dfc5b4d12b2cf54938e64400436aa",
+    "src\\backtest_hpg\\domain\\results.py": "3f2ca11afff4b34379cd327a27ffa63677494f1ca83a4418ef0791af20667f85",
+    "src\\backtest_hpg\\domain\\strategies\\__init__.py": "9e2d78e43d031e592ac777f0458d5ff2cd2a2ed982cce719f07373f7b327d172",
+    "src\\backtest_hpg\\domain\\strategies\\canslim_breakout_v0.py": "505ffd5a1ce7deb54d911999364e252bfff917bf53a4e8b28ea92e1a734afde6",
+    "src\\backtest_hpg\\domain\\trading.py": "869958d19c617e032b7f59082b56ce5b342f9ec3556df630fb24fe2b9cd0767d",
+    "src\\backtest_hpg\\infrastructure\\__init__.py": "caf07a20f578b8abe2e1edcf39d6c9c58f0b299ce1211529c6aa2707608a9609",
+    "src\\backtest_hpg\\infrastructure\\database.py": "3e3158b1917f4c1626386c8fac3caf4df77029a304d071c522b5b426dca9aeec",
+    "src\\backtest_hpg\\infrastructure\\file_repository.py": "04475bbd9aef483b4203463401fea796357ec281d53501eb7c2833fed8a98708",
+    "src\\backtest_hpg\\infrastructure\\market_snapshot.py": "cd706c5449391c17f11d6fc3cf435fcb793e4d5cc762b6ce9249bc37d933f566",
+    "src\\backtest_hpg\\infrastructure\\snapshot_bundle.py": "abde7a732b10065c54f71de9ebc84940336c85784cb07de81eed23fe9870646a",
+    "src\\backtest_hpg\\intraday_main.py": "bd9652de40e069a3e02d724a0466a60108a7994e0967e328933879096acc3c0f",
+    "src\\backtest_hpg\\main.py": "b1ebdf781aeda042741aca3c8622ba8287ca1b750a2d140b2de77203c0f89ec8",
+    "src\\backtest_hpg\\preview_main.py": "3339ae54f084762318f629a7f1bc8ab0598ef0fff76163184ec670d64ae2ea78"
+  },
+  "cases": [
+    {
+      "symbol": "HPG",
+      "input_sha256": "f2e67915a6ae4b3fd120becf4d72336735fc758cb9a38c17cf0d2a6ff177044b",
+      "response_sha256": "2f8e1632ee476503d75f0067f309cd5289d4726dab9092ebc68f7cc717151d5d"
+    },
+    {
+      "symbol": "VN30F1M",
+      "input_sha256": "01a1b4811a883be0b269b12fabe6fc513d779d1988e5fa6a7363b8c3bf435a53",
+      "response_sha256": "55c2bb1fa30a9a27de63049acf818eb2f2db0fc611c45a6e9b49d45891d05add"
+    }
+  ]
+}

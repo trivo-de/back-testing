@@ -1,0 +1,521 @@
+{
+  "trade_data": {
+    "symbol": "VN30F1M",
+    "resolution": "5",
+    "bars": [
+      {
+        "time": 1773800100,
+        "open": "1300.0",
+        "high": "1302.0",
+        "low": "1299.0",
+        "close": "1301.0",
+        "volume": 1000
+      },
+      {
+        "time": 1773800400,
+        "open": "1301.0",
+        "high": "1303.0",
+        "low": "1300.0",
+        "close": "1302.0",
+        "volume": 1200
+      }
+    ],
+    "contract_map": [
+      {
+        "contract_code": "VN30F2601",
+        "expiry_date": "2026-01-15",
+        "expiry_unix": 1768410000
+      },
+      {
+        "contract_code": "VN30F2602",
+        "expiry_date": "2026-02-13",
+        "expiry_unix": 1770915600
+      },
+      {
+        "contract_code": "VN30F2603",
+        "expiry_date": "2026-03-19",
+        "expiry_unix": 1773853200
+      },
+      {
+        "contract_code": "VN30F2604",
+        "expiry_date": "2026-04-16",
+        "expiry_unix": 1776272400
+      },
+      {
+        "contract_code": "VN30F2605",
+        "expiry_date": "2026-05-21",
+        "expiry_unix": 1779296400
+      },
+      {
+        "contract_code": "VN30F2606",
+        "expiry_date": "2026-06-18",
+        "expiry_unix": 1781715600
+      },
+      {
+        "contract_code": "VN30F2607",
+        "expiry_date": "2026-07-16",
+        "expiry_unix": 1784134800
+      },
+      {
+        "contract_code": "VN30F2608",
+        "expiry_date": "2026-08-20",
+        "expiry_unix": 1787158800
+      },
+      {
+        "contract_code": "VN30F2609",
+        "expiry_date": "2026-09-17",
+        "expiry_unix": 1789578000
+      },
+      {
+        "contract_code": "VN30F2610",
+        "expiry_date": "2026-10-15",
+        "expiry_unix": 1791997200
+      },
+      {
+        "contract_code": "VN30F2611",
+        "expiry_date": "2026-11-19",
+        "expiry_unix": 1795021200
+      },
+      {
+        "contract_code": "VN30F2612",
+        "expiry_date": "2026-12-17",
+        "expiry_unix": 1797440400
+      }
+    ]
+  },
+  "market_data": {
+    "resolution": "5",
+    "bars": [
+      {
+        "time": 1773800100,
+        "open": "1249.0",
+        "high": "1252.0",
+        "low": "1248.0",
+        "close": "1250.0",
+        "volume": 10000
+      },
+      {
+        "time": 1773800400,
+        "open": "1250.0",
+        "high": "1253.0",
+        "low": "1249.0",
+        "close": "1251.0",
+        "volume": 12000
+      }
+    ]
+  },
+  "strategy": {
+    "warmup_bars": 150,
+    "indicators": {
+      "sma20": {
+        "type": "SMA",
+        "source": "market_data.close",
+        "period": 20
+      },
+      "ema5": {
+        "type": "EMA",
+        "source": "market_data.close",
+        "period": 5
+      },
+      "bb": {
+        "type": "BB",
+        "source": "market_data.close",
+        "period": 20,
+        "stddev_multiplier": 2
+      },
+      "macd": {
+        "type": "MACD",
+        "source": "market_data.close",
+        "fast_period": 12,
+        "slow_period": 26,
+        "signal_period": 9,
+        "histogram": "line"
+      },
+      "mfi14": {
+        "type": "MFI",
+        "source": "market_data",
+        "period": 14
+      }
+    },
+    "entry": {
+      "require_flat": true,
+      "require_no_pending": true,
+      "signal_windows": [
+        [
+          "09:05",
+          "11:20"
+        ],
+        [
+          "13:05",
+          "14:00"
+        ]
+      ],
+      "conditions": {
+        "LONG": {
+          "all": [
+            {
+              "gt": [
+                {
+                  "ref": "market_data.close"
+                },
+                {
+                  "ref": "sma20"
+                }
+              ]
+            },
+            {
+              "gt": [
+                {
+                  "ref": "ema5"
+                },
+                {
+                  "ref": "sma20"
+                }
+              ]
+            },
+            {
+              "gt": [
+                {
+                  "sub": [
+                    {
+                      "ref": "market_data.close"
+                    },
+                    {
+                      "ref": "bb.upper"
+                    }
+                  ]
+                },
+                0
+              ]
+            },
+            {
+              "lte": [
+                {
+                  "sub": [
+                    {
+                      "ref": "market_data.close"
+                    },
+                    {
+                      "ref": "bb.upper"
+                    }
+                  ]
+                },
+                3
+              ]
+            },
+            {
+              "gt": [
+                {
+                  "ref": "macd.line"
+                },
+                0
+              ]
+            },
+            {
+              "gt": [
+                {
+                  "ref": "macd.line"
+                },
+                {
+                  "ref": "macd.line",
+                  "shift": 1
+                }
+              ]
+            },
+            {
+              "gte": [
+                {
+                  "ref": "mfi14"
+                },
+                55
+              ]
+            }
+          ]
+        },
+        "SHORT": {
+          "all": [
+            {
+              "lt": [
+                {
+                  "ref": "market_data.close"
+                },
+                {
+                  "ref": "sma20"
+                }
+              ]
+            },
+            {
+              "lt": [
+                {
+                  "ref": "ema5"
+                },
+                {
+                  "ref": "sma20"
+                }
+              ]
+            },
+            {
+              "gt": [
+                {
+                  "sub": [
+                    {
+                      "ref": "bb.lower"
+                    },
+                    {
+                      "ref": "market_data.close"
+                    }
+                  ]
+                },
+                0
+              ]
+            },
+            {
+              "lte": [
+                {
+                  "sub": [
+                    {
+                      "ref": "bb.lower"
+                    },
+                    {
+                      "ref": "market_data.close"
+                    }
+                  ]
+                },
+                3
+              ]
+            },
+            {
+              "lt": [
+                {
+                  "ref": "macd.line"
+                },
+                0
+              ]
+            },
+            {
+              "lt": [
+                {
+                  "ref": "macd.line"
+                },
+                {
+                  "ref": "macd.line",
+                  "shift": 1
+                }
+              ]
+            },
+            {
+              "lte": [
+                {
+                  "ref": "mfi14"
+                },
+                45
+              ]
+            }
+          ]
+        }
+      },
+      "any": [
+        "LONG",
+        "SHORT"
+      ],
+      "on_conflict": "SIGNAL_CONFLICT",
+      "reentry": "next_bar_close_after_exit",
+      "pending": {
+        "max_execution_bars": 1,
+        "cross_lunch": false,
+        "cross_cutoff": false,
+        "cross_session": false
+      }
+    },
+    "exit": {
+      "targets": {
+        "LONG": {
+          "TP1": {
+            "add": [
+              {
+                "ref": "position.entry_price"
+              },
+              6
+            ]
+          },
+          "TP2": {
+            "add": [
+              {
+                "ref": "position.entry_price"
+              },
+              12
+            ]
+          }
+        },
+        "SHORT": {
+          "TP1": {
+            "sub": [
+              {
+                "ref": "position.entry_price"
+              },
+              6
+            ]
+          },
+          "TP2": {
+            "sub": [
+              {
+                "ref": "position.entry_price"
+              },
+              12
+            ]
+          }
+        }
+      },
+      "intrabar": {
+        "conditions": {
+          "PROTECTIVE_STOP": {
+            "type": "protective_stop",
+            "distance_points": 6,
+            "trailing": {
+              "activate_after": "TP1_fill",
+              "distance_points": 6,
+              "seed": "TP1_price",
+              "extrema_from": "bar_after_TP1",
+              "update_at": "bar_close",
+              "effective_from": "next_bar",
+              "combine": "tightest",
+              "allow_widening": false
+            },
+            "quantity": "remaining"
+          },
+          "TP1": {
+            "type": "target_touch",
+            "level": "TP1",
+            "quantity": {
+              "if_initial_quantity_eq": 1,
+              "then": "remaining",
+              "else": {
+                "floor": [
+                  {
+                    "div": [
+                      {
+                        "ref": "position.initial_quantity"
+                      },
+                      2
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "TP2": {
+            "type": "target_touch",
+            "level": "TP2",
+            "requires": "TP1_filled",
+            "quantity": "remaining"
+          }
+        },
+        "any": [
+          "PROTECTIVE_STOP",
+          "TP1",
+          "TP2"
+        ],
+        "priority": [
+          "PROTECTIVE_STOP",
+          "TP1",
+          "TP2"
+        ]
+      },
+      "bar_close": {
+        "conditions": {
+          "MARGIN_BREACH": {
+            "lt": [
+              {
+                "ref": "account.equity"
+              },
+              {
+                "ref": "account.required_margin"
+              }
+            ]
+          },
+          "FORCED_EXIT": {
+            "gte": [
+              {
+                "ref": "clock.local_time"
+              },
+              "14:20"
+            ]
+          },
+          "TIME_STOP": {
+            "gte": [
+              {
+                "ref": "position.held_bars"
+              },
+              18
+            ]
+          }
+        },
+        "any": [
+          "MARGIN_BREACH",
+          "FORCED_EXIT",
+          "TIME_STOP"
+        ],
+        "priority": [
+          "MARGIN_BREACH",
+          "FORCED_EXIT",
+          "TIME_STOP"
+        ],
+        "quantity": "remaining",
+        "fill_policy": "next_open"
+      },
+      "flat_by": "14:30",
+      "allow_overnight": false
+    },
+    "sizing": {
+      "type": "risk_and_margin",
+      "risk_fraction": 0.01,
+      "stop_points": 6,
+      "margin_buffer": 1.1,
+      "max_contracts": 5,
+      "pyramiding": false
+    },
+    "daily_limits": {
+      "stop_new_entry": {
+        "any": [
+          {
+            "lte": [
+              {
+                "ref": "day.net_pnl"
+              },
+              {
+                "mul": [
+                  {
+                    "ref": "day.start_equity"
+                  },
+                  -0.02
+                ]
+              }
+            ]
+          },
+          {
+            "gte": [
+              {
+                "ref": "day.entry_fill_count"
+              },
+              3
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "execution": {
+    "entry_fill_policy": "next_open",
+    "slippage_rate": "0"
+  },
+  "initial_cash": "100000000",
+  "accounting": {
+    "model": "contract",
+    "contract_multiplier": "100000",
+    "margin_rate": "0.17",
+    "pit_rate": "0.001",
+    "exchange_fee_per_contract": "2700",
+    "clearing_fee_per_contract": "2550",
+    "broker_fee_per_contract": "0"
+  }
+}

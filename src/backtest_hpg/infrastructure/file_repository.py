@@ -1,6 +1,7 @@
 """Single-process intraday storage with immutable Parquet inputs and atomic JSON."""
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -8,6 +9,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -56,6 +58,9 @@ def _raw_rows(raw: bytes) -> list[dict]:
     validate_bars(payload)
     return [dict(time=values[0], **dict(zip(PRICE_FIELDS, map(str, values[1:]))))
             for values in zip(*(payload[key] for key in ("t", "o", "h", "l", "c", "v")))]
+
+
+# ============================== Legacy dataset and manifest ==============================
 
 
 def prepare_dataset(bundle_path: Path, store: Path) -> Path:
@@ -217,6 +222,42 @@ class FileRunRepository:
     def __init__(self, store: Path, policy_path: Path):
         self.store, self.policy_path = store, policy_path
 
+    # ============================== V1: payload JSON trực tiếp ==============================
+
+    def start_inline(self, payload, policy, data):
+        """Pin the complete request and policy without requiring a registered dataset."""
+        document = {'schema_version': 1, 'payload': payload, 'policy': policy, 'data_metadata': data.metadata}
+        raw = _json_bytes(document)
+        input_hash = hashlib.sha256(raw).hexdigest()
+        path = self.store / 'inputs' / f'{input_hash}.json'
+        if not path.exists(): _publish_bytes(path, raw)
+        if path.read_bytes() != raw: raise ValueError('INPUT_INTEGRITY_ERROR')
+        run_id = uuid4()
+        _publish_json(self.store / 'runs' / f'{run_id}.json', {
+            'schema_version': 2, 'status': 'running', 'input_hash': input_hash})
+        return run_id, input_hash, hashlib.sha256(_json_bytes(policy)).hexdigest()
+
+    def _inline_input(self, input_hash):
+        if not isinstance(input_hash, str) or len(input_hash) != 64 or any(c not in '0123456789abcdef' for c in input_hash):
+            raise ValueError('INPUT_HASH_INVALID')
+        path = self.store / 'inputs' / f'{input_hash}.json'
+        try:
+            raw = path.read_bytes()
+        except FileNotFoundError:
+            raise ValueError('INPUT_ARTIFACT_MISSING') from None
+        if hashlib.sha256(raw).hexdigest() != input_hash: raise ValueError('INPUT_INTEGRITY_ERROR')
+        document = json.loads(raw)
+        if document.get('schema_version') != 1: raise ValueError('INPUT_SCHEMA_UNSUPPORTED')
+        return document
+
+    def get_input(self, run_id):
+        response = self.get_run(run_id)
+        if response is None: return None
+        if response.get('schema_version') != 2: raise ValueError('INLINE_INPUT_NOT_AVAILABLE_FOR_LEGACY_RUN')
+        return self._inline_input(response['metadata']['input_hash'])
+
+    # ============================== Legacy registered dataset ==============================
+
     def start_run(self, config: RunConfig) -> tuple[UUID, DatasetSnapshot]:
         if config.symbol != "VN30F1M" or config.dataset_id != DATASET_ID:
             raise ValueError("INTRADAY_DATASET_NOT_FOUND")
@@ -270,15 +311,34 @@ class FileRunRepository:
         _publish_json(self.store / "runs" / f"{run_id}.json", {"schema_version": 1, "status": "running"})
         return run_id, DatasetSnapshot(metadata, tuple(bars), tuple(market))
 
+    # ============================== Dùng chung: trạng thái và kết quả ==============================
+
     def complete_run(self, run_id: UUID, result, response: dict) -> None:
         if response["metadata"]["run_id"] != str(run_id):
             raise ValueError("RUN_ID_MISMATCH")
+        version = response.get('schema_version', 1)
+        extra = {}
+        if version == 2:
+            # v1: kết quả phải khớp input_hash đã ghim khi bắt đầu chạy.
+            current = json.loads((self.store / 'runs' / f'{run_id}.json').read_bytes())
+            if current.get('status') != 'running' or current.get('input_hash') != response['metadata']['input_hash']:
+                raise ValueError('RUN_INPUT_MISMATCH')
+            self._inline_input(current['input_hash'])
+            extra['input_hash'] = current['input_hash']
+        elif version != 1:
+            raise ValueError('RESULT_SCHEMA_UNSUPPORTED')
         _publish_json(self.store / "runs" / f"{run_id}.json", {
-            "schema_version": 1, "status": "succeeded", "result": response,
+            "schema_version": version, "status": "succeeded", "result": response, **extra,
             "result_hash": hashlib.sha256(_json_bytes(response)).hexdigest(),
         })
 
     def fail_run(self, run_id: UUID, error: Exception) -> None:
+        path = self.store / 'runs' / f'{run_id}.json'
+        current = json.loads(path.read_bytes())
+        if current.get('schema_version') == 2:
+            if current.get('status') != 'running': raise ValueError('RUN_ALREADY_FINALIZED')
+            _publish_json(path, {**current, 'status': 'failed', 'error_type': type(error).__name__})
+            return
         _publish_json(self.store / "runs" / f"{run_id}.json", {
             "schema_version": 1, "status": "failed", "error_type": type(error).__name__,
         })
@@ -288,7 +348,7 @@ class FileRunRepository:
         if not path.exists():
             return None
         value = json.loads(path.read_bytes())
-        if value.get("schema_version") != 1:
+        if value.get("schema_version") not in (1, 2):
             raise ValueError("RESULT_SCHEMA_UNSUPPORTED")
         if value.get("status") not in ("running", "failed", "succeeded"):
             raise ValueError("RESULT_STATUS_INVALID")
@@ -298,6 +358,13 @@ class FileRunRepository:
         if (hashlib.sha256(_json_bytes(response)).hexdigest() != value["result_hash"]
                 or response["metadata"]["run_id"] != str(run_id)):
             raise ValueError("RESULT_INTEGRITY_ERROR")
+        if value['schema_version'] == 2:
+            # Inline runs verify the stored payload without opening a dataset manifest.
+            if response.get('schema_version') != 2 or response['metadata'].get('input_hash') != value.get('input_hash'):
+                raise ValueError('RUN_INPUT_MISMATCH')
+            document = self._inline_input(value['input_hash'])
+            if hashlib.sha256(_json_bytes(document['policy'])).hexdigest() != response['metadata']['policy_hash']:
+                raise ValueError('POLICY_INTEGRITY_ERROR')
         return response
 
     def list_runs(self) -> list[dict]:
@@ -309,6 +376,28 @@ class FileRunRepository:
         if response is None:
             return None
         metadata = response["metadata"]
+        if response.get('schema_version') == 2:
+            # v1 dựng chart từ payload JSON và input_hash.
+            from ..application.inline_data import resolve_inline
+            document = self._inline_input(metadata['input_hash'])
+            payload = copy.deepcopy(document['payload'])
+            # Keep new requests strict on `time`; read the one historical artifact
+            # that used `open_time` without mutating its integrity-pinned JSON.
+            for source in (payload.get('trade_data'), payload.get('market_data')):
+                if source:
+                    for row in source['bars']:
+                        if 'time' not in row and 'open_time' in row:
+                            row['time'] = row['open_time']
+            data = resolve_inline(payload, document['policy'])
+            def chart_rows(rows):
+                return [{'time': int(bar.trading_date.timestamp()), 'open': str(bar.open), 'high': str(bar.high),
+                         'low': str(bar.low), 'close': str(bar.close),
+                         'volume': str(bar.volume) if bar.volume is not None else None,
+                         'close_time': bar.closed_at.isoformat(), 'available_at': bar.available_at.isoformat(),
+                         'contract_code': bar.contract_code}
+                        for bar in rows if data.start_date <= bar.trading_date.astimezone(ZoneInfo(metadata['timezone'])).date() <= data.end_date]
+            return {'metadata': metadata, 'bars': chart_rows(data.bars), 'market_bars': chart_rows(data.market_bars)}
+        # Legacy runs rebuild chart data from the manifest pinned in metadata.
         manifest_path = self.store / "datasets" / f"dataset-{metadata['dataset_version']}.json"
         _, rows = _read_dataset(manifest_path)
         start, end = map(date.fromisoformat, (metadata["config"]["start_date"], metadata["config"]["end_date"]))

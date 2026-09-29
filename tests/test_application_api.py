@@ -59,28 +59,25 @@ class ApplicationApiTest(unittest.TestCase):
             "slippage_rate": "0.002",
         }
 
-    def test_run_list_and_get_use_one_persisted_result(self):
-        created = self.client.post("/api/backtests", json=self.payload)
-        self.assertEqual(created.status_code, 201)
-        result = created.json()
-        run_id = result["metadata"]["run_id"]
-        self.assertEqual(result["summary"]["final_equity"], "10000000.000000")
-        self.assertEqual(result["metadata"]["config"]["fee_rate"], "0.001000")
-        self.assertEqual(result["metadata"]["config"]["slippage_rate"], "0.002000")
+    def test_legacy_result_can_still_be_listed_and_read(self):
+        run_id = uuid4()
+        result = {"metadata": {"run_id": str(run_id)}, "schema_version": 1}
+        self.repository.runs[run_id] = result
         self.assertEqual(self.client.get(f"/api/backtests/{run_id}").json(), result)
         self.assertEqual(self.client.get("/api/backtests").json(), [result])
 
-    def test_invalid_or_missing_run_is_explicit(self):
-        invalid = self.client.post("/api/backtests", json={**self.payload, "symbol": "SSI"})
-        unsupported = self.client.post("/api/backtests", json={**self.payload, "strategy_id": "unknown"})
+    def test_old_run_payload_and_missing_result_are_explicit(self):
+        old = self.client.post("/api/backtests", json=self.payload)
         missing = self.client.get(f"/api/backtests/{uuid4()}")
-        self.assertEqual((invalid.status_code, unsupported.status_code, missing.status_code), (422, 422, 404))
-        self.assertIn("unsupported strategy_id", unsupported.json()["detail"])
+        self.assertEqual((old.status_code, missing.status_code), (422, 404))
+        locations = [item['loc'] for item in old.json()['detail']]
+        self.assertIn(['body', 'dataset_version'], locations)
+        self.assertIn(['body', 'strategy_id'], locations)
 
     def test_minimal_ui_is_served(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("HPG Backtest", response.text)
+        self.assertIn("<title>Backtest</title>", response.text)
 
     def test_chart_endpoint_uses_requested_run_and_reports_errors(self):
         run_id = uuid4()

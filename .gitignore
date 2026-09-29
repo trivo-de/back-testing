@@ -27,3 +27,5 @@ local_only_docs/
 # Local-only agent helpers and generated artifacts
 /.agents/
 AGENTS.md
+
+/.postman/

@@ -149,7 +149,9 @@ riêng liên kết với raw snapshot; không sửa raw hoặc tự bù missing 
 
 ## 5. Chart snapshot triển khai 17/09
 
-`GET /api/market-chart` trả `{metadata, bars}` cho snapshot đã chốt; chưa gắn run
+Snapshot VN30F1M không còn được phục vụ qua trang/API độc lập. Dữ liệu thị trường
+được truyền trong payload backtest (`market_data`) và chỉ hiển thị cùng kết quả run;
+không gắn một snapshot viewer riêng.
 và không trả fills/equity giả. `start`/`end` là ngày ISO optional, lọc inclusive
 theo UTC+7; ngược range/sai ngày trả 422. Khoảng không có bar trả bars rỗng.
 Mỗi bar gồm `time` (Unix seconds nguyên), `open/high/low/close/volume`, giữ nguyên

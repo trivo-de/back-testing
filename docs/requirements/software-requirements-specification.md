@@ -1,5 +1,16 @@
 # Software Requirements Specification — Backtest HPG v0 (legacy baseline)
 
+## Phạm vi nâng cấp đã chốt 28/09/2026 — U01
+
+API mới nhận dữ liệu và cây quy tắc JSON trực tiếp, không yêu cầu mẫu/ID phiên
+bản đã lưu. Giữ kết quả v0 trên HPG daily và VN30F1M 5 phút. V1 giao dịch một
+hợp đồng thực mỗi thời điểm, long/short, tối đa 5 hợp đồng, đóng một phần,
+không khớp một phần lệnh và không qua đêm. Chỉ báo entry dùng VNINDEX;
+TP1/TP2 cách giá khớp vào 6/12 điểm, không cần dữ liệu daily.
+Nhóm accounting cấu hình tiền, vốn ban đầu nằm ngoài. Báo cáo v1 giữ sáu tháng.
+Phạm vi và trạng thái từng tổ hợp tại [U01–U02](../plans/engine-upgrade-u01-u02.md).
+Các mốc và phạm vi cũ bên dưới chỉ mô tả v0, không thay quyết định v1 này.
+
 > **Scope hiện hành 17/09/2026:** VN30F1M 5 phút thay dữ liệu HPG; giữ CANSLIM,
 > VN-Index cho R1 và accounting normalized như baseline theo xác nhận user.
 > **18/09:** strategy/execution chính dùng 5 phút; 1D chỉ hỗ trợ. Mapping indicator,

@@ -66,12 +66,13 @@ export function clearCharts() {
 export function renderCharts(data, metadata, onFillSelect = () => {}) {
     clearCharts();
     const theme = chartTheme();
-    const options = {autoSize: true, ...theme, timeScale: {...theme.timeScale, minBarSpacing: 0.05}};
+    const localTime = value => typeof value === 'number' ? new Intl.DateTimeFormat('vi-VN', {timeZone: metadata.timezone || 'Asia/Ho_Chi_Minh', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'}).format(new Date(value * 1000)) : String(value);
+    const options = {autoSize: true, ...theme, localization: {timeFormatter: localTime}, timeScale: {...theme.timeScale, minBarSpacing: data.intraday ? 0.05 : 1, timeVisible: !!data.intraday, ...(data.intraday ? {tickMarkFormatter: localTime} : {})}};
     priceChart = createChart($('#price-chart'), options);
     const candles = priceChart.addSeries(CandlestickSeries, {
         upColor: '#269982', downColor: '#d95866', borderVisible: false,
         wickUpColor: '#269982', wickDownColor: '#d95866',
-        priceFormat: {type: 'price', precision: 6, minMove: 0.000001},
+        priceFormat: {type: 'price', precision: data.intraday ? 1 : 6, minMove: data.intraday ? .1 : .000001},
         autoscaleInfoProvider: original => {
             const info = original();
             const range = priceChart.timeScale().getVisibleLogicalRange();
@@ -90,9 +91,31 @@ export function renderCharts(data, metadata, onFillSelect = () => {}) {
     markerOutline = markerOutlinePrimitive(candles, priceChart, data.markers);
     priceChart.addSeries(HistogramSeries, {priceFormat: {type: 'volume'}, priceScaleId: ''}, 1).setData(data.volume);
     priceChart.panes()[1].setHeight(100);
-    marketChart = createChart($('#market-chart'), options);
-    marketChart.addSeries(LineSeries, {color: '#667085', title: 'VN-Index Close'}).setData(data.market.map(point => ({time: point.time, value: point.close})));
-    marketChart.addSeries(LineSeries, {color: '#b54708', lineWidth: 2, title: 'SMA200'}).setData(data.market.filter(point => point.sma200 !== null).map(point => ({time: point.time, value: point.sma200})));
+    $('#market-panel').hidden = !data.market.length;
+    $('#market-chart').style.height = '240px';
+    if (data.market.length) {
+        marketChart = createChart($('#market-chart'), options);
+        marketChart.addSeries(LineSeries, {color: '#667085', title: 'Market Close'}).setData(data.market.map(point => ({time: point.time, value: point.close})));
+        if (!data.intraday) marketChart.addSeries(LineSeries, {color: '#b54708', lineWidth: 2, title: 'SMA200'}).setData(data.market.filter(point => point.sma200 != null).map(point => ({time: point.time, value: point.sma200})));
+    }
+    const panes = new Map();
+    const colors = ['#b54708', '#245ea8', '#9c27b0', '#269982'];
+    let color = 0;
+    for (const [name, points] of Object.entries(data.indicators || {})) {
+        const spec = metadata.indicator_specs?.[name.split('.')[0]];
+        if (!spec) continue;
+        const chart = spec.source.startsWith('market_data') ? marketChart : priceChart;
+        if (!chart) continue;
+        let pane = 0;
+        if (['MACD', 'MFI'].includes(spec.type)) {
+            const key = spec.source.split('.')[0] + ':' + spec.type;
+            if (!panes.has(key)) panes.set(key, chart.panes().length);
+            pane = panes.get(key);
+        }
+        chart.addSeries(LineSeries, {title: name, color: colors[color++ % colors.length], lineWidth: 1}, pane).setData(points);
+        if (pane) chart.panes()[pane].setHeight(120);
+    }
+    if (marketChart) $('#market-chart').style.height = `${240 + (marketChart.panes().length - 1) * 120}px`;
     equityChart = createChart($('#equity-chart'), options);
     equityChart.addSeries(LineSeries, {color: '#245ea8'}).setData(data.equity);
     const hideTooltip = () => { $('#fill-tooltip').hidden = true; };
@@ -117,7 +140,13 @@ export function renderCharts(data, metadata, onFillSelect = () => {}) {
     priceChart.subscribeClick(event => onFillSelect(showTooltip(event.hoveredObjectId, event.point)?.fill_id));
     priceChart.subscribeCrosshairMove(event => showTooltip(event.hoveredObjectId, event.point));
     $('#chart-metadata').textContent = JSON.stringify(metadata, null, 2);
-    $('#chart-status').textContent = `${data.candles.length} nến HPG · ${data.markers.length} fills · BUY ↑ / SELL ↓ · SMA200 thuộc VN-Index`;
-    $('#fit-run').onclick = () => {priceChart.timeScale().fitContent(); marketChart.timeScale().fitContent(); equityChart.timeScale().fitContent();};
-    $('#fit-run').click();
+    $('#chart-status').textContent = `${metadata.symbol || 'Giá giao dịch'} · ${metadata.resolution || metadata.timeframe || ''} · ${data.candles.length} nến · ${data.markers.length} lần khớp · Mua ↑ / Bán ↓`;
+    const fitRun = () => {priceChart.timeScale().fitContent(); marketChart?.timeScale().fitContent(); equityChart.timeScale().fitContent();};
+    $('#fit-run').onclick = fitRun;
+    if (data.candles.length > 250) {
+        const last = data.candles.length - 1;
+        priceChart.timeScale().setVisibleLogicalRange({from: last - 249, to: last});
+        marketChart?.timeScale().setVisibleLogicalRange({from: Math.max(0, data.market.length - 250), to: data.market.length - 1});
+        equityChart.timeScale().setVisibleLogicalRange({from: Math.max(0, data.equity.length - 250), to: data.equity.length - 1});
+    } else fitRun();
 }

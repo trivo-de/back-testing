@@ -13,7 +13,8 @@ class PreviewUiTests(unittest.TestCase):
         service = BacktestService(MemoryRepository())
         legacy = TestClient(create_app(service))
         preview = TestClient(create_app(service, preview=True))
-        for route in ('/', '/market-chart'):
+        self.assertEqual(preview.get('/market-chart').status_code, 404)
+        for route in ('/',):
             self.assertNotIn('preview.css', legacy.get(route).text)
             page = preview.get(route)
             self.assertEqual(page.status_code, 200)

@@ -1,7 +1,8 @@
 # CANSLIM v1 — Rule giao dịch phái sinh
 
 Cập nhật: 25/09/2026. Strategy ID: `canslim_breakout_v1`.
-Trạng thái: đã điền các quyết định v1; chưa implement hoặc nghiệm thu.
+Trạng thái 29/09: đã triển khai bằng cây JSON ở U08, kiểm thử dữ liệu tổng hợp;
+chưa nghiệm thu bộ dữ liệu thật sáu tháng (U09). Tên v1 là nhãn mẫu, API mới không cần ID.
 Nội dung được chuyển từ quyết định user cung cấp trong `canslim-decisions.md`.
 Chỉ dùng các giá trị được ghi rõ trong tài liệu; không tự suy ra default khác.
 Tài liệu này không thay [rule v0](canslim-rules.md), config hoặc run lịch sử.
@@ -27,7 +28,7 @@ Tài liệu liên quan:
 SMA20, EMA5, BB, MACD và MFI14 dùng OHLCV 5 phút VNINDEX trong market_data.
 Chỉ dùng nến đã đóng và khả dụng; warm-up tối thiểu 150 nến VNINDEX tính cả t.
 Chuỗi chỉ báo VNINDEX không khởi tạo lại khi hợp đồng giao dịch chuyển kỳ.
-Pivot phục vụ giá chốt lời vẫn dùng daily của hợp đồng như mục 5.
+Mức chốt lời tính trực tiếp từ giá khớp hợp đồng như mục 5.
 
 | Indicator | Input                    | Công thức/window đã chốt                                 |
 | --------- | ------------------------ | ------------------------------------------------------------- |
@@ -42,7 +43,7 @@ Pivot phục vụ giá chốt lời vẫn dùng daily của hợp đồng như m
 150 nến là lịch sử khởi tạo, không thay chu kỳ EMA5/12/26 thành EMA150.
 Không dùng Signal Line trong entry.
 
-### Quy ước tính còn trống
+### Quy ước tính
 
 - Seed EMA và điểm bắt đầu recurrence: với EMA N, seed bằng SMA của N Close đầu tiên trong history VNINDEX; recurrence bắt đầu từ bar N+1.
 - Điều kiện đủ 150 mẫu tại decision đầu tiên, tính cả/không tính t: cần ít nhất 150 bar VNINDEX đã đóng, tính cả bar t.
@@ -91,30 +92,15 @@ Cả long và short cùng true → NO_TRADE, reason `SIGNAL_CONFLICT`.
 - Cùng nến chạm stop và target: stop thắng.
 - Stop mới tính sau Close t chỉ hiệu lực từ nến tiếp theo.
 
-## 5. Pivot, target và partial exit — R03
+## 5. Chốt lời và đóng một phần — R03
 
-Pivot lấy High/Low/Close của phiên giao dịch trước của chính hợp đồng đang trade.
-
-Đối chiếu lý thuyết: giữ nguồn này cho pivot, dù chỉ báo entry đã chuyển sang
-VNINDEX. Pivot chuẩn lấy HLC kỳ trước để tạo mức hỗ trợ/kháng cự của chuỗi giá
-đang xét ([StockCharts](https://chartschool.stockcharts.com/table-of-contents/technical-indicators-and-overlays/technical-overlays/pivot-points)).
-R1/R2/S1/S2 trong v1 dùng trực tiếp cùng entry_fill làm giá TP hợp đồng;
-dùng mức VNINDEX ở đây sẽ trộn hai thang giá. Giá chỉ số và hợp đồng không
-đồng nhất ([CME](https://www.cmegroup.com/education/courses/introduction-to-equity-index-products/what-is-equity-index-basis)).
-Đây là lựa chọn thiết kế cho công thức TP hiện tại; không tự thêm phép quy
-đổi mức VNINDEX sang giá hợp đồng.
+Mức TP cố định từ giá khớp vào thực tế của hợp đồng:
 
 ```text
-P  = (High_prev + Low_prev + Close_prev) / 3
-R1 = 2*P - Low_prev
-R2 = P + (High_prev - Low_prev)
-S1 = 2*P - High_prev
-S2 = P - (High_prev - Low_prev)
-
-LONG:  TP1 = max(R1, entry_fill + R)
-       TP2 = max(R2, entry_fill + 2*R)
-SHORT: TP1 = min(S1, entry_fill - R)
-       TP2 = min(S2, entry_fill - 2*R)
+LONG:  TP1 = entry_fill + 6 điểm
+       TP2 = entry_fill + 12 điểm
+SHORT: TP1 = entry_fill - 6 điểm
+       TP2 = entry_fill - 12 điểm
 ```
 
 - Initial quantity = 1: TP1 đóng hết.
@@ -122,11 +108,10 @@ SHORT: TP1 = min(S1, entry_fill - R)
 - Ví dụ quantity 5: TP1 đóng 2, còn 3.
 - Target đã active trước nến xét High/Low. Gap qua target vẫn fill target.
 
-### Trường hợp chưa chốt
+### Các trường hợp biên
 
 - Cùng nến chạm TP1 và TP2, hoặc TP1=TP2: xử lý TP1 trước rồi TP2; nếu TP1=TP2 thì hai phần cùng khớp tại một mức giá, TP2 đóng toàn bộ phần còn lại.
 - Target tạo từ entry fill có được xét ngay trong nến entry: có; stop/TP active ngay sau Open fill và được xét High/Low của nến entry; nếu cùng chạm thì stop thắng.
-- Thiếu daily pivot: `UNEVALUABLE`, không mở vị thế mới vì không thể xác định đầy đủ TP1/TP2.
 
 ## 6. Trailing và time-stop — R04
 
@@ -137,7 +122,7 @@ SHORT: TP1 = min(S1, entry_fill - R)
 - MAX_HOLD_BARS = 18; hết nến thứ 18 còn vị thế thì phát market exit,
   fill Open hợp lệ kế tiếp. Không tính thời gian nghỉ trưa thành bar.
 
-### Thứ tự và thời điểm còn trống
+### Thứ tự và thời điểm
 
 Stop/trailing active bị chạm ưu tiên hơn TP. File quyết định nêu thứ tự
 stop/trailing → time-stop → TP → entry; thứ tự này cần hoàn chỉnh theo thời điểm
@@ -159,11 +144,11 @@ Sau 14:00 không mở vị thế mới. Tránh giao dịch ATO/ATC.
 - Pending entry sống tối đa một nến thực thi; không qua nghỉ trưa/cutoff/phiên khác.
 - Thiếu bar thực thi forced exit → run/data INVALID, không chế giá.
 
-### Biên thời gian chưa chốt
+### Biên thời gian
 
 - Biên inclusive/exclusive và signal/fill đúng 14:00: thời gian là Close của bar; cho phép signal tại 09:05–11:20 và 13:05–14:00, gồm hai đầu; signal 14:00 fill Open bar 14:00–14:05, sau 14:00 cấm entry mới.
 - Xử lý nến cuối report không còn nến thực thi: pending entry bị hủy `END_OF_REPORT`; nếu đang có vị thế cần thoát mà thiếu bar thực thi thì run `INVALID`.
-- ATO/ATC có tham gia indicator/daily hay chỉ bị cấm giao dịch: không đưa ATO/ATC vào chuỗi 5 phút tính indicator; daily chính thức vẫn giữ giá/khối lượng toàn phiên theo nguồn.
+- Không đưa ATO/ATC vào chuỗi 5 phút tính chỉ báo.
 
 ## 8. Sizing — R07
 

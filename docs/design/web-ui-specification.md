@@ -1,12 +1,29 @@
 # Web UI Specification — Backtest HPG v0 (legacy baseline)
 
+Cập nhật 29/09/2026: bỏ trang và API snapshot VN30F1M riêng `/market-chart`
+và liên kết trên trang chủ. Giao diện chỉ xem biểu đồ gắn với kết quả backtest;
+API đọc snapshot được giữ riêng. Các mô tả trang snapshot bên dưới là lịch sử.
+
+## Đích nâng cấp 28/09/2026 — U01
+
+UI và notebook dùng chung API mới, không cố định HPG hoặc bắt chọn mẫu đã
+lưu. Mẫu chỉ giúp điền JSON. Giữ style chung; biểu đồ theo độ phân giải và
+nguồn dữ liệu của run. V1 hiển thị chỉ báo trên VNINDEX, giá/marker khớp trên
+hợp đồng, P/L đã chốt/chưa chốt riêng. UI không tính lại chỉ báo hay tiền;
+hiển thị cấu hình accounting và vốn ban đầu từ kết quả. V0 vẫn đọc/hiển thị
+được. U07 đã triển khai ngày 29/09: form JSON/file JSON, nút kiểm tra/chạy,
+form v0 riêng, panel thị trường tùy dữ liệu, chỉ báo lấy từ kết quả máy chủ,
+mũi tên LONG/SHORT/CLOSE theo nến khớp, bảng phí/ký quỹ và P/L riêng.
+Biểu đồ thời gian Unix hiển thị theo múi giờ của lần chạy; equity giữ mốc Close.
+Xem [phạm vi nâng cấp](../plans/engine-upgrade-u07-u08.md).
+
 > **Storage 18/09/2026:** [Parquet + JSON](../plans/technical-plan.md#6-persistence-parquet-json) thay target pickle trong kế hoạch bên dưới. Raw nguồn giữ nguyên; SQLite/PostgreSQL cho metadata/session agent còn chờ chốt. Nội dung implementation/mốc cũ giữ để truy vết; chưa migrate code hoặc nghiệm thu storage mới.
 
 
 **Yêu cầu 17/09:** quay lại HPG cũ để show kết quả backtest trên chart. Trang chủ
 của app có BacktestService mở run HPG gần nhất; nến/volume lấy qua
 `GET /api/backtests/{run_id}/chart`, markers/equity từ result cùng run. Chọn fill
-để zoom và xem detail; chart VN30F1M snapshot vẫn ở `/market-chart`. Đây là scope
+để zoom và xem detail; dữ liệu thị trường chỉ hiển thị trong kết quả backtest. Đây là scope
 demo được user chọn, không phê duyệt adaptation CANSLIM cho VN30F1M.
 
 **Bổ sung 17/09:** `canslim_breakout_v0` dùng điều kiện thị trường

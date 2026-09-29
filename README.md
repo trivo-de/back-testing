@@ -1,5 +1,26 @@
 # Backtest HPG trên chart — 17/09/2026
 
+## API chung — cập nhật U07/U08 ngày 29/09/2026
+
+```powershell
+.venv\Scripts\python.exe -m uvicorn backtest_hpg.main:app --host 127.0.0.1 --port 8000
+```
+
+Mặc định dùng file tại `data/backtest-store`; `/docs` có cả yêu cầu v0 và JSON
+mới. `intraday_main:app` là tên tương thích trỏ cùng ứng dụng. Muốn truy cập
+PostgreSQL v0: đặt `$env:BACKTEST_LEGACY_BACKEND = "postgres"` và cấu hình
+DATABASE_URL trước khi chạy. Chọn backend bằng cấu hình, không bằng port.
+Compose đã chọn postgres cho v0, file cho yêu cầu JSON mới; dữ liệu cũ được giữ.
+
+`POST /api/backtests/validate` kiểm tra/ánh xạ JSON, kỳ báo cáo, map hợp đồng và
+khoảng thiếu dữ liệu. `POST /api/backtests` chạy cây JSON với SMA/EMA/BB/MACD/MFI,
+long/short, chốt từng phần và sổ tiền hợp đồng. Trang `/` nhận JSON hoặc file JSON,
+có nút kiểm tra, chạy và xem lại kết quả. Mẫu v1 trên form chỉ có hai nến minh họa.
+Đã kiểm thử bằng dữ liệu tổng hợp; nghiệm thu dữ liệu thật sáu tháng thuộc U09.
+Chi tiết: [U07–U08](docs/plans/engine-upgrade-u07-u08.md).
+
+Phần hướng dẫn lịch sử bên dưới áp dụng v0.
+
 **Ưu tiên 18/09:** triển khai backtest VN30F1M 5 phút qua API và notebook,
 1D chỉ hỗ trợ; chưa cần agent. Điền các field C01–C06 và theo dõi W01–W08 tại
 [checklist triển khai](.agents/checklists/vn30f1m-backtest-checklist.md). Runtime bên dưới
@@ -16,6 +37,7 @@ BUY/SELL tại giá/ngày fill, chọn giao dịch để zoom, equity và các b
 Chart chỉ đọc snapshot của run; không chạy lại strategy khi mở lịch sử.
 
 ```powershell
+$env:BACKTEST_LEGACY_BACKEND = "postgres"
 .venv\Scripts\python.exe -m uvicorn backtest_hpg.main:app --host 127.0.0.1 --port 8765
 ```
 
@@ -24,40 +46,6 @@ database đã import HPG/VNINDEX. Endpoint mới: `GET /api/backtests/{run_id}/c
 Phiên local đã kiểm tra run 2020–2023: 1.000 nến, 18 fills, 1.000 điểm equity;
 toàn bộ OHLCV chart khớp raw HPG 2019–2023. Giữ nhãn `normalized simulation` và
 đơn vị giá nguồn; không nhân giá hoặc đổi strategy để vẽ chart.
-
-## Chart VN30F1M và research agent — bản snapshot riêng
-
-Chart chạy trên snapshot VN30F1M 5 phút đã chốt, gồm nến, volume, crosshair OHLCV,
-lọc ngày, zoom/scroll, fit view, bảng đối chiếu và metadata UTC+7. Đây là market
-snapshot viewer; chưa có backtest VN30F1M, marker hoặc equity vì strategy và
-futures accounting chưa được duyệt. Source HPG bên dưới vẫn là baseline cũ.
-
-Chạy từ repository root, không cần database:
-
-```powershell
-.venv\Scripts\python.exe -m uvicorn backtest_hpg.chart_main:app --host 127.0.0.1 --port 8000
-```
-
-Mở `http://127.0.0.1:8000/`. Với app HPG đang chạy, mở `/market-chart`.
-API snapshot: `GET /api/market-chart?start=2026-03-16&end=2026-09-15`.
-
-Raw snapshot local: `data/vn30f1m-5m-20260316-20260915.json` (Git ignored).
-Clone mới phải đặt bản snapshot được cung cấp vào đường dẫn này, hoặc khai báo
-`VN30F1M_SNAPSHOT_PATH`. Không tự fetch market data. Server kiểm tra SHA-256
-`5930f355e7e5bbc8663835a60fca654a31cc5a83184d534008c284a8d3bbaad5`, 6.174 records
-và range theo [data contract](docs/data/vn30f1m/data-contract.md). Thiếu file trả 503,
-sai hash/dữ liệu trả 409; không tự sửa raw. Extraction time chưa có evidence
-được xác nhận nên metadata giữ null. Dataset version của chart là content hash.
-
-Docker riêng cho chart (cần Docker daemon):
-
-```powershell
-docker compose -f compose.chart.yaml up --build
-```
-
-Asset Lightweight Charts 5.2.0 được vendor trong package, có LICENSE/NOTICE và
-checksum; không cần npm build hoặc CDN khi mở trang. Compose cũ vẫn dành cho
-legacy HPG/PostgreSQL. Runtime Docker chart chưa được xác minh khi daemon chưa chạy.
 
 [Plan research agent](docs/plans/agent-research-plan.md) · [Tiến độ](docs/plans/progress.md)
 

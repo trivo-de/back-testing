@@ -24,7 +24,7 @@ summary, nến, executed fills, trades, equity và metadata như output hiện c
 | Application/API/result | Có source                       | BacktestService.run/get/list; POST/list/detail /api/backtests; result_mapper.py                                                                                     |
 | Phạm vi source        | Legacy HPG daily                 | config.py giới hạn HPG; domain/market.py dùng date; request chưa nhận entry/exit tùy chọn                                                                    |
 | Persistence            | Source PostgreSQL                | infrastructure/database.py;[Parquet + JSON](technical-plan.md#6-persistence-parquet-json) là target 18/09; metadata/session SQLite hoặc PostgreSQL còn chờ chốt |
-| Chart snapshot VN30F1M | Done trong lượt 17/09          | market-chart.html/mjs, /api/market-chart, vendor 5.2.0; dữ liệu thật và browser đã kiểm tra; chart theo run/marker/equity chưa có                          |
+| Chart snapshot VN30F1M | Đã bỏ entrypoint độc lập 29/09 | Trang/API snapshot cũ đã gỡ; dữ liệu thị trường chỉ hiển thị trong chart của kết quả backtest |
 | Agent chạy thật      | Not started                      | Chưa có strategy_agent/, provider, schema/spec interpreter hoặc bộ eval prompt                                                                                  |
 | VN30F1M                | Blocked phần nghiệp vụ        | Contract 5 phút đã có; strategy và futures accounting chưa được duyệt                                                                                     |
 

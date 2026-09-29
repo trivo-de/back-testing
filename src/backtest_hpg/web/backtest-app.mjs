@@ -1,5 +1,5 @@
-import {backtestData, relatedRows} from './backtest-data.mjs?v=20260922-2';
-import {clearCharts, renderCharts} from './backtest-chart.mjs?v=20260922-2';
+import {backtestData, relatedRows} from './backtest-data.mjs?v=20260929';
+import {clearCharts, renderCharts} from './backtest-chart.mjs?v=20260929';
 
 const $ = selector => document.querySelector(selector);
 const percent = new Intl.NumberFormat('vi-VN', {style: 'percent', maximumFractionDigits: 2});
@@ -32,7 +32,8 @@ function reset() {
 async function show(run, current) {
     if (current !== sequence) return;
     $('#result').hidden = false;
-    $('#run-title').textContent = `Run ${run.metadata.run_id} — ${run.metadata.label}`;
+    const contract = run.metadata.accounting_profile === 'contract_v1';
+    $('#run-title').textContent = `${run.metadata.symbol || run.metadata.config?.symbol || 'Backtest'} · ${run.metadata.run_id}`;
     $('#summary').replaceChildren();
     for (const [key, value] of Object.entries(run.summary)) {
         const card = document.createElement('div');
@@ -41,12 +42,12 @@ async function show(run, current) {
     }
     const renderTables = fillId => {
         const rows = relatedRows(run, fillId);
-        table('#fills', rows.fills, ['fill_time', 'side', 'fill_price', 'quantity', 'fee']);
-        table('#trades', rows.trades, ['entry_date', 'exit_date', 'entry_price', 'exit_price', 'quantity', 'fees', 'net_pnl', 'close_reason']);
-        table('#position', rows.position, ['quantity', 'entry_price', 'market_value', 'unrealized_pnl']);
-        table('#audit', rows.signals, ['signal_time', 'side', 'reason', 'pivot']);
-        table('#orders', rows.orders, ['created_time', 'side', 'status', 'rejection_reason']);
-        table('#equity', rows.equity, ['trading_date', 'cash', 'quantity', 'market_value', 'equity', 'unrealized_pnl']);
+        table('#fills', rows.fills, ['fill_time', ...(contract ? ['direction', 'contract_code'] : []), 'side', 'fill_price', 'quantity', 'fee', ...(contract ? ['broker_fee', 'exchange_fee', 'clearing_fee', 'pit'] : [])]);
+        table('#trades', rows.trades, [...(contract ? ['direction', 'contract_code'] : []), 'entry_date', 'exit_date', 'entry_price', 'exit_price', 'quantity', 'fees', 'net_pnl', 'close_reason']);
+        table('#position', rows.position, [...(contract ? ['direction', 'contract_code'] : []), 'quantity', 'entry_price', ...(contract ? ['remaining_entry_cost'] : ['market_value']), 'unrealized_pnl']);
+        table('#audit', rows.signals, ['signal_time', 'side', 'reason', ...(contract ? [] : ['pivot'])]);
+        table('#orders', rows.orders, ['created_time', 'side', 'status', contract ? 'reason' : 'rejection_reason']);
+        table('#equity', rows.equity, ['trading_date', 'cash', 'quantity', ...(contract ? ['required_margin', 'available_cash'] : ['market_value']), 'equity', 'unrealized_pnl']);
         $('#table-filter').hidden = !rows.selected;
         $('#table-filter').textContent = rows.selected ? `Đang lọc theo ${rows.selected.side} lúc ${rows.selected.fill_time}. Bấm vùng trống trên chart để bỏ lọc.` : '';
     };
@@ -57,7 +58,7 @@ async function show(run, current) {
         const payload = await getJSON(`/api/backtests/${run.metadata.run_id}/chart`);
         if (current !== sequence) return;
         renderCharts(backtestData(run, payload), {...payload.metadata, ...run.metadata.config}, renderTables);
-        $('#state').textContent = 'Đã tải kết quả, trade history và chart.';
+        $('#state').textContent = `Đã tải kết quả và biểu đồ.${run.evaluation_status ? ` Đánh giá quy tắc: ${run.evaluation_status.status}; ${run.evaluation_status.unevaluable_bars} nến thiếu dữ liệu để đánh giá.` : ''}`;
     } catch (error) {
         if (current !== sequence) return;
         $('#chart-status').textContent = `Không tải được chart: ${error.message}`;
@@ -102,9 +103,24 @@ $('#run-form').onsubmit = async event => {
     posting = true; const submit = event.target.querySelector('[type=submit]'); submit.disabled = true;
     const current = reset(); activeRunId = undefined;
     try {
-        const payload = {...Object.fromEntries(new FormData(event.target)), symbol: 'HPG', strategy_id: 'canslim_breakout_v0'};
+        const payload = JSON.parse($('#payload-json').value);
         const run = await getJSON('/api/backtests', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(payload)});
         activeRunId = run.metadata.run_id; await show(run, current); await history();
     } catch (error) {errorState(error, current);} finally {posting = false; submit.disabled = false;}
+};
+$('#payload-file').onchange = async event => {
+    const file = event.target.files[0];
+    if (file) $('#payload-json').value = await file.text();
+};
+$('#load-example').onclick = async () => {
+    try {$('#payload-json').value = JSON.stringify(await getJSON('/static/canslim-v1-example.json'), null, 2);}
+    catch (error) {$('#state').textContent = error.message;}
+};
+$('#validate-payload').onclick = async () => {
+    try {
+        const body = await getJSON('/api/backtests/validate', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(JSON.parse($('#payload-json').value))});
+        $('#state').className = 'muted';
+        $('#state').textContent = `${body.status}. ${body.runnable ? 'Có thể chạy; từng nến vẫn cần đủ dữ liệu chỉ báo.' : 'Chưa có bộ thực thi.'}`;
+    } catch (error) {$('#state').className = 'error'; $('#state').textContent = error.message;}
 };
 history(true);

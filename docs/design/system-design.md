@@ -1,5 +1,29 @@
 # System Design — Backtest HPG v0 (legacy implementation)
 
+## Đích nâng cấp 28/09/2026 — U01
+
+Luồng mới: JSON → kiểm tra/ánh xạ dữ liệu → chỉ báo → cây điều kiện chiến
+lược → tín hiệu → khớp lệnh → tài khoản → kết quả/lưu trữ. Engine điều phối
+thời gian, không chọn rule theo symbol/tên CANSLIM. VNINDEX cấp chỉ báo v1;
+giá hợp đồng cấp khớp lệnh, stop/TP/trailing và P/L. Tham chiếu chỉ thấy dữ
+liệu đã khả dụng. accounting cấp hệ số, ký quỹ, thuế/phí; initial_cash ở ngoài.
+Tái dùng hàm/callback hiện có, không dựng hệ thống plugin hoặc thực thi mã
+Python từ HTTP. Một ứng dụng phục vụ API/notebook/UI, đọc được run cũ;
+kho mới hướng Parquet/JSON, chuyển PostgreSQL có backup và đối chiếu riêng.
+Xem [ma trận phạm vi và mốc v0](../plans/engine-upgrade-u01-u02.md).
+U03/U04 đã triển khai bộ kiểm tra JSON/cây điều kiện và tách khớp lệnh/tính
+tiền. `run_engine(execution=...)` nhận hàm tạo thành phần thực thi từ vốn ban
+đầu; mặc định là `NormalizedExecution` giữ v0. `ContractExecution` dùng sổ tiền
+hợp đồng và xử lý stop/target/trailing; vòng lặp chỉ điều phối thời gian/sự kiện.
+U05/U06 đã thêm inline_data, inline_results và lưu input/kết quả phiên bản 2
+trong FileRunRepository. main/intraday_main dùng cùng ứng dụng; backend v0
+chọn bằng BACKTEST_LEGACY_BACKEND, JSON mới dùng kho file. BacktestService
+nhận bộ thực thi JSON qua inline_runner; main đã nối run_inline_strategy ở U08.
+IndicatorData chuẩn bị chuỗi chỉ báo; mỗi lần đánh giá chỉ đọc đoạn đã khả dụng.
+U07 hiển thị giá trị máy chủ, không tính lại tiền hoặc chỉ báo trên trình duyệt.
+Không công bố bộ thực thi giả của test thành chiến lược sản phẩm. Xem
+[kết quả U05–U06](../plans/engine-upgrade-u05-u06.md); các phần dưới mô tả v0.
+
 > Target data đã chuyển sang VN30F1M 5 phút và storage plan sang Parquet + JSON (18/09); metadata/session agent c?n ch? ch?t.
 > Xác nhận 17/09: giữ CANSLIM, VN-Index R1 và accounting normalized như baseline;
 > **18/09:** strategy/execution chính dùng 5 phút, 1D chỉ hỗ trợ; mapping indicator,

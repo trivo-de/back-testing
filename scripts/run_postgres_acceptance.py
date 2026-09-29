@@ -7,8 +7,8 @@ from decimal import Decimal
 from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid5
 from backtest_hpg.application.contracts import RunConfig
+from backtest_hpg.application.legacy_run_backtest import run_legacy_manifest
 from backtest_hpg.application.result_mapper import quantize_result
-from backtest_hpg.application.run_backtest import BacktestService
 from backtest_hpg.config import get_database_url
 from backtest_hpg.infrastructure.database import PostgresRunRepository
 import psycopg
@@ -166,7 +166,7 @@ def main():
     )
 
     repository = PostgresRunRepository(dsn)
-    response = BacktestService(repository).run(
+    response = run_legacy_manifest(repository,
         RunConfig(
             dataset_id=metadata["dataset_id"],
             dataset_version=metadata["dataset_version"],

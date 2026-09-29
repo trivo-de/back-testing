@@ -2,6 +2,44 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {backtestData, relatedRows} from '../../src/backtest_hpg/web/backtest-data.mjs';
 
+test('contract partial exits retain candle time, Close equity and optional market', () => {
+    const time = 1774404300;
+    const iso = stamp => new Date(stamp * 1000).toISOString();
+    const metadata = {run_id: 'r', input_hash: 'i', policy_hash: 'p'};
+    const run = {schema_version: 2, metadata,
+        signals: [{signal_id: 's', reason: 'TP1'}, {signal_id: 't', reason: 'TP2'}],
+        orders: [{order_id: 'o', signal_id: 's', status: 'filled'}, {order_id: 'p', signal_id: 't', status: 'filled'}],
+        fills: ['o', 'p'].map((order_id, i) => ({fill_id: String(i), order_id, side: 'CLOSE', direction: 'SHORT', fill_time: iso(time + 300), bar_time: iso(time), fill_price: String(1000 - i * 6)})),
+        equity_history: [{trading_date: iso(time + 300), equity: '123456'}], summary: {final_equity: '123456'},
+        evaluations: [{time: iso(time + 300), indicator_times: {ema5: iso(time)}, indicators: {ema5: '1001'}}]};
+    const payload = {metadata, bars: [{time, open: '1000', high: '1001', low: '990', close: '995', volume: null}]};
+    const data = backtestData(run, payload);
+    assert.equal(data.markers.length, 2);
+    assert.ok(data.markers.every(m => m.time === time && m.shape === 'arrowUp'));
+    assert.equal(data.equity[0].time, time + 300);
+    assert.deepEqual(data.market, []);
+    assert.deepEqual(data.volume, []);
+    assert.equal(data.indicators.ema5[0].value, 1001);
+    assert.equal(data.indicators.ema5[0].time, time);
+    assert.throws(() => backtestData(run, {...payload, metadata: {...metadata, input_hash: 'wrong'}}));
+    assert.throws(() => backtestData({...run, fills: [{...run.fills[0], bar_time: iso(time + 300)}]}, payload));
+});
+
+test('schema v2 daily payload keeps daily chart settings', () => {
+    const metadata = {run_id: 'r', input_hash: 'i', policy_hash: 'p', resolution: 'D'};
+    const run = {schema_version: 2, metadata,
+        signals: [], orders: [], fills: [],
+        equity_history: [{trading_date: '2019-01-02T00:00:00+07:00', equity: '100'}],
+        summary: {final_equity: '100'}, evaluations: []};
+    const payload = {metadata, bars: [
+        {time: 1546387200, open: '7', high: '8', low: '6', close: '7', volume: '10'},
+        {time: 1546473600, open: '7', high: '8', low: '6', close: '7', volume: '11'},
+    ], market_bars: []};
+    const data = backtestData(run, payload);
+    assert.equal(data.intraday, false);
+    assert.deepEqual(data.candles[0], {time: 1546387200, open: 7, high: 8, low: 6, close: 7});
+});
+
 test('exact executed markers, provenance and equity come from the same run', () => {
     const meta = {run_id: 'run', dataset_id: 'd', dataset_version: '1', content_hash: 'hash'};
     const config = {symbol: 'HPG', start_date: '2020-01-01', end_date: '2020-01-03'};

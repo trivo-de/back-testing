@@ -7,7 +7,6 @@ from fastapi.staticfiles import StaticFiles
 from ..application.run_backtest import BacktestService
 from ..config import API
 from .backtest_routes import create_backtest_router, create_strategy_router
-from .market_routes import create_market_router
 
 
 class WebStaticFiles(StaticFiles):
@@ -25,8 +24,7 @@ class PreviewStaticFiles(WebStaticFiles):
         return await super().get_response("preview-theme.mjs" if path == "theme.mjs" else path, scope)
 
 
-def create_app(service: BacktestService | None = None, *, snapshot_path: Path | None = None,
-               preview: bool = False) -> FastAPI:
+def create_app(service: BacktestService | None = None, *, preview: bool = False) -> FastAPI:
     app = FastAPI(title=API.title, version=API.version)
     if service is not None:
         app.include_router(create_backtest_router(service))
@@ -42,17 +40,10 @@ def create_app(service: BacktestService | None = None, *, snapshot_path: Path | 
         html = html.replace('</head>', '<link rel="stylesheet" href="/static/preview.css"></head>')
         return HTMLResponse(html)
 
-    if preview:
-        @app.get("/market-chart", include_in_schema=False)
-        def preview_market_chart():
-            return page("market-chart.html")
-
-    app.include_router(create_market_router(snapshot_path))
-
     @app.get(API.home_path, include_in_schema=False)
     def index():
         """Serve the packaged single-page backtest interface."""
 
-        return page("index.html" if service is not None else "market-chart.html")
+        return page("index.html")
 
     return app

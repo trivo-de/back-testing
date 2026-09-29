@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
 from .portfolio import Portfolio, PortfolioSnapshot
+from .contract_accounting import ContractPortfolio, ContractSnapshot
 from .trading import Fill, OrderResult, SignalRecord, StrategyDetails, Trade, validate_details
 from .market import BarTime
 
@@ -11,7 +12,7 @@ class EquityPoint:
     """Portfolio valuation captured at one completed daily Close."""
 
     trading_date: BarTime
-    snapshot: PortfolioSnapshot
+    snapshot: PortfolioSnapshot | ContractSnapshot
 
 @dataclass(frozen=True)
 class Summary:
@@ -27,7 +28,7 @@ class Summary:
 class BacktestResult:
     """Complete in-memory audit trail and final portfolio state for one run."""
 
-    portfolio: Portfolio
+    portfolio: Portfolio | ContractPortfolio
     signals: tuple[SignalRecord, ...]
     orders: tuple[OrderResult, ...]
     fills: tuple[Fill, ...]

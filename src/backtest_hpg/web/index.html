@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>HPG Backtest</title>
+  <title>Backtest</title>
   <!-- Minimal responsive styling; all calculations remain in the backend. -->
   <style>
     #price-chart-wrap{height:520px;position:relative}#price-chart{height:100%}#market-chart,#equity-chart{height:240px}#history{display:flex;flex-wrap:wrap;gap:8px}#run-title,pre{overflow-wrap:anywhere;white-space:pre-wrap}#fill-tooltip{position:absolute;z-index:2;max-width:300px;padding:9px 11px;background:#16324f;color:#fff;border-radius:6px;box-shadow:0 2px 12px #0006;font-size:12px;line-height:1.35;pointer-events:none}#fill-tooltip strong{display:block;margin-bottom:4px}#fill-tooltip dl{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;margin:0}#fill-tooltip dt{color:#d7e7f7}#fill-tooltip dd{margin:0;overflow-wrap:anywhere}button:focus-visible{outline:2px solid #245ea8}#chart-panel{overflow:hidden}@media(max-width:600px){body{padding:12px!important}#price-chart-wrap{height:430px}#fill-tooltip{max-width:240px}}
@@ -13,20 +13,20 @@
   <style>
     .cards div{background:var(--control)}th,td{border-color:var(--border)}th{background:var(--heading)}.muted{color:var(--muted)}.error{color:var(--error)}button:focus-visible{outline-color:var(--accent)}
     #fill-tooltip{background:var(--tooltip);color:var(--tooltip-text)}#fill-tooltip dt{color:var(--tooltip-muted)}
+    textarea,select{background:var(--control);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px}fieldset{border:1px solid var(--border)}
   </style>
 </head>
 <body>
-  <div class="theme-bar"><h1>CANSLIM Backtest</h1><button type="button" data-theme-toggle aria-label="Chuyển giao diện">☾</button></div>
-  <p><a href="/market-chart">Xem chart VN30F1M 5 phút</a></p>
+  <div class="theme-bar"><h1>Backtest</h1><button type="button" data-theme-toggle aria-label="Chuyển giao diện">☾</button></div>
   <!-- Backtest request inputs -->
   <form id="run-form">
-    <label>Dataset ID<input name="dataset_id" value="vndirect-hpg-vnindex-daily-2019-2023" required></label>
-    <label>Dataset version<input name="dataset_version" value="2026-09-12.1" required></label>
-    <label>Từ ngày<input type="date" name="start_date" value="2020-01-01" required></label>
-    <label>Đến ngày<input type="date" name="end_date" value="2023-12-31" required></label>
-    <label>Vốn ban đầu<input type="number" name="initial_cash" value="10000000" min="1" required></label>
-    <label>Phí<input type="number" name="fee_rate" value="0.001" min="0" step="0.0001" required></label>
-    <label>Slippage<input type="number" name="slippage_rate" value="0" min="0" max="0.9999" step="0.0001" required></label>
+    <div id="json-input" style="grid-column:1/-1">
+      <label>Toàn bộ payload<textarea id="payload-json" rows="16" spellcheck="false" required style="width:100%;box-sizing:border-box;font-family:monospace"></textarea></label>
+      <label>Mở file JSON<input id="payload-file" type="file" accept=".json,application/json"></label>
+      <button type="button" id="load-example">Điền mẫu CANSLIM v1</button>
+      <button type="button" id="validate-payload">Kiểm tra payload</button>
+      <p class="muted">Mẫu chỉ có 2 nến minh họa, chưa đủ 150 nến để phát tín hiệu. Thay bằng dữ liệu của bạn; kỳ báo cáo v1 vẫn là sáu tháng.</p>
+    </div>
     <button type="submit">Chạy backtest</button>
   </form>
   <p id="state" class="muted">Sẵn sàng.</p>
@@ -35,12 +35,12 @@
   <main id="result" hidden>
     <h2 id="run-title"></h2><div id="summary" class="cards"></div>
     <section id="chart-panel">
-      <h2>HPG daily · Backtest CANSLIM</h2>
+      <h2>Giá giao dịch và lệnh đã khớp</h2>
       <p id="chart-status" role="status" aria-live="polite"></p>
       <button type="button" id="fit-run">Vừa khung</button>
       <p class="muted">Rê chuột để xem chi tiết; bấm mũi tên BUY/SELL để lọc các bảng và bấm vùng trống để bỏ lọc.</p>
-      <div id="price-chart-wrap"><div id="price-chart" aria-label="Nến HPG, volume và executed BUY/SELL"></div><div id="fill-tooltip" role="tooltip" hidden></div></div>
-      <h3>VN-Index Close / SMA200</h3><div id="market-chart" aria-label="VN-Index Close và SMA200 dùng trong điều kiện thị trường"></div>
+      <div id="price-chart-wrap"><div id="price-chart" aria-label="Giá, khối lượng và lệnh đã khớp"></div><div id="fill-tooltip" role="tooltip" hidden></div></div>
+      <div id="market-panel"><h3>Dữ liệu thị trường và chỉ báo</h3><div id="market-chart" aria-label="Dữ liệu thị trường và chỉ báo"></div></div>
       <h3>Equity</h3><div id="equity-chart" aria-label="Equity từ kết quả backtest"></div>
       <details><summary>Run và dataset của chart</summary><pre id="chart-metadata"></pre></details>
       <p>Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">TradingView Lightweight Charts™</a></p>
@@ -55,6 +55,6 @@
   <!-- Reloadable persisted run history -->
   <section><h2>Run history</h2><div id="history"></div></section>
   <script type="module" src="/static/theme.mjs?v=20260918"></script>
-  <script type="module" src="/static/backtest-app.mjs?v=20260922-4"></script>
+  <script type="module" src="/static/backtest-app.mjs?v=20260929"></script>
 </body>
 </html>

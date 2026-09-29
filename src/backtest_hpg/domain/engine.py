@@ -6,6 +6,8 @@ from itertools import chain
 from typing import Callable, Mapping, Sequence
 from .market import Bar, BarTime, StrategyBar, trading_day
 from .portfolio import Portfolio, decimal
+from .contract_accounting import ContractPortfolio
+from .execution import BuyContext, NormalizedExecution, ContractExecution, InvalidExecution
 from .results import BacktestResult, EquityPoint, Summary
 from .trading import Fill, FixedSignal, OrderResult, SignalRecord, Trade
 
@@ -14,17 +16,8 @@ class DecisionContext:
     """Only completed primary/support bars and the current immutable ledger."""
 
     bars: tuple[Bar | StrategyBar, ...]
-    support_bars: tuple[Bar, ...]
-    portfolio: Portfolio
-
-
-@dataclass(frozen=True)
-class BuyContext:
-    """Information available at the fill Open, without future bar prices."""
-
-    cash: Decimal
-    fill_price: Decimal
-    fee_rate: Decimal
+    support_bars: tuple[Bar | StrategyBar, ...]
+    portfolio: Portfolio | ContractPortfolio
 
 
 SignalProvider = Callable[[DecisionContext], FixedSignal | None]
@@ -41,9 +34,12 @@ def run_engine(
     slippage_rate: Decimal | int | str,
     size_buy: BuySizing | None = None,
     on_execution: ExecutionFeedback | None = None,
-    support_bars: Sequence[Bar] = (),
+    support_bars: Sequence[Bar | StrategyBar] = (),
     record_start: date | None = None,
+    trade_start: date | None = None,
     flat_dates: frozenset[date] = frozenset(),
+    execution: Callable[[Decimal], NormalizedExecution | ContractExecution] | None = None,
+    on_open: Callable[[BarTime], None] | None = None,
 ) -> BacktestResult:
     """Execute pending signals at Open, then evaluate new signals after Close.
 
@@ -61,23 +57,33 @@ def run_engine(
     if any(current.closed_at > following.trading_date for current, following in zip(bars, bars[1:])):
         raise ValueError("Next Open cannot precede the prior Close")
 
-    if any(a.closed_at >= b.closed_at for a, b in zip(support_bars, support_bars[1:])):
+    def available_at(bar):
+        return getattr(bar, 'available_at', None) or bar.closed_at
+
+    if any(available_at(bar) < bar.closed_at for bar in chain(bars, support_bars)):
+        raise ValueError('BAR_AVAILABLE_BEFORE_CLOSE')
+    if any(available_at(bar) != bar.closed_at for bar in bars):
+        raise ValueError('PRIMARY_AVAILABILITY_DELAY_UNSUPPORTED')
+    if any(available_at(a) >= available_at(b) for a, b in zip(support_bars, support_bars[1:])):
         raise ValueError("Market availability timestamps must be strictly increasing")
     fee, slippage = map(decimal, (fee_rate, slippage_rate))
     if fee < 0 or not Decimal("0") <= slippage < 1:
         raise ValueError("fee_rate must be >= 0; slippage_rate in [0, 1)")
 
     starting_cash = decimal(initial_cash)
-    portfolio = Portfolio.open(starting_cash)
+    if execution is not None and (fee != 0 or slippage != 0 or size_buy is not None):
+        raise ValueError("Custom execution owns fees, slippage and sizing")
+    executor = (execution(starting_cash) if execution is not None else
+                NormalizedExecution(starting_cash, fee, slippage, size_buy))
+    portfolio = executor.portfolio
     pending: tuple[BarTime, FixedSignal] | None = None
-    entry_fill: Fill | None = None
     signal_records: list[SignalRecord] = []
     orders: list[OrderResult] = []
     fills: list[Fill] = []
     trades: list[Trade] = []
     equity: list[EquityPoint] = []
     completed: list[Bar | StrategyBar] = []
-    available_support: list[Bar] = []
+    available_support: list[Bar | StrategyBar] = []
     support_index = 0
 
     for bar in bars:
@@ -85,6 +91,8 @@ def run_engine(
         raw_open = decimal(bar.open)
         if raw_open <= 0:
             raise ValueError("Open must be > 0")
+        if on_open is not None:
+            on_open(bar.trading_date)
         if trading_day(bar.trading_date) in flat_dates:
             if pending is not None:
                 signal_date, signal = pending
@@ -93,38 +101,38 @@ def run_engine(
                     on_execution(signal, orders[-1], None)
                 pending = None
             if portfolio.position is not None:
-                signal = FixedSignal("SELL", reason="SCHEDULED_EXIT")
+                signal = executor.close_signal("SCHEDULED_EXIT")
                 signal_records.append(SignalRecord(bar.trading_date, signal.side, signal.reason, signal.details))
                 pending = (bar.trading_date, signal)
         if pending is not None:
             signal_date, signal = pending
-            fill_price = raw_open * (1 + slippage) if signal.side == "BUY" else raw_open * (1 - slippage)
-            quantity = signal.quantity
-            if signal.side == "SELL":
-                quantity = portfolio.position.quantity  # type: ignore[union-attr]
             fill = None
             try:
-                if signal.side == "BUY" and quantity is None:
-                    if size_buy is None:
-                        raise ValueError("BUY requires quantity or a sizing policy")
-                    quantity = size_buy(BuyContext(portfolio.cash, fill_price, fee))
-                before_fees, before_realized = portfolio.fees, portfolio.realized_pnl
-                portfolio = portfolio.buy(quantity, fill_price, fee) if signal.side == "BUY" else portfolio.sell(fill_price, fee)
+                fill, trade = executor.execute(signal, signal_date, bar.trading_date, raw_open)
+            except InvalidExecution:
+                raise
             except ValueError as error:
                 orders.append(OrderResult(signal_date, signal.side, "REJECTED", str(error)))
             else:
-                fill = Fill(signal_date, bar.trading_date, signal.side, fill_price, quantity, portfolio.fees - before_fees)
+                portfolio = executor.portfolio
                 fills.append(fill)
                 orders.append(OrderResult(signal_date, signal.side, "FILLED"))
-                if signal.side == "BUY":
-                    entry_fill = fill
-                else:
-                    assert entry_fill is not None
-                    trades.append(Trade(entry_fill.fill_date, bar.trading_date, quantity, entry_fill.price, fill_price, entry_fill.fee + fill.fee, portfolio.realized_pnl - before_realized))
-                    entry_fill = None
+                if trade is not None:
+                    trades.append(trade)
             if on_execution is not None:
                 on_execution(signal, orders[-1], fill)
             pending = None
+
+        for signal, fill, trade in executor.intrabar(bar):
+            signal_records.append(SignalRecord(fill.signal_date, signal.side, signal.reason, signal.details))
+            order = OrderResult(fill.signal_date, signal.side, "FILLED", signal.reason)
+            orders.append(order)
+            fills.append(fill)
+            if trade is not None:
+                trades.append(trade)
+            if on_execution is not None:
+                on_execution(signal, order, fill)
+        portfolio = executor.portfolio
 
         # Close: mark the portfolio before asking for the next signal.
         if record_start is None or trading_day(bar.trading_date) >= record_start:
@@ -132,23 +140,15 @@ def run_engine(
 
         # After Close: evaluate using data available through this bar only.
         completed.append(bar)
-        while support_index < len(support_bars) and support_bars[support_index].closed_at <= bar.closed_at:
+        while support_index < len(support_bars) and available_at(support_bars[support_index]) <= bar.closed_at:
             available_support.append(support_bars[support_index])
             support_index += 1
         # ponytail: prefix copies cost O(n^2) over a run; use bounded read-only views if history scale requires it.
         signal = signal_provider(DecisionContext(tuple(completed), tuple(available_support), portfolio))
-        if trading_day(bar.trading_date) in flat_dates:
+        if trading_day(bar.trading_date) in flat_dates or (trade_start is not None and trading_day(bar.trading_date) < trade_start):
             signal = None
         if signal is not None:
-            if signal.side not in ("BUY", "SELL"):
-                raise ValueError("signal side must be BUY or SELL")
-            if signal.side == "BUY" and portfolio.position is not None:
-                raise ValueError("BUY signal requires a flat portfolio")
-            if signal.side == "SELL" and portfolio.position is None:
-                raise ValueError("SELL signal requires an open position")
-            if signal.side == "SELL" and signal.quantity is not None:
-                if type(signal.quantity) is not int or signal.quantity != portfolio.position.quantity:
-                    raise ValueError("partial SELL is unsupported; exit the full position")
+            executor.validate(signal)
             signal_records.append(SignalRecord(bar.closed_at, signal.side, signal.reason, signal.details))
             pending = (bar.closed_at, signal)
 

@@ -27,6 +27,7 @@ export function relatedRows(run, fillId) {
 }
 
 export function backtestData(run, payload) {
+    if (run.schema_version === 2 || typeof payload.bars?.[0]?.time === 'number') return intradayData(run, payload);
     for (const key of ['run_id', 'dataset_id', 'dataset_version', 'content_hash']) {
         if (!run.metadata[key] || run.metadata[key] !== payload.metadata[key]) throw Error('Chart và result không cùng run/dataset.');
     }
@@ -80,4 +81,67 @@ export function backtestData(run, payload) {
             borderColor: {light: '#000', dark: '#fff'}, borderWidth: 1.5,
             color: fill.side === 'BUY' ? '#1565c0' : '#ef6c00'})),
     };
+}
+
+function intradayData(run, payload) {
+    const intraday = payload.metadata?.resolution === '5';
+    const keys = run.schema_version === 2 ? ['run_id', 'input_hash', 'policy_hash'] : ['run_id', 'dataset_version', 'content_hash'];
+    for (const key of keys) if (!run.metadata[key] || run.metadata[key] !== payload.metadata[key]) throw Error('Chart và kết quả khác nguồn.');
+    const timestamp = value => {
+        const stamp = typeof value === 'number' ? value : Date.parse(value) / 1000;
+        if (!Number.isFinite(stamp) || !Number.isInteger(stamp)) throw Error('Thời gian chart không hợp lệ.');
+        return stamp;
+    };
+    const rows = values => {
+        let previous = -Infinity;
+        return values.map(row => {
+            const time = timestamp(row.time);
+            const [open, high, low, close] = ['open', 'high', 'low', 'close'].map(k => numeric(row[k]));
+            if (time <= previous || low <= 0 || low > Math.min(open, close) || high < Math.max(open, close)) throw Error('OHLC không hợp lệ.');
+            previous = time;
+            return {time, open, high, low, close};
+        });
+    };
+    const candles = rows(payload.bars);
+    if (!candles.length) throw Error('Thiếu nến của lần chạy.');
+    const dates = new Set(candles.map(b => b.time));
+    const orders = new Map(run.orders.map(o => [o.order_id, o]));
+    const signals = new Map(run.signals.map(s => [s.signal_id, s]));
+    const ids = new Set();
+    const fills = run.fills.map(fill => {
+        const order = orders.get(fill.order_id), signal = signals.get(order?.signal_id);
+        const chartTime = timestamp(fill.bar_time ?? fill.fill_time);
+        if (!dates.has(chartTime) || !signal || order.status !== 'filled' || ids.has(fill.fill_id)
+            || !['BUY', 'SELL', 'LONG', 'SHORT', 'CLOSE'].includes(fill.side) || numeric(fill.fill_price) <= 0) throw Error('Khớp lệnh không thuộc chart.');
+        ids.add(fill.fill_id);
+        return {...fill, chartTime, reason: signal.reason};
+    });
+    const volume = payload.bars.filter(b => b.volume !== null && b.volume !== undefined).map(b => {
+        const value = numeric(b.volume);
+        if (value < 0) throw Error('Khối lượng âm.');
+        return {time: timestamp(b.time), value, color: numeric(b.close) >= numeric(b.open) ? '#269982' : '#d95866'};
+    });
+    let previous = -Infinity;
+    const equity = run.equity_history.map(p => {
+        const time = timestamp(p.trading_date);
+        if (time <= previous) throw Error('Thứ tự vốn không hợp lệ.');
+        previous = time;
+        return {time, value: numeric(p.equity)};
+    });
+    if (!equity.length || equity.at(-1).value !== numeric(run.summary.final_equity)) throw Error('Vốn không khớp kết quả.');
+    const market = rows(payload.market_bars ?? []).map(b => ({time: b.time, close: b.close}));
+    const indicators = {};
+    for (const row of run.evaluations ?? []) for (const [name, value] of Object.entries(row.indicators ?? {})) {
+        if (value === null) continue;
+        const points = indicators[name] ??= [];
+        const point = {time: timestamp(row.indicator_times?.[name] ?? row.time), value: numeric(value)};
+        if (!points.length || point.time > points.at(-1).time) points.push(point);
+    }
+    const markers = fills.map(fill => {
+        const buying = ['BUY', 'LONG'].includes(fill.side) || (fill.side === 'CLOSE' && fill.direction === 'SHORT');
+        return {id: fill.fill_id, time: fill.chartTime, price: numeric(fill.fill_price),
+            position: buying ? 'atPriceBottom' : 'atPriceTop', shape: buying ? 'arrowUp' : 'arrowDown',
+            color: buying ? '#1565c0' : '#ef6c00', size: .65, borderColor: {light: '#000', dark: '#fff'}, borderWidth: 1.5};
+    }).sort((a, b) => a.time - b.time);
+    return {candles, volume, fills, equity, market, markers, indicators, intraday};
 }

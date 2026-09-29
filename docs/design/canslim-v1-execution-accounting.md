@@ -1,6 +1,10 @@
 # CANSLIM v1 — Execution và accounting hợp đồng
 
-Cập nhật: 25/09/2026. Đặc tả một phần, chưa implement/test.
+Cập nhật: 28/09/2026. U04 đã có sổ tiền hợp đồng, khớp long/short, đóng một
+phần và stop/target/trailing, được kiểm thử riêng và qua vòng lặp engine.
+U05/U06 đã ánh xạ lịch phiên và lưu/đọc kết quả hợp đồng. U08 (29/09) đã nối
+cây quy tắc, sizing tại Open, giới hạn ngày và giờ thoát; kiểm thử bằng dữ liệu
+tổng hợp. Xem [phạm vi U07–U08](../plans/engine-upgrade-u07-u08.md).
 Chỉ áp dụng profile v1; normalized accounting v0 giữ nguyên.
 Các mục trống chưa được dùng làm default. Xem
 [rule v1](../strategies/canslim-v1-rules.md) và
@@ -20,7 +24,7 @@ Các mục trống chưa được dùng làm default. Xem
 
 ### Chi tiết execution chưa chốt
 
-- Làm tròn stop/target/pivot theo tick và theo hướng: pivot giữ giá trị gốc; long stop làm tròn xuống, short stop lên; long target lên, short target xuống theo tick 0,1.
+- Làm tròn stop/target theo tick và theo hướng: long stop làm tròn xuống, short stop lên; long target lên, short target xuống theo tick 0,1.
 - Stop/TP mới tạo sau fill Open được kiểm tra trong chính nến entry: có; active ngay sau Open fill và được xét High/Low của nến đó; nếu cùng chạm thì stop ưu tiên.
 - Thứ tự pending exit, margin exit, forced exit và intrabar orders: Open xử lý pending market exit trước; nếu còn vị thế mới xét stop/trailing/TP; tại Close mới xét margin, time-stop và forced exit để tạo lệnh cho Open kế tiếp.
 - TP1/TP2 cùng chạm và quantity còn lại: thực hiện TP1 trước rồi TP2 trong cùng nến; mỗi mức dùng quantity nguyên đã định, TP2 đóng phần còn lại.
@@ -48,7 +52,7 @@ available_cash = equity - required_margin - accrued_costs
 ### Quy ước ledger còn trống
 
 - Cash được cập nhật tại entry/partial/full exit: entry chỉ trừ thuế/phí mở; không trừ notional hay margin. Partial/full exit cộng P/L đã chốt rồi trừ thuế/phí thoát.
-- Phân bổ entry costs khi partial exit: phân bổ theo tỷ lệ quantity đóng/quantity ban đầu; phần lẻ VND dồn vào lần đóng cuối.
+- Phân bổ entry costs khi partial exit: phân bổ theo tỷ lệ quantity đóng/quantity ban đầu, HALF_UP đến 1 VND và không vượt chi phí mở còn chưa phân bổ; lần đóng cuối nhận toàn bộ phần còn lại.
 - Realized P/L net/gross và cách trình bày fees: `gross = hướng × (exit-entry) × 100000 × qty`; `net = gross - entry_cost_allocated - exit_cost`; thuế và từng loại phí hiển thị riêng.
 - required_margin dùng entry price hay current mark: tại entry dùng fill price; sau mỗi Close dùng Close hiện tại, cuối ngày nếu có vị thế thì dùng DSP.
 - accrued_costs gồm khoản nào, thu/trừ khi nào: v1 ghi thuế/phí ngay tại fill nên mặc định 0 sau khi hạch toán; không mô phỏng phí quản lý tài sản ký quỹ theo tháng.
@@ -116,5 +120,19 @@ riêng. Partial exit giữ liên kết entry và quantity còn lại.
 ## 6. Evidence
 
 - Accounting cases: test long/short, partial, gap stop, TP1+TP2 cùng nến, reject margin, margin breach và full exit reconcile.
-- Timing/no-lookahead/determinism: test signal Close→next Open, stop active từ đúng thời điểm, daily chỉ dùng phiên trước và cùng input/hash phải ra cùng kết quả.
+- Timing/no-lookahead/determinism: test signal Close→next Open, stop active từ đúng thời điểm, chỉ báo chỉ dùng VNINDEX đã khả dụng và cùng input/hash phải ra cùng kết quả.
 - API/storage/reload: serialize toàn bộ config/policy/hash; reload phải khôi phục đúng position, ledger, fee/tax và margin snapshots.
+
+### Kết quả U04
+
+`tests/test_contract_execution.py` kiểm tra tiền, phí, ký quỹ sau phí,
+long/short, đóng từng phần, gap, stop trước TP, hai TP cùng nến, trailing,
+lệnh đóng tại Open trước stop/TP và kết quả khi cắt chuỗi.
+Mốc v0 ở `tests/test_v0_baseline_snapshot.py` giữ nguyên.
+U06 đã kiểm thử lưu/đọc kết quả hợp đồng, liên kết từng exit leg bằng ID riêng,
+hash input/policy/result, phí/thuế và lịch sử ký quỹ; chưa nghiệm thu dữ liệu thật.
+
+OHLC không cho biết giây chạm mức giá trong nến. Thành phần U04 ghi `fill_date`
+bằng Open khi gap, bằng Close của nến khi chạm trong nến; giá vẫn là mức đã
+đặt trước. Đây là mốc ghi nhận mô phỏng, không khẳng định thời gian giao dịch thật.
+U06 phải giữ rõ ý nghĩa này khi ánh xạ ra API/biểu đồ.

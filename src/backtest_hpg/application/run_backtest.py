@@ -1,79 +1,78 @@
 from typing import Any, Sequence
-from dataclasses import replace
-from copy import deepcopy
-from datetime import date
 from uuid import UUID
-from ..domain.strategies import get_strategy_definition
-from .contracts import RunConfig
+import json
+from pathlib import Path
+from .inline_data import resolve_inline
+from .inline_results import inline_result_to_dict
 from .ports import RunRepository
-from .result_mapper import result_to_dict
 
 
 class BacktestService:
     """Coordinate a strategy run through the repository lifecycle."""
 
-    def __init__(self, repository: RunRepository):
+    def __init__(self, repository: RunRepository, *, inline_repository=None, inline_runner=None,
+                 inline_policy_path=Path('docs/data/vn30f1m/runtime-policy-v1.json')):
         """Bind the use case to a repository port implementation."""
 
         self.repository = repository
+        self.inline_repository = inline_repository if inline_repository is not None else repository
+        self.inline_runner = inline_runner
+        self.inline_policy_path = Path(inline_policy_path)
 
-    def run(self, config: RunConfig) -> dict[str, Any]:
-        """Load a fixed dataset, run the selected strategy, and persist the result."""
+    def prepare_inline(self, payload):
+        """Resolve data without creating a run or invoking a strategy."""
+        policy = (json.loads(self.inline_policy_path.read_bytes())
+                  if payload['trade_data'].get('contract_map') else None)
+        return resolve_inline(payload, policy), policy
 
-        definition = get_strategy_definition(config.strategy_id, config.strategy_version)
-        values = {} if config.strategy_params is None else config.strategy_params
-        params = definition.parameter_model.model_validate(values)
-        requirements = definition.data_requirements(params)
-        if set(requirements) - {"primary", "market"}:
-            raise ValueError("UNSUPPORTED_DATA_REQUIREMENTS")
-        if "market" in requirements and requirements["market"].get("symbol") != "VNINDEX":
-            raise ValueError("UNSUPPORTED_DATA_REQUIREMENTS: market symbol")
-        # Sao chép yêu cầu để các lần chạy không dùng chung đối tượng tham số.
-        config = replace(config, strategy_version=definition.version,
-                         strategy_params=deepcopy(values))
-        run_id, dataset = self.repository.start_run(config)
+    def validate_inline(self, payload):
+        """Apply the same data and runtime checks used immediately before a run."""
+        data, policy = self.prepare_inline(payload)
+        if any(bar.available_at != bar.closed_at for bar in data.bars):
+            raise ValueError('PRIMARY_AVAILABILITY_DELAY_UNSUPPORTED')
+        from .inline_strategy import check_runtime
+        check_runtime(payload)
+        return data, policy
+
+    def run_inline(self, payload):
+        """Use an explicit inline runner; never substitute a legacy strategy."""
+        data, policy = self.validate_inline(payload)
+        if self.inline_runner is None:
+            raise ValueError('INLINE_STRATEGY_RUNTIME_NOT_IMPLEMENTED: U08')
+        run_id, input_hash, policy_hash = self.inline_repository.start_inline(payload, policy, data)
         try:
-            market_arguments = {}
-            if "market" in requirements:
-                if dataset.market_bars:
-                    market_arguments["market_bars"] = dataset.market_bars
-                elif any(bar.index_close is None for bar in dataset.bars):
-                    raise ValueError("MISSING_REQUIRED_DATA: market")
-            if dataset.metadata.get("rollover_action") == "close_at_expiry_open":
-                market_arguments["flat_dates"] = frozenset(date.fromisoformat(value) for value in dataset.metadata["expiry_dates"])
-            result = definition.runner(
-                dataset.bars,
-                params=params,
-                initial_cash=config.initial_cash,
-                fee_rate=config.fee_rate,
-                slippage_rate=config.slippage_rate,
-                start_date=config.start_date,
-                end_date=config.end_date,
-                **market_arguments,
-            )
-            response = result_to_dict(
-                run_id,
-                dataset.metadata,
-                config,
-                result,
-                strategy_parameters=params.model_dump(mode="json"),
-            )
-            self.repository.complete_run(run_id, result, response)
+            result = self.inline_runner(data, payload)
+            if any(not data.start_date <= fill.fill_date.date() <= data.end_date for fill in result.fills):
+                raise ValueError('FILL_OUTSIDE_REPORT_RANGE')
+            response = inline_result_to_dict(run_id, data, result, input_hash=input_hash,
+                                             policy_hash=policy_hash, accounting=payload['accounting'])
+            self.inline_repository.complete_run(run_id, result, response)
             return response
         except Exception as error:
-            self.repository.fail_run(run_id, error)
+            self.inline_repository.fail_run(run_id, error)
             raise
 
     def get(self, run_id: UUID) -> dict[str, Any] | None:
         """Return one successful persisted run if it exists."""
 
-        return self.repository.get_run(run_id)
+        result = self.inline_repository.get_run(run_id)
+        return (self.repository.get_run(run_id)
+                if result is None and self.inline_repository is not self.repository else result)
 
     def list(self) -> Sequence[dict[str, Any]]:
         """Return successful persisted runs."""
 
-        return self.repository.list_runs()
+        results = self.inline_repository.list_runs()
+        return (results + list(self.repository.list_runs())
+                if self.inline_repository is not self.repository else results)
 
     def get_chart(self, run_id: UUID) -> dict[str, Any] | None:
         """Read chart data without executing the strategy again."""
-        return self.repository.get_chart(run_id)
+        result = self.inline_repository.get_chart(run_id)
+        return (self.repository.get_chart(run_id)
+                if result is None and self.inline_repository is not self.repository else result)
+
+    def get_input(self, run_id):
+        if not hasattr(self.inline_repository, 'get_input'):
+            raise ValueError('INLINE_INPUT_NOT_AVAILABLE_FOR_LEGACY_RUN')
+        return self.inline_repository.get_input(run_id)

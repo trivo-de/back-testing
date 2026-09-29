@@ -54,7 +54,7 @@ Tham chiếu: [rule](../../strategies/canslim-v1-rules.md),
 - Accounting kỳ vọng:
 - Evidence:
 
-## V1-08 — Indicator, daily pivot, rollover và missing data
+## V1-08 — Chỉ báo, chuyển hợp đồng và dữ liệu thiếu
 
 - Input/config:
 - Expected values/availability/UNEVALUABLE:
