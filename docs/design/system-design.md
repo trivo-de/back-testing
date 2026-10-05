@@ -9,15 +9,15 @@ giá hợp đồng cấp khớp lệnh, stop/TP/trailing và P/L. Tham chiếu c
 liệu đã khả dụng. accounting cấp hệ số, ký quỹ, thuế/phí; initial_cash ở ngoài.
 Tái dùng hàm/callback hiện có, không dựng hệ thống plugin hoặc thực thi mã
 Python từ HTTP. Một ứng dụng phục vụ API/notebook/UI, đọc được run cũ;
-kho mới hướng Parquet/JSON, chuyển PostgreSQL có backup và đối chiếu riêng.
+kho tệp dùng Parquet/JSON.
 Xem [ma trận phạm vi và mốc v0](../plans/engine-upgrade-u01-u02.md).
 U03/U04 đã triển khai bộ kiểm tra JSON/cây điều kiện và tách khớp lệnh/tính
 tiền. `run_engine(execution=...)` nhận hàm tạo thành phần thực thi từ vốn ban
 đầu; mặc định là `NormalizedExecution` giữ v0. `ContractExecution` dùng sổ tiền
 hợp đồng và xử lý stop/target/trailing; vòng lặp chỉ điều phối thời gian/sự kiện.
 U05/U06 đã thêm inline_data, inline_results và lưu input/kết quả phiên bản 2
-trong FileRunRepository. main/intraday_main dùng cùng ứng dụng; backend v0
-chọn bằng BACKTEST_LEGACY_BACKEND, JSON mới dùng kho file. BacktestService
+trong FileRunRepository. main/intraday_main dùng cùng ứng dụng và kết nối trực tiếp
+vào FileRunRepository. BacktestService
 nhận bộ thực thi JSON qua inline_runner; main đã nối run_inline_strategy ở U08.
 IndicatorData chuẩn bị chuỗi chỉ báo; mỗi lần đánh giá chỉ đọc đoạn đã khả dụng.
 U07 hiển thị giá trị máy chủ, không tính lại tiền hoặc chỉ báo trên trình duyệt.
@@ -37,7 +37,7 @@ Cập nhật: 15/09/2026.
 ghi signal/equity tại Close và fill tại Open bar kế tiếp. Chuỗi market độc lập,
 SMA200 dùng 200 market samples đã available. Report 15/03–15/09 theo ngày Open
 UTC+7. Static policy session/rollover bắt buộc trước core theo C05. Composition
-root local intraday dùng Parquet + JSON; root PostgreSQL daily giữ compatibility.
+root dùng kho tệp Parquet + JSON thống nhất.
 
 Target 18/09: tái sử dụng luồng API → application → deterministic core → repository
 → result; notebook gọi cùng API, chưa cần agent. Timestamp intraday phải giữ offset
@@ -73,15 +73,15 @@ flowchart LR
     D[Versioned datasets] --> A
     A --> C[Deterministic core]
     C --> R[Backtest result]
-    A --> P[(PostgreSQL)]
+    A --> F[(Kho tệp kết quả)]
     O[Artifact storage] --> D
     R --> API
     API --> W
 ```
 
-Backend Phase 1 chạy đồng bộ trong một process và persist lịch sử vào PostgreSQL;
-chưa cần queue hoặc background worker. Web UI chỉ trình bày result do API trả về
-hoặc reload từ database. Theo điều chỉnh 15/09, phần nến và fill marker thuộc
+Backend chạy đồng bộ trong một process và lưu trữ lịch sử vào kho tệp JSON cục bộ;
+chưa cần queue hoặc background worker. Web UI chỉ trình bày kết quả do API trả về
+hoặc đọc lại từ kho tệp. Theo điều chỉnh 15/09, phần nến và fill marker thuộc
 Phase 3 được ưu tiên cho đợt push Docker/notebook/chart trước Phase 2; thiết kế
 triển khai dự kiến trong [kế hoạch chart](../plans/candlestick-ui-plan.md).
 
@@ -96,8 +96,8 @@ flowchart TD
     EXEC[execution simulator]
     PORT[portfolio ledger]
     MET[metrics/result mapper]
-    REPO[persistence repositories]
-    PG[(PostgreSQL)]
+    REPO[FileRunRepository]
+    FS[(Kho tệp JSON)]
     ART[artifact storage adapter]
     API[HTTP API adapter]
     WEB[Web UI]
@@ -114,7 +114,7 @@ flowchart TD
     EXEC --> PORT
     PORT --> MET
     APP --> REPO
-    REPO --> PG
+    REPO --> FS
     DATA --> ART
     WEB --> API
     API --> APP
@@ -130,7 +130,7 @@ flowchart TD
 | metrics     | Ledger, signals, orders, config            | Result DTO                                      |
 | application | Run request                                | Result hoặc structured error                   |
 | repository  | Dataset/run/result entities                | Persisted/reloaded aggregate                   |
-| PostgreSQL  | Relational records + JSONB metadata        | Durable queryable history                      |
+| kho tệp     | Tệp JSON nguyên tử + Parquet               | Lưu trữ kết quả và dữ liệu đầu vào             |
 | artifact storage | Raw snapshots và large exports       | Immutable object URI/hash                      |
 | API         | HTTP request/result DTO                    | Stable JSON contract                           |
 | Web UI      | API result                                 | Summary, equity, fills, position và trades     |
@@ -144,14 +144,14 @@ Physical package mapping:
 | HTTP API adapter | `backtest_hpg/api/` |
 | Application use case và repository port | `backtest_hpg/application/` |
 | Models, engine, portfolio, indicators và strategy registry | `backtest_hpg/domain/` |
-| PostgreSQL adapter | `backtest_hpg/infrastructure/database.py` |
+| File repository adapter | `backtest_hpg/infrastructure/file_repository.py` |
 | Static backend settings | `backtest_hpg/config.py` |
 | Composition root | `backtest_hpg/main.py` |
 | Web UI | `backtest_hpg/web/` |
 
 Luồng code của một request là `main -> api -> application -> strategy registry ->
-domain engine`, còn application gọi repository port được implement bởi
-`infrastructure/database.py`.
+domain engine`, còn application gọi repository port được hiện thực bởi
+`infrastructure/file_repository.py`.
 
 ## 4. Domain state
 
@@ -254,15 +254,15 @@ tới stop reference; Close-based exit và gap có thể làm realized loss lớ
 5. `GET` history chỉ trả run `succeeded` theo mặc định; audit có thể xem failed run.
 
 Raw source snapshot/export lớn không nhân bản vào từng run. Run tham chiếu một
-immutable `dataset_id/version/content_hash`. Query-critical fields nằm ở relational
-columns; strategy/config metadata linh hoạt có thể nằm trong JSONB.
+immutable `dataset_id/version/content_hash`. Đầu vào, cấu hình và kết quả được
+lưu trong JSON; dữ liệu dataset theo manifest dùng Parquet cùng JSON nguồn.
 
 ## 10. Evolution path
 
 - Strategy registry tối thiểu đã tồn tại; Phase 2 thêm strategy module mới sau khi
   interface signal ổn định và phải giữ regression result của v0.
 - Repository adapter cho phép thay đổi storage implementation mà không đổi domain
-  core; PostgreSQL là implementation production đã chọn.
+  core; kho tệp JSON cục bộ là implementation đã chọn.
 - Queue/worker có thể được thêm sau qua application boundary khi thời gian chạy hoặc
   concurrency yêu cầu, không đổi result schema.
 - Engine/library bên ngoài chỉ được thêm qua adapter và phải pass cùng contract
@@ -312,7 +312,7 @@ dùng signal làm bằng chứng giao dịch. Chi tiết nằm trong
   cung cấp (`entry_pivot`, `stop_reference`). Không nhét strategy state vào ledger.
 - API tiếp tục projection `signals[].pivot`, `open_position.entry_pivot` và
   `stop_reference`; không áp dụng thì null. CANSLIM DTO cũ giữ nguyên, JSON/hash
-  run cũ không rewrite; PostgreSQL chỉ tiếp tục đường CANSLIM legacy. Mapper
+  run cũ không rewrite; kho lưu trữ chỉ tiếp tục đường CANSLIM và luồng JSON. Mapper
   compatibility này cần cho R2, không phải mở API đa chiến lược của R3.
 - Không thêm framework/dependency hoặc đổi model accounting/data policy. Chạy
   cùng input phải giữ signals/orders/fills/trades/equity/summary và projection

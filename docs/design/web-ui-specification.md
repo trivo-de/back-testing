@@ -17,7 +17,8 @@ mũi tên LONG/SHORT/CLOSE theo nến khớp, bảng phí/ký quỹ và P/L riê
 Biểu đồ thời gian Unix hiển thị theo múi giờ của lần chạy; equity giữ mốc Close.
 Xem [phạm vi nâng cấp](../plans/engine-upgrade-u07-u08.md).
 
-> **Storage 18/09/2026:** [Parquet + JSON](../plans/technical-plan.md#6-persistence-parquet-json) thay target pickle trong kế hoạch bên dưới. Raw nguồn giữ nguyên; SQLite/PostgreSQL cho metadata/session agent còn chờ chốt. Nội dung implementation/mốc cũ giữ để truy vết; chưa migrate code hoặc nghiệm thu storage mới.
+Giao diện đọc kết quả từ API dùng kho file [Parquet + JSON](../plans/technical-plan.md#6-persistence-parquet-json).
+Dữ liệu nguồn giữ nguyên; phương án lưu phiên và trạng thái agent còn chờ thiết kế.
 
 
 **Yêu cầu 17/09:** quay lại HPG cũ để show kết quả backtest trên chart. Trang chủ

@@ -6,11 +6,9 @@
 .venv\Scripts\python.exe -m uvicorn backtest_hpg.main:app --host 127.0.0.1 --port 8000
 ```
 
-Mặc định dùng file tại `data/backtest-store`; `/docs` có cả yêu cầu v0 và JSON
-mới. `intraday_main:app` là tên tương thích trỏ cùng ứng dụng. Muốn truy cập
-PostgreSQL v0: đặt `$env:BACKTEST_LEGACY_BACKEND = "postgres"` và cấu hình
-DATABASE_URL trước khi chạy. Chọn backend bằng cấu hình, không bằng port.
-Compose đã chọn postgres cho v0, file cho yêu cầu JSON mới; dữ liệu cũ được giữ.
+Mặc định lưu trữ tại `data/backtest-store`; `/docs` hiển thị đặc tả API.
+`intraday_main:app` là tên tương thích trỏ cùng ứng dụng. Hệ thống sử dụng kho
+file cục bộ (JSON + Parquet), không kết nối cơ sở dữ liệu bên ngoài.
 
 `POST /api/backtests/validate` kiểm tra/ánh xạ JSON, kỳ báo cáo, map hợp đồng và
 khoảng thiếu dữ liệu. `POST /api/backtests` chạy cây JSON với SMA/EMA/BB/MACD/MFI,
@@ -31,34 +29,17 @@ không cần database hoặc agent. Xem [runbook API/notebook](docs/plans/vn30f1
 Hai JSON mới đã import nhưng chỉ bắt đầu 18/03; kỳ báo cáo user giữ 15/03–15/09
 nên API hiện fail thiếu phiên 16–17/03, chờ bổ sung lịch sử 5 phút cả hai symbol.
 
-Theo yêu cầu quay lại data cũ để xem backtest: dùng app đầy đủ với PostgreSQL
-đã có dataset/run HPG. Trang chủ tự mở run gần nhất, có nến daily, volume,
-BUY/SELL tại giá/ngày fill, chọn giao dịch để zoom, equity và các bảng đối chiếu.
-Chart chỉ đọc snapshot của run; không chạy lại strategy khi mở lịch sử.
-
-```powershell
-$env:BACKTEST_LEGACY_BACKEND = "postgres"
-.venv\Scripts\python.exe -m uvicorn backtest_hpg.main:app --host 127.0.0.1 --port 8765
-```
-
-Mở `http://127.0.0.1:8765/`. Cần `DATABASE_URL` trong environment hoặc `.env` và
-database đã import HPG/VNINDEX. Endpoint mới: `GET /api/backtests/{run_id}/chart`.
-Phiên local đã kiểm tra run 2020–2023: 1.000 nến, 18 fills, 1.000 điểm equity;
-toàn bộ OHLCV chart khớp raw HPG 2019–2023. Giữ nhãn `normalized simulation` và
-đơn vị giá nguồn; không nhân giá hoặc đổi strategy để vẽ chart.
-
 [Plan research agent](docs/plans/agent-research-plan.md) · [Tiến độ](docs/plans/progress.md)
 
 ---
 
 # BackTesting HPG
 
-Web backtest HPG daily: strategy → simulated execution → portfolio/P&L → PostgreSQL
-history → Web UI.
+Luồng backtest hiện tại: JSON → kiểm tra dữ liệu → chỉ báo → điều kiện chiến lược
+→ tín hiệu → khớp lệnh → tài khoản → kết quả trong kho file → Web UI.
 
-Phase 1 hiện có deterministic core, `canslim_breakout_v0`, API, PostgreSQL
-repository/migration và Web UI dạng cards/tables. Kết quả dùng snapshot VNDIRECT
-back-adjusted vẫn mang nhãn `normalized simulation`.
+API lưu đầu vào và kết quả JSON qua `FileRunRepository` tại `data/backtest-store`.
+Giao diện đọc cùng kết quả từ API để hiển thị biểu đồ và các bảng đối chiếu.
 
 Ưu tiên đợt bàn giao tiếp theo: Docker + notebook + chart nến có điểm BUY/SELL.
 [Kế hoạch frontend/chart](docs/plans/candlestick-ui-plan.md) gồm stack, flow, cây file
@@ -71,28 +52,7 @@ Chart implementation chưa bắt đầu.
 python -m venv .venv
 .venv\Scripts\activate
 python -m pip install -r requirements.txt
-copy .env.example .env
-notepad .env
 ```
-
-Thay `change-me` trong `.env` bằng password PostgreSQL local. Environment variable
-`DATABASE_URL` được ưu tiên; nếu không có, `config.py` đọc `.env` tại project root.
-Không commit `.env`.
-
-## Database và acceptance
-
-```cmd
-python scripts\apply_migrations.py
-python scripts\run_postgres_acceptance.py
-```
-
-Acceptance runner cần snapshot local dưới `data/`, chạy validator trước khi import,
-sau đó persist và reload cùng business result từ PostgreSQL.
-
-`data/preprocessing.ipynb` và `data/dataset_manifest.json` được đưa vào phạm vi Git;
-raw snapshot tiếp tục local. Chuẩn bị đúng file snapshot theo manifest và kiểm tra
-hash trước khi import. Hiện notebook chọn raw 2024–2026 còn manifest mô tả
-2019–2023: cần thống nhất dataset trước acceptance, không sửa riêng hash để chạy qua.
 
 ## Chạy test và Web UI
 
@@ -122,20 +82,10 @@ dataset ID/version/content hash, config và strategy parameters.
 ## Chạy bằng Docker
 
 ```cmd
-copy .env.example .env
 docker compose up --build
 ```
 
-Đổi `POSTGRES_PASSWORD` trong `.env` trước khi deploy, rồi mở
-`http://127.0.0.1:8000`. Container ứng dụng tự chạy migration khi khởi động;
-PostgreSQL lưu dữ liệu trong volume `postgres_data`.
-
-Raw snapshot không được đóng vào image. Sau khi đặt snapshot và manifest đã xác
-nhận dưới `data/`, import và kiểm tra một lần bằng:
-
-```cmd
-docker compose exec app python scripts/run_postgres_acceptance.py
-```
+Mở `http://127.0.0.1:8000`.
 
 Luồng đọc source của một API backtest:
 
@@ -143,9 +93,9 @@ Luồng đọc source của một API backtest:
 main.py
   -> api/backtest_routes.py
   -> application/run_backtest.py
-  -> domain/strategies/<strategy_id>.py
+  -> application/inline_strategy.py
   -> domain/engine.py
-  -> infrastructure/database.py
+  -> infrastructure/file_repository.py
 ```
 
 ## Tài liệu
@@ -155,7 +105,6 @@ main.py
 - [System Design](docs/design/system-design.md)
 - [Technical Plan](docs/plans/technical-plan.md)
 - [Data Contract](docs/data/hpg/data-contract.md)
-- [PostgreSQL Schema](docs/design/database-schema.md)
 - [CANSLIM Rules](docs/strategies/canslim-rules.md)
 - [Accounting Test Cases](docs/testing/hpg/accounting-test-cases.md)
 - [Web UI Specification](docs/design/web-ui-specification.md)

@@ -134,8 +134,7 @@ chưa phải implementation hoặc acceptance backtest VN30F1M.
 
 Quyết định storage 18/09: Parquet cho dataset đã validate; JSON cho manifest, config
 và complete result nhỏ, thay kế hoạch pickle 15/09. Raw nguồn giữ nguyên.
-SQLite/PostgreSQL cho session và trạng thái agent còn chờ chốt. Đây là cập nhật
-tài liệu; source và Docker chưa migrate khỏi PostgreSQL.
+Ứng dụng dùng kho tệp Parquet + JSON cục bộ.
 
 Tài liệu này ghi các quyết định triển khai và thứ tự xây hệ thống. Requirement chi
 tiết nằm trong [SRS](../requirements/software-requirements-specification.md), còn cấu trúc module và
@@ -252,7 +251,7 @@ Short, partial exit/fill, limit order, leverage và multi-symbol chưa hỗ tr�
 
 Giữ approved bundle VN30F1M/VNINDEX và validation integrity hiện có. CANSLIM
 vẫn cần 200 market samples, 65 primary highs/lows và 50 volumes trước decision;
-fixed-signal fixture không cần warm-up. Không migrate PostgreSQL hoặc sửa run cũ.
+fixed-signal fixture không cần warm-up. Không sửa kết quả chạy cũ.
 R2 chỉ sửa mapper đủ để lấy pivot/stop projection do strategy cung cấp thay vì
 đọc ledger/tính stop lại; evaluation status/registry/typed params để R3.
 
@@ -266,7 +265,7 @@ Evidence 21/09: `.venv/Scripts/python.exe -m unittest discover -s tests -v`
 chạy **36 tests pass**, gồm 29 tests nền và 7 tests mới. Năm response CANSLIM
 (closed/open/pending/rejected/intraday) khớp hash chụp trước refactor; ACC-01–03,
 prefix/availability, deterministic, API/file reload và notebook fixture đều pass.
-Không chạy real-data acceptance, live PostgreSQL hoặc browser trong lượt này.
+Không chạy nghiệm thu dữ liệu thật hoặc trình duyệt trong lượt này.
 Core có thay đổi Python signature: `run_engine` nhận `DecisionContext`,
 `size_buy`, `on_execution`; `run_fixed_signals` cần quantity hoặc sizing rõ ràng,
 không còn sizing CANSLIM ngầm. Snapshot chuyển sang module CANSLIM. HTTP DTO
@@ -285,7 +284,7 @@ runtime. Parquet là định dạng bảng, không thay chức năng transaction
 | Manifest                                              | JSON: schema version, dataset ID/version, hash, nguồn, extraction time, số dòng, khoảng thời gian, raw/derived paths và hashes |
 | Config, summary, complete result nhỏ                 | JSON theo run ID, giữ DTO và precision hiện có                                                                                   |
 | Fills, trades, equity history lớn                    | Tách Parquet khi kích thước thực tế cần; chưa bắt buộc                                                                     |
-| Session, trạng thái run, tool-call audit của agent | SQLite hoặc PostgreSQL còn chờ chốt theo nhu cầu query/concurrency                                                              |
+| Phiên, trạng thái và nhật ký gọi công cụ của agent | Phương án lưu trữ còn chờ chốt theo nhu cầu truy vấn và xử lý đồng thời |
 
 Demo local bắt đầu bằng Parquet + JSON; chưa cần database server mới. Agent đọc
 qua tool/backend, không nạp toàn bộ bảng giá vào context LLM.
@@ -302,8 +301,7 @@ qua tool/backend, không nạp toàn bộ bảng giá vào context LLM.
   writer trong một process. Run ghi dở không được xuất hiện như thành công.
 - Lưu run ID, dataset version/hash, config, strategy/engine version; khi có agent
   thêm model/prompt version và tool trace ở storage metadata được chọn.
-- Docker target mount thư mục artifact để giữ dữ liệu sau restart; chưa xóa service
-  PostgreSQL hoặc thay cấu hình runtime trong bước tài liệu này.
+- Docker Compose chạy dịch vụ API và mount kho file để giữ dữ liệu sau restart.
 - Trước implementation kiểm tra dependency hiện có, version/license của thư viện
   Parquet được chọn; chưa cài dependency cho việc cập nhật kế hoạch.
 
@@ -388,7 +386,7 @@ Còn mở:
 - Artifact storage production và retention policy; Phase đầu có thể dùng local
   filesystem adapter cho raw snapshot/export.
 - Retention/backup cho raw, Parquet, JSON và ngưỡng tách result lớn ra Parquet.
-- SQLite hoặc PostgreSQL cho session/trạng thái/tool audit khi triển khai agent.
+- Phương án lưu phiên, trạng thái và nhật ký gọi công cụ khi triển khai agent.
 
 Không tự chọn một phương án cho các mục này trong implementation nếu task chưa chỉ
 định hoặc tài liệu liên quan chưa chốt.

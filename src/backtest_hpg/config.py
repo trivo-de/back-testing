@@ -6,11 +6,6 @@ from pathlib import Path
 
 # Schemas
 @dataclass(frozen=True)
-class DatabaseSettings:
-    url_environment_variable: str
-    env_file: Path
-
-@dataclass(frozen=True)
 class ApiSettings:
     title: str
     version: str
@@ -77,11 +72,6 @@ INTRADAY = IntradaySettings(
     store=Path(os.getenv("BACKTEST_STORE_PATH", "data/backtest-store")),
     policy_path=Path(os.getenv("VN30F1M_POLICY_PATH", "docs/data/vn30f1m/runtime-policy.json")),
 )
-
-DATABASE = DatabaseSettings(
-    url_environment_variable="DATABASE_URL",
-    env_file=Path(__file__).resolve().parents[2] / ".env",
-)
 API = ApiSettings(
     title="HPG Backtest",
     version="0.1.0",
@@ -106,26 +96,3 @@ CANSLIM_BREAKOUT_V0 = CanslimBreakoutV0Settings(
     take_profit_pct=Decimal("0.20"),
     risk_per_trade_pct=Decimal("0.02"),
 )
-
-
-# Runtime secret loading
-# Load DATABASE_URL from the process environment, then the local .env file.
-def get_database_url(env_file: str | Path | None = None) -> str:
-    value = os.getenv(DATABASE.url_environment_variable)
-    if value and value.strip():
-        return value
-
-    env_path = Path(env_file) if env_file is not None else DATABASE.env_file
-    if env_path.exists():
-        for line in env_path.read_text(encoding="utf-8-sig").splitlines():
-            key, separator, value = line.partition("=")
-            if separator and key.strip() == DATABASE.url_environment_variable:
-                value = value.strip()
-                if value.startswith(("'", '"')):
-                    if len(value) < 2 or value[-1] != value[0]:
-                        raise RuntimeError(f"{DATABASE.url_environment_variable}: unmatched quotes")
-                    value = value[1:-1]
-                if value.strip():
-                    return value
-
-    raise RuntimeError(f"Configure {DATABASE.url_environment_variable} in the project .env or environment")

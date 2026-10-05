@@ -177,17 +177,8 @@ class InlinePipelineTest(unittest.TestCase):
         from backtest_hpg.main import build_service, app
         from backtest_hpg.intraday_main import app as alias
         self.assertIs(app, alias)
-        with patch.dict('os.environ', {'BACKTEST_LEGACY_BACKEND': 'file'}):
-            service = build_service()
-            self.assertIs(service.repository, service.inline_repository)
-        with patch.dict('os.environ', {'BACKTEST_LEGACY_BACKEND': 'postgres'}), \
-                patch('backtest_hpg.main.get_database_url', return_value='fixture'), \
-                patch('backtest_hpg.main.PostgresRunRepository') as factory:
-            service = build_service()
-            factory.assert_called_once_with('fixture')
-            self.assertIsNot(service.repository, service.inline_repository)
-        with patch.dict('os.environ', {'BACKTEST_LEGACY_BACKEND': 'wrong'}), self.assertRaises(ValueError):
-            build_service()
+        service = build_service()
+        self.assertIs(service.repository, service.inline_repository)
 
 
 class InlineDataTest(unittest.TestCase):

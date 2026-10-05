@@ -1,6 +1,8 @@
 # Cấu trúc repository
 
-> **Storage 18/09/2026:** [Parquet + JSON](../plans/technical-plan.md#6-persistence-parquet-json) thay target pickle trong kế hoạch bên dưới. Raw nguồn giữ nguyên; SQLite/PostgreSQL cho metadata/session agent còn chờ chốt. Nội dung implementation/mốc cũ giữ để truy vết; chưa migrate code hoặc nghiệm thu storage mới.
+Kho dữ liệu dùng [Parquet + JSON](../plans/technical-plan.md#6-persistence-parquet-json).
+Đầu vào và kết quả chạy được lưu trong kho file; dữ liệu nguồn giữ nguyên.
+Kho lưu phiên và trạng thái agent còn chờ thiết kế khi triển khai agent.
 
 
 Cập nhật: 15/09/2026.
@@ -18,17 +20,12 @@ back-testing/
 ├── data/
 │   ├── preprocessing.ipynb        # Adapter/validator được quản lý trên Git
 │   └── dataset_manifest.json      # Metadata snapshot; raw data vẫn local
-├── migrations/
-│   └── 001_initial.sql
 ├── notebooks/
 │   └── backtest-results.ipynb     # Trình bày result từ HTTP API
-├── scripts/
-│   ├── apply_migrations.py
-│   └── run_postgres_acceptance.py
 ├── src/
 │   └── backtest_hpg/
 │       ├── main.py                # Composition root của FastAPI
-│       ├── config.py              # Nhóm database/API/backtest/result/strategy settings
+│       ├── config.py              # Nhóm API/backtest/result/strategy settings
 │       ├── api/
 │       │   ├── app.py             # Tạo FastAPI app
 │       │   ├── backtest_routes.py # HTTP endpoints
@@ -49,7 +46,7 @@ back-testing/
 │       │       ├── __init__.py    # Strategy registry
 │       │       └── canslim_breakout_v0.py
 │       ├── infrastructure/
-│       │   └── database.py        # PostgreSQL RunRepository adapter
+│       │   └── file_repository.py # FileRunRepository adapter (JSON + Parquet)
 │       └── web/
 │           └── index.html
 └── tests/
@@ -67,15 +64,12 @@ trong `application/run_backtest.py`.
 
 | Nhóm                   | Nội dung                                                       |
 | ----------------------- | --------------------------------------------------------------- |
-| `DATABASE`            | Tên environment variable và đường dẫn`.env`             |
 | `API`                 | API title, version và backtest route prefix                    |
 | `BACKTEST`            | Engine version, symbol hỗ trợ và result label                |
 | `RESULT`              | Precision/rounding quantum                                      |
 | `CANSLIM_BREAKOUT_V0` | Strategy ID, indicator windows, threshold, exit và risk sizing |
 
-`DATABASE_URL` thật không phải static value: nó tiếp tục được đọc runtime từ
-environment hoặc `.env`, vì credential thay đổi theo máy. Strategy settings là
-giá trị cố định theo [CANSLIM Rule](../strategies/canslim-rules.md), không phải tham số tự tối ưu.
+Strategy settings là giá trị cố định theo [CANSLIM Rule](../strategies/canslim-rules.md), không phải tham số tự tối ưu.
 
 ## 3. Ownership và dependency
 
@@ -83,8 +77,8 @@ giá trị cố định theo [CANSLIM Rule](../strategies/canslim-rules.md), kh�
 | ------------------- | ------------------------------------------------ | ------------------------------------- |
 | `api/`            | HTTP route và Pydantic schema                   | Strategy, accounting hoặc SQL        |
 | `application/`    | Use case, port và result mapping                | FastAPI route hoặc SQL cụ thể      |
-| `domain/`         | Model, indicator, strategy, execution, portfolio | FastAPI, Psycopg hoặc agent provider |
-| `infrastructure/` | Adapter PostgreSQL                               | Strategy rule                         |
+| `domain/`         | Model, indicator, strategy, execution, portfolio | FastAPI, cơ sở dữ liệu ngoài hoặc agent provider |
+| `infrastructure/` | Adapter kho tệp (JSON + Parquet)                 | Strategy rule                         |
 | `web/`            | Presentation dùng API result                    | Tự tính signal, fill hoặc P/L      |
 | `notebooks/`      | Presentation và kiểm tra API result             | Tự tính signal, fill hoặc P/L      |
 
@@ -112,10 +106,10 @@ backtest_hpg.main:app
   -> domain/strategies/__init__.py
   -> domain/strategies/<strategy_id>.py
   -> domain/engine.py
-  -> infrastructure/database.py
+  -> infrastructure/file_repository.py
 ```
 
-`main.py` là nơi duy nhất nối config, PostgreSQL repository, application service và
+`main.py` là nơi duy nhất nối config, file repository, application service và
 FastAPI app. Strategy registry là mapping nhỏ từ `strategy_id` tới hàm chạy; không
 cần factory hoặc class hierarchy.
 
@@ -153,7 +147,7 @@ Cây đầy đủ, ownership và test files dự kiến nằm ở
 Các đường dẫn sau bị Git ignore:
 
 ```text
-.env              # credential PostgreSQL local
+.env              # cấu hình môi trường local nếu có
 .venv/            # Python virtual environment
 .agents/           # helper, scratch và artifact local
 data/*             # trừ preprocessing.ipynb và dataset_manifest.json
