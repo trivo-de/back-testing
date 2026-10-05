@@ -30,7 +30,7 @@ def create_backtest_router(service: BacktestService) -> APIRouter:
             return service.run_inline(request.model_dump(mode='json', by_alias=True, exclude_none=True))
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
-        except (OSError, KeyError, TypeError) as error:
+        except (OSError, KeyError, TypeError):
             raise HTTPException(status_code=503, detail={"code": "BACKTEST_STORAGE_UNAVAILABLE"}) from None
 
     @router.get("")

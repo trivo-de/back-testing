@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any, Sequence
 from uuid import UUID
 import json
@@ -11,19 +12,36 @@ class BacktestService:
     """Coordinate a strategy run through the repository lifecycle."""
 
     def __init__(self, repository: RunRepository, *, inline_repository=None, inline_runner=None,
-                 inline_policy_path=Path('docs/data/vn30f1m/runtime-policy-v1.json')):
+                 inline_policy_path=Path('docs/data/vn30f1m/runtime-policy-v1.json'),
+                 auto_fetch_policy_path=Path('docs/data/vn30f1m/runtime-policy.json'), data_fetcher=None):
         """Bind the use case to a repository port implementation."""
 
         self.repository = repository
         self.inline_repository = inline_repository if inline_repository is not None else repository
         self.inline_runner = inline_runner
         self.inline_policy_path = Path(inline_policy_path)
+        self.auto_fetch_policy_path = Path(auto_fetch_policy_path)
+        self.data_fetcher = data_fetcher
 
     def prepare_inline(self, payload):
-        """Resolve data without creating a run or invoking a strategy."""
-        policy = (json.loads(self.inline_policy_path.read_bytes())
-                  if payload['trade_data'].get('contract_map') else None)
-        return resolve_inline(payload, policy), policy
+        """Resolve supplied or automatically fetched data without creating a run."""
+        fetch_metadata = None
+        if payload.get('auto_fetch_data'):
+            policy = json.loads(self.auto_fetch_policy_path.read_bytes())
+            supplied_report = payload.get('report')
+            resolved, fetch_metadata = self.data_fetcher.fetch(policy)
+            payload.update(resolved)
+            if supplied_report is not None:
+                payload['report'] = supplied_report
+            payload['auto_fetch_data'] = False
+        else:
+            policy = (json.loads(self.inline_policy_path.read_bytes())
+                      if payload['trade_data'].get('contract_map') else None)
+        data = resolve_inline(payload, policy)
+        if fetch_metadata is not None:
+            data = replace(data, metadata={**data.metadata, 'input_origin': 'auto_fetch',
+                                           'auto_fetch': fetch_metadata})
+        return data, policy
 
     def validate_inline(self, payload):
         """Apply the same data and runtime checks used immediately before a run."""

@@ -9,6 +9,12 @@ biểu diễn bằng `trade_data`, `market_data`, `strategy`, `execution`, `acco
 và `initial_cash`; không chọn nhánh chạy bằng strategy ID.
 Xem [phạm vi U07–U08](../plans/engine-upgrade-u07-u08.md); U09 nghiệm thu dữ liệu thật còn riêng.
 
+Hỗ trợ chứa template các chiến lược có sẵn sẽ được cân nhắc sau khi mở rộng đủ trường hợp cho mọi chiến lược.
+
+Lưu ý khi test API trên notebook: Python dùng trực tiếp trong
+notebook là một giao diện khác nên không thể truyền nguyên đối tượng lớp/hàm qua
+JSON như khi gọi thư viện trong cùng tiến trình.
+
 ## 1. Quyết định về đầu vào
 
 - Truyền dữ liệu trực tiếp bằng JSON; không yêu cầu nhập hoặc lưu bộ dữ liệu trước.
@@ -18,75 +24,36 @@ Xem [phạm vi U07–U08](../plans/engine-upgrade-u07-u08.md); U09 nghiệm thu 
   trong yêu cầu chạy mới.
 - Truyền định nghĩa chiến lược và các tham số của lần thử, kể cả chiến lược chưa
   từng được lưu thành mẫu. Tên chiến lược nếu có chỉ phục vụ hiển thị.
-- Kiểm tra dựa trên nội dung dữ liệu, chỉ báo, quy tắc và khả năng thực thi;
-  không kiểm tra điều kiện chiến lược phải tồn tại trong danh sách mẫu.
+- Kiểm tra dựa trên nội dung dữ liệu, chỉ báo, quy tắc và khả năng thực thi.
 - Mẫu lưu sẵn là tiện ích điền lại nội dung. Chọn mẫu hay tự tạo đều đưa cùng
   nội dung đầy đủ vào luồng kiểm tra và chạy.
-- Lưu kết quả hoặc mẫu là việc riêng; không cần tạo mẫu trước khi thử chiến lược.
 
-Các yêu cầu bắt buộc ID/phiên bản và chọn chiến lược đã đăng ký trong thiết kế
-ngày 26/09 không còn là hướng thiết kế API mới. Bộ kiểm tra và lệnh chạy mới
-không dùng các ID đó; lịch sử kết quả cũ vẫn đọc được.
-
-## 2. Phân biệt tham số và định nghĩa chiến lược
+## 2. Hướng dẫn payload
 
 Hướng dẫn điền từng trường, keyword hợp lệ, cây phép toán và tham chiếu dấu
 chấm: [Hướng dẫn payload chiến lược](strategy-payload-guide.md).
 
-`{"period": 20}` chỉ cung cấp một giá trị, chưa cho biết tính chỉ báo nào, dùng
-chuỗi nào, điều kiện vào/thoát lệnh hoặc khối lượng giao dịch. Bỏ strategy_id
-nhưng chỉ giữ strategy_params vẫn chưa đủ để chạy một chiến lược mới.
+## 3. Các nhóm dữ liệu
 
-Vì vậy, phần `strategy` cần chứa định nghĩa có thể thực thi, gồm các thành phần
-chiến lược thực sự sử dụng: chỉ báo/công thức, điều kiện, hành động, cách tính
-khối lượng và trạng thái liên quan. Không bắt mọi chiến lược có cùng bộ chỉ báo
-hoặc các trường tham số CANSLIM.
+**Bổ sung 02/10/2026:** boolean `auto_fetch_data=false`; khi bật, phải bỏ
+`trade_data` và `market_data` ở yêu cầu đầu vào. Máy chủ tải cả VN30F1M và
+VNINDEX 5 phút, sau đó chuyển về cùng payload đã kiểm tra để lưu và chạy lại
+không cần gọi mạng. Quy định bảng dưới áp dụng chế độ nhập thủ công. Chi tiết tại
+[Tự tải dữ liệu](auto-fetch-data.md).
 
-**Hướng đề xuất cho API JSON:** truyền quy tắc có cấu trúc và các tham số ngay
-trong yêu cầu. Một bộ đọc quy tắc chung chuyển nội dung này thành phần đánh giá
-mà engine hiện có gọi. Không tạo một lớp Python và mục đăng ký riêng cho mỗi
-bộ quy tắc người dùng muốn thử.
-
-Chiến lược chưa lưu vẫn kiểm tra và chạy được nếu các thành phần nó sử dụng
-đã được hỗ trợ. Chỉ báo, toán tử hoặc hành động mới chưa có phần tính tương ứng
-phải được bổ sung vào khả năng của hệ thống; việc lưu một mẫu không giải quyết
-được thiếu sót này.
-
-Đã chọn cách biểu diễn bằng `all`/`any` và các nút phép toán cho CANSLIM v1;
-`entry` và `exit` là hai trường bắt buộc trong `strategy`. Không coi JSON tùy ý
-hoặc một mô tả bằng văn bản là định nghĩa đã đủ để thực thi. Mã Python dùng trực tiếp trong
-notebook là một giao diện khác; không thể truyền nguyên đối tượng lớp/hàm qua
-JSON như khi gọi thư viện trong cùng tiến trình.
-
-## 3. Các nhóm dữ liệu trong yêu cầu mới
-
-Các nhóm dưới đây gửi được tới API kiểm tra; chưa gửi chạy được vào API v0.
-
-| Nhóm        | Nội dung                                                                                                              |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| trade_data   | Bắt buộc: chuỗi OHLCV giao dịch trực tiếp bằng JSON, khung thời gian, đơn vị và thời gian khả dụng      |
-| market_data  | VNINDEX tham chiếu bằng JSON; bắt buộc nếu chiến lược sử dụng, có thể bỏ hoặc null nếu không sử dụng |
-| strategy     | Định nghĩa chỉ báo/quy tắc/hành động và các tham số dùng trong lần thử                                  |
-| report       | Tùy chọn: start_date/end_date để chọn kỳ báo cáo; bỏ hoặc null thì xét toàn khoảng trade_data            |
-| execution    | Quy tắc khớp, trượt giá và xử lý phiên/đáo hạn áp dụng cho lần chạy                                    |
-| initial_cash | Số vốn ban đầu của tài khoản backtest; giữ ngoài accounting                                                   |
-| accounting   | Mô hình tính tiền: `normalized` dùng tỷ lệ phí theo giá trị; `contract` dùng hệ số hợp đồng, ký quỹ, thuế và phí |
-
-Cách tính tiền được xác định rõ từ cấu hình tài khoản, không suy từ tên chiến
-lược. VN30F1M chạy mô hình v0 vẫn khác mô hình tiền hợp đồng của v1.
-Thông số phái sinh tuân theo [tài liệu tính tiền v1](canslim-v1-execution-accounting.md).
+| Nhóm        | Nội dung                                                                                                                                |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| trade_data   | Bắt buộc: chuỗi OHLCV giao dịch trực tiếp bằng JSON, khung thời gian, đơn vị và thời gian khả dụng                        |
+| market_data  | VNINDEX tham chiếu bằng JSON; bắt buộc nếu chiến lược sử dụng, có thể bỏ hoặc null nếu không sử dụng                   |
+| strategy     | Định nghĩa chỉ báo/quy tắc/hành động và các tham số dùng trong lần thử                                                    |
+| report       | Tùy chọn: start_date/end_date để chọn kỳ báo cáo; bỏ hoặc null thì xét toàn khoảng trade_data                              |
+| execution    | Quy tắc khớp, trượt giá và xử lý phiên/đáo hạn áp dụng cho lần chạy                                                      |
+| initial_cash | Số vốn ban đầu của tài khoản backtest; giữ ngoài accounting                                                                     |
+| accounting   | Mô hình tính tiền:`normalized` dùng tỷ lệ phí theo giá trị; `contract` dùng hệ số hợp đồng, ký quỹ, thuế và phí |
 
 ### 3.1. Payload minh họa
 
-Mẫu này gửi được tới **POST /api/backtests/validate**, chưa gửi chạy được. Giá và khối
-lượng là dữ liệu giả minh họa; hai nến không đủ để chạy các chỉ báo v0/v1.
-`strategy` dưới đây biểu diễn CANSLIM v1 theo cách `all`/`any`: SMA20, EMA5,
-BB(20,2), MACD, MFI14; vào long/short và thoát theo stop/TP/trailing/thời gian.
-Các con số lấy từ [rule v1](../strategies/canslim-v1-rules.md). Tên trường/nút mới
-là thiết kế biểu diễn, chưa có bộ thực thi tương ứng trong source.
-
-contract_map đã có lịch năm 2026 trong payload. Hai nến minh họa chưa đủ
-150 nến VNINDEX khởi tạo. Vốn demo là 100.000.000 VND.
+Dưới đây là minh họa một payload với đầy đủ mọi tham số hiện có trong service:
 
 ```json
 {
@@ -283,32 +250,7 @@ contract_map đã có lịch năm 2026 trong payload. Hai nến minh họa chưa
 }
 ```
 
-Trong phạm vi hiện tại, `market_data` quy ước là VNINDEX nên không cần nhập lại
-symbol của chuỗi này. Nó là dữ liệu tham chiếu, không phải tài sản nhận lệnh.
-Ví dụ giữ OHLCV giả minh họa của VNINDEX để thể hiện trường market_data trong API.
-CANSLIM v1 bắt buộc market_data: SMA/EMA/BB/MACD lấy market_data.close,
-MFI lấy HLCV market_data; các so sánh Close ở entry cũng dùng VNINDEX.
-Giá khớp, stop, trailing và P/L lấy hợp đồng trong trade_data.
-TP1/TP2 bằng giá khớp vào cộng 6/12 điểm khi long, trừ 6/12 điểm khi short.
-Giá truyền bằng chuỗi thập phân; bộ tiếp nhận mới cần chuyển thành Decimal và
-kiểm tra số hữu hạn. Đây không phải định dạng raw VNDIRECT mà validate_bars()
-hiện đang nhận; không coi hai định dạng đã dùng thay nhau được.
-
 ### Phần rút gọn và lịch sử khởi tạo
-
-Payload chỉ giữ tham số cần thay khi thử chiến lược. `warmup_bars: 150` là số
-nến đã đóng tối thiểu, **tính cả nến t**, không phải chu kỳ EMA150. Đây là yêu
-cầu riêng của v1; không đặt 150 làm mặc định cho mọi chiến lược. Khi bỏ trường
-này, không áp thêm ngưỡng số nến riêng; các chỉ báo được tham chiếu vẫn phải
-có giá trị hợp lệ. Ví dụ SMA với period=20 cần 20 mẫu để tính, ref có shift=1
-còn cần giá trị nến trước. Đó là yêu cầu của công thức đã khai báo, không phải
-mặc định ngầm cho warmup_bars. V1 vẫn truyền 150 và phải đáp ứng cả ngưỡng
-này lẫn điều kiện đủ dữ liệu của từng chỉ báo.
-
-SMA200 cần
-200 mẫu VNINDEX, nền giá cần 65 nến trước và khối lượng cần 50 nến trước.
-Thiếu mẫu thì chưa đánh giá được. V1 giữ kỳ báo cáo sáu tháng; lịch sử khởi
-tạo không phải lý do tự lùi ngày bắt đầu báo cáo.
 
 Các chi tiết sau được định nghĩa một lần trong thành phần thực thi, không
 bắt người gọi lặp lại trong mỗi payload:
@@ -330,12 +272,6 @@ bắt người gọi lặp lại trong mỗi payload:
 - `risk_and_margin`: tính cả chi phí hai lượt ước tính, làm tròn xuống số
   hợp đồng nguyên, từ chối nếu dưới một hợp đồng và kiểm tra ký quỹ sau phí
   mở lệnh. Ngừng mở mới theo giới hạn ngày vẫn tiếp tục quản trị vị thế cũ.
-
-Đây là ngữ nghĩa của các thành phần được mô tả trong thiết kế này, chưa phải
-hành vi đã triển khai. Engine không chọn rule theo tên CANSLIM hoặc symbol.
-Các ngưỡng, ưu tiên thoát, trailing, giờ giao dịch và giới hạn vị thế vẫn nằm
-trong strategy. Cấu hình thực tế sau khi bổ sung mặc định phải lưu cùng kết
-quả để chạy lại được; không chỉ lưu payload rút gọn.
 
 ### Diễn giải các điều kiện v1
 
@@ -395,19 +331,19 @@ U03 đã kiểm tra các khai báo này và tính được cây phép toán trê
 khả dụng. U04 có khớp stop/target/trailing riêng; việc chuyển toàn bộ strategy
 JSON thành hành vi chạy, gồm risk_and_margin, đã triển khai ở U08.
 
-### Thời gian và đơn vị: trường bắt buộc/tùy chọn
+### Thời gian và đơn vị
 
 Áp dụng riêng cho mỗi chuỗi trade_data/market_data trong thiết kế mới:
 
 Khung thời gian dùng `resolution` theo cách ghi của VNDIRECT: `"5"` là 5 phút,
 `"D"` là ngày. Cả trade_data và market_data dùng cùng tên trường này, không dùng
 `timeframe` hoặc giá trị `"5m"` trong payload mới. `resolution` bắt buộc cho mỗi
-chuỗi; ký hiệu dữ liệu ngày không có nghĩa engine đã hỗ trợ mọi cách sử dụng daily.
+chuỗi.
 
 | Trường            | Bắt buộc                                          | Khi không truyền                                                                                 |
 | ------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| bars[].time         | Có                                                 | Thời điểm mở nến                                                                             |
-| bars[].close_time   | Không, với nến 5 phút theo quy ước đã chốt | `time + 300` giây                                                                             |
+| bars[].time         | Có                                                 | Thời điểm mở nến                                                                              |
+| bars[].close_time   | Không, với nến 5 phút theo quy ước đã chốt | `time + 300` giây                                                                               |
 | bars[].available_at | Không, với cùng quy ước mô phỏng             | Bằng close_time sau khi xác định thời điểm đóng                                           |
 | timestamp_unit      | Không                                              | "s": Unix giây; truyền "ms" nếu dữ liệu dùng mili giây, không tự đoán qua độ dài số |
 | timezone            | Không trong phạm vi thị trường Việt Nam       | "Asia/Ho_Chi_Minh", dùng xác định ngày báo cáo và giờ phiên                              |
@@ -452,30 +388,10 @@ Quy tắc mặc định toàn chuỗi là tiện ích API chung, không thay k�
 Khi chạy v1 có dữ liệu khởi tạo bên ngoài sáu tháng, truyền report chỉ rõ kỳ đã
 chốt; không tự thu hẹp kỳ vì market_data hoặc lịch sử chỉ báo ngắn hơn.
 
-### 3.3. Có cần loại chứng khoán không?
-
-Đối với tầng dữ liệu giá/chỉ báo/điều kiện, không cần trường `asset_class` bắt buộc
-hoặc danh sách đóng chỉ nhận HPG/VN30F1M. Chiến lược tham chiếu `trade_data` và
-`market_data`; kiểm tra các cột/chu kỳ/đơn vị mà nó sử dụng, không dựa vào tên
-loại chứng khoán để chọn công thức. CANSLIM vẫn cần khối lượng khi có điều kiện
-khối lượng/MFI; "quan tâm giá" không có nghĩa chỉ một cột Close là đủ cho mọi rule.
-
-Tầng khớp lệnh/tài khoản vẫn cần mô hình đã chọn và các thông số thực sự ảnh hưởng
-kết quả. Mô hình chuẩn hóa phù hợp để thử luồng trên chuỗi giá; không diễn giải
-P/L đó thành tiền hợp đồng v1. V1 vẫn cần hệ số hợp đồng, bước giá, phí, ký quỹ,
-lịch phiên/đáo hạn và dữ liệu hợp đồng thực theo các quyết định đã chốt. Các thông
-số thuộc execution/account và bảng dữ liệu đi kèm, không bắt suy từ asset_class.
-
-Nhãn symbol có thể tùy chọn cho thử giá, nhưng mã hợp đồng thực hoặc bảng ánh xạ
-vẫn cần khi quy tắc yêu cầu tách lịch sử từng hợp đồng. Không bỏ yêu cầu này của
-v1 chỉ vì API không bắt nhập symbol ở cấp chung.
-
 ### Dữ liệu trực tiếp
 
-- Mỗi chuỗi có tên để quy tắc tham chiếu; đó là tên trong yêu cầu, không phải
-  ID của một bộ dữ liệu đã lưu trên máy chủ.
-- OHLCV được truyền trong JSON. Dữ liệu phụ cũng truyền trong yêu cầu khi
-  chiến lược cần; không tự thêm VNINDEX chỉ vì symbol là VN30F1M.
+- Mỗi chuỗi có tên để quy tắc tham chiếu; đó là tên trong yêu cầu
+- OHLCV được truyền trong JSON.
 - `trade_data` và `market_data` có thể khác số nến, khung thời gian và giờ phiên.
   Tại thời điểm quyết định t chỉ lấy bản ghi market có available_at <= t; không
   ghép theo số thứ tự dòng hoặc dùng Close cuối ngày khi ngày đó chưa kết thúc.
@@ -486,8 +402,7 @@ v1 chỉ vì API không bắt nhập symbol ở cấp chung.
   sử dụng. Có thể khai báo quy ước chung nếu áp dụng đồng nhất theo hợp đồng dữ
   liệu; không mặc định mọi chuỗi có cùng thời gian khả dụng.
 - Timestamp Unix mặc định giây; khai báo timestamp_unit nếu dùng mili giây.
-  Phiên giao dịch/kỳ báo cáo theo timezone đã truyền hoặc mặc định Việt Nam;
-  không suy ngày phiên từ ngày UTC một cách ngầm định.
+  Phiên giao dịch/kỳ báo cáo theo timezone đã truyền hoặc mặc định Việt Nam.
 - Lịch phiên, bảng mã hợp đồng/đáo hạn, ký quỹ và chi phí có thể nằm trong các
   bảng JSON đi kèm khi mô hình cần. Không bắt đăng ký chúng bằng dataset_version.
 - Vẫn kiểm tra số hữu hạn, OHLC hợp lệ, thứ tự/trùng thời gian, dữ liệu cần thiết
@@ -499,69 +414,7 @@ Thiếu lịch sử được xử lý theo quy tắc chiến lược; không t�
 đổi chu kỳ chỉ báo. V1 giữ kỳ sáu tháng đã chốt. Ngoại lệ rút kỳ chỉ thuộc lần
 chạy VN30F1M với CANSLIM v0.
 
-## 4. Tham khảo hai thư viện và đối chiếu source
-
-| Thành phần                | Backtrader                                                                | Backtesting.py                                                                                | Source hiện tại                                                                    |
-| --------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Dữ liệu                   | Đưa đối tượng dữ liệu vào Cerebro                                | Đưa DataFrame vào Backtest                                                                 | API chọn bộ đã lưu; thiết kế mới chuyển sang JSON trực tiếp               |
-| Chỉ báo                   | Lớp Indicator, có chỉ báo dựng sẵn và có thể tự viết lớp mới | Nhận hàm tính chỉ báo qua Strategy.I(); có thể tự viết hoặc dùng thư viện ngoài | Các hàm sma, highest, lowest trong domain/indicators.py                            |
-| Chiến lược               | Lớp Strategy với logic do người viết cung cấp                       | Lớp Strategy, thường định nghĩa init()/next()                                           | Lớp CanslimStrategy và hàm run; API chọn qua danh sách đăng ký               |
-| Lưu mẫu trước khi chạy | Không phải yêu cầu của việc gọi thư viện                         | Không phải yêu cầu của việc gọi thư viện                                             | API hiện buộc có mục đăng ký; đây là giới hạn cần bỏ khỏi luồng mới |
-
-Nguồn chính thức:
-
-- [Backtrader — Indicator Development](https://www.backtrader.com/docu/inddev/).
-- [Backtrader — Quickstart](https://www.backtrader.com/docu/quickstart/quickstart/).
-- [Backtesting.py — Quick Start, phần Strategy](<https://kernc.github.io/backtesting.py/doc/examples/Quick%20Start%20User%20Guide.html>).
-- [Backtesting.py — Strategy.I và Backtest](https://kernc.github.io/backtesting.py/doc/backtesting/backtesting.html).
-
-Backtesting.py không bắt tự viết mọi chỉ báo: Strategy.I nhận hàm trả chuỗi giá
-trị, có thể là hàm của TA-Lib hoặc thư viện khác. Wrapper này quản lý cách công
-bố/hiển thị kết quả; không thay người viết định nghĩa công thức chỉ báo.
-
-**Project dùng engine tự viết.** Xét cách tổ chức chỉ báo, nó gần hướng hàm tính
-của Backtesting.py; không dùng thư viện đó và chưa có cơ chế tương đương Strategy.I.
-CANSLIM phối hợp các hàm thành snapshot riêng rồi đánh giá điều kiện. Engine
-cấp phần dữ liệu đã khả dụng và xử lý tín hiệu, khớp lệnh, tài khoản.
-
-Giữ các hàm chỉ báo đang có là đủ cho phần đã hỗ trợ. Chỉ cần lớp có trạng thái
-khi thật sự phải cập nhật tích lũy từng nến hoặc chia sẻ trạng thái tính toán;
-không đổi tất cả chỉ báo thành lớp chỉ để giống Backtrader.
-
-## 5. Kiểm tra chiến lược chưa lưu
-
-Luồng đề xuất:
-
-`JSON đầu vào → kiểm tra dữ liệu/quy tắc → tạo phần đánh giá → engine → kết quả`
-
-1. Kiểm tra cấu trúc và kiểu dữ liệu trong yêu cầu.
-2. Kiểm tra tham chiếu chuỗi/chỉ báo/tham số có tồn tại ngay trong nội dung gửi lên.
-3. Kiểm tra chu kỳ, đơn vị, số hữu hạn và quan hệ tham số theo thành phần được dùng.
-4. Kiểm tra toán tử, hành động và cách tính tiền engine đã hỗ trợ.
-5. Kiểm tra thời gian khả dụng, lịch sử khởi tạo và thứ tự thực thi.
-
-Không có bước bắt chiến lược tồn tại trong kho mẫu. Có thể dùng cùng bộ kiểm tra
-cho xem trước và chạy; người gọi không bắt buộc gọi một API kiểm tra riêng trước.
-Hợp lệ có nghĩa đủ cấu trúc và khả năng để thực thi, không khẳng định có lợi nhuận
-hoặc chứng minh mọi thuật toán tùy ý đều không sử dụng dữ liệu tương lai.
-
-Các quy tắc chặn dữ liệu tương lai vẫn phải nằm tại ranh giới cấp dữ liệu cho
-chỉ báo/chiến lược và được kiểm tra bằng các tình huống cắt chuỗi tại thời điểm t.
-
-## 6. Mẫu có sẵn và kết quả
-
-Mẫu có sẵn chỉ giúp lấy nhanh nội dung `strategy`, sau đó sửa/thử như một yêu
-cầu mới. Việc lưu hoặc cập nhật mẫu không nằm trong điều kiện chạy backtest.
-
-Kết quả lưu nội dung dữ liệu, định nghĩa chiến lược và cấu hình thực tế đã dùng,
-hoặc liên kết nội bộ tới bản sao bất biến của nội dung đó. Nếu cần mã băm hoặc
-mã nhận diện để lưu và mở lại kết quả, máy chủ tự tạo; người gọi không phải quản
-lý phiên bản dữ liệu/chiến lược. Chỉ lưu mã băm mà bỏ nội dung không đủ để chạy lại.
-
-Giữ run_id để đọc lại kết quả là độc lập với việc bắt nhập dataset_id/strategy_id.
-Không sửa kết quả v0 đã lưu. Các trường kết quả tài khoản phái sinh theo đặc tả v1.
-
-## 7. Phạm vi cây công thức hiện tại
+## Phạm vi cây công thức hiện tại
 
 - Các phép so sánh, all/any, tham chiếu, entry/exit đã có bộ kiểm tra và hàm
   tính cây công thức. Stop/target/trailing, sổ tiền, dữ liệu và trạng thái đều
@@ -581,17 +434,7 @@ chốt lại rule. Cây chỉ nhận các toán tử đã liệt kê; không th�
 trade_data, market_data, strategy, execution, accounting, initial_cash, report
 ```
 
-CANSLIM v0 dùng `accounting.model=normalized`, BUY/SELL và sizing
-`fixed_fractional`; CANSLIM v1 dùng `accounting.model=contract`, LONG/SHORT và
-sizing `risk_and_margin`. Cả hai đều được kiểm tra và chạy từ cây `strategy` trong
-request, không tra `strategy_id`, `strategy_version` hoặc `dataset_version`.
-`GET /api/strategies` chỉ là danh mục mẫu cũ; sự tồn tại trong danh mục không phải
-điều kiện chạy. Payload manifest cũ bị HTTP 422 tại endpoint POST.
-
-### API kiểm tra đã triển khai ở U03
-
-`POST /api/backtests/validate` nhận payload mục 3.1, không truy cập kho mẫu,
-không chạy backtest và không lưu kết quả. Thành công trả HTTP 200:
+### Ví dụ về output `POST /api/backtests/validate`
 
 ```text
 status: STRUCTURE_VALID
@@ -645,3 +488,39 @@ minh thiết kế ngày 28/09 đã chạy. Phần tham số đó có thể tái 
 phần chỉ báo/quy tắc, nhưng không dùng sự tồn tại của mẫu làm điều kiện kiểm tra.
 
 Bảng kiểm triển khai nằm riêng tại `.agents/checklists/engine-upgrade-checklist.md`.
+
+## 9. Status code và các trường hợp ngoại lệ
+
+Mỗi endpoint công bố cả record thành công và record lỗi trong cùng bảng. Các lỗi
+do FastAPI phát hiện trước khi vào hàm xử lý (body sai JSON/schema hoặc `run_id`
+không phải UUID) dùng HTTP 422. Với lỗi nghiệp vụ hoặc lưu trữ, `detail` chứa mã
+lỗi đã liệt kê dưới đây:
+
+| Endpoint                              | HTTP status                   | Mã lỗi/record                                                    | Message | Điều kiện và response                                                                                                                                                                                                 |
+| ------------------------------------- | ----------------------------- | ------------------------------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/backtests/validate`      | `200 OK`                    | `STRUCTURE_VALID`                                                |         | Payload hợp lệ về cấu trúc và dữ liệu; trả trạng thái kiểm tra, metadata dữ liệu, pending và payload đã chuẩn hóa.                                                                                     |
+| `POST /api/backtests/validate`      | `422 Unprocessable Entity`  | Lỗi schema hoặc mã kiểm tra nội dung                          |         | JSON/schema, kiểu, thời gian, OHLC, tham chiếu, toán tử, dữ liệu bắt buộc hoặc tổ hợp execution/accounting không hợp lệ; không chạy và không lưu run.                                                 |
+| `POST /api/backtests/validate`      | `503 Service Unavailable`   | `INLINE_POLICY_UNAVAILABLE`                                      |         | Không đọc được policy phiên; không trả kết quả kiểm tra hoàn chỉnh.                                                                                                                                         |
+| `POST /api/backtests`               | `201 Created`               | —                                                                 |         | Backtest chạy xong và lưu kết quả; trả result của run.                                                                                                                                                             |
+| `POST /api/backtests`               | `422 Unprocessable Entity`  | Lỗi schema hoặc mã lỗi chạy                                   |         | Payload không hợp lệ, thiếu dữ liệu, thiếu warm-up, tổ hợp chưa hỗ trợ, runtime chưa có, execution bị từ chối hoặc run thất bại do lỗi đầu vào; không công bố partial result là thành công. |
+| `POST /api/backtests`               | `503 Service Unavailable`   | `BACKTEST_STORAGE_UNAVAILABLE`                                   |         | Lỗi lưu trữ hoặc ghi kết quả; run không được công bố là thành công.                                                                                                                                        |
+| `GET /api/backtests`                | `200 OK`                    | —                                                                 |         | Trả danh sách các run thành công theo thứ tự repository.                                                                                                                                                           |
+| `GET /api/backtests`                | `409 Conflict`              | `RESULT_STORAGE_INVALID`                                         |         | Kết quả hoặc chỉ mục lưu trữ không đọc được, sai schema hoặc sai integrity.                                                                                                                                 |
+| `GET /api/backtests/{run_id}`       | `200 OK`                    | —                                                                 |         | `run_id` tồn tại và kết quả đọc qua kiểm tra integrity.                                                                                                                                                         |
+| `GET /api/backtests/{run_id}`       | `404 Not Found`             | `RUN_NOT_FOUND`                                                  |         | Không có run tương ứng.                                                                                                                                                                                              |
+| `GET /api/backtests/{run_id}`       | `409 Conflict`              | `RESULT_STORAGE_INVALID`                                         |         | Hash, input, schema, trạng thái hoặc quan hệ result không hợp lệ.                                                                                                                                                  |
+| `GET /api/backtests/{run_id}`       | `422 Unprocessable Entity`  | —                                                                 |         | `run_id` không phải UUID hoặc path/request không hợp lệ.                                                                                                                                                          |
+| `GET /api/backtests/{run_id}/input` | `200 OK`                    | —                                                                 |         | Trả input đầy đủ và metadata policy của run.                                                                                                                                                                       |
+| `GET /api/backtests/{run_id}/input` | `404 Not Found`             | `INPUT_RUN_NOT_FOUND`                                            |         | Không có input/run tương ứng.                                                                                                                                                                                        |
+| `GET /api/backtests/{run_id}/input` | `409 Conflict`              | `INPUT_STORAGE_INVALID`                                          |         | Input thiếu, sai hash, sai schema hoặc không tương thích với run.                                                                                                                                                  |
+| `GET /api/backtests/{run_id}/input` | `422 Unprocessable Entity`  | —                                                                 |         | `run_id` không phải UUID hoặc path/request không hợp lệ.                                                                                                                                                          |
+| `GET /api/backtests/{run_id}/chart` | `200 OK`                    | —                                                                 |         | Trả chart snapshot từ input đã lưu của run.                                                                                                                                                                         |
+| `GET /api/backtests/{run_id}/chart` | `404 Not Found`             | `CHART_RUN_NOT_FOUND`                                            |         | Không có run hoặc run không có chart khả dụng.                                                                                                                                                                     |
+| `GET /api/backtests/{run_id}/chart` | `409 Conflict`              | `CHART_DATA_INCONSISTENT`                                        |         | Bar, OHLCV hoặc fill trong chart không khớp dữ liệu run.                                                                                                                                                             |
+| `GET /api/backtests/{run_id}/chart` | `422 Unprocessable Entity`  | —                                                                 |         | `run_id` không phải UUID hoặc path/request không hợp lệ.                                                                                                                                                          |
+| `GET /api/backtests/{run_id}/chart` | `500 Internal Server Error` | `CHART_STORAGE_ERROR`                                            |         | Lỗi đọc storage ngoài nhóm lỗi integrity đã biết; không lộ chi tiết nội bộ.                                                                                                                                 |
+| `GET /api/strategies`               | `200 OK`                    | —                                                                 |         | Trả danh mục mẫu chiến lược và capability; danh mục không phải điều kiện để chạy request mới.                                                                                                            |
+| `GET /api/strategies/{strategy_id}` | `200 OK`                    | —                                                                 |         | Trả schema/version của strategy được yêu cầu.                                                                                                                                                                      |
+| `GET /api/strategies/{strategy_id}` | `404 Not Found`             | `unsupported strategy_id` hoặc `unsupported strategy_version` |         | Không có strategy hoặc version tương ứng trong danh mục mẫu.                                                                                                                                                      |
+
+Đối với các trạng thái `422` phát sinh trong quá trình chạy, record lỗi của run vẫn sẽ được giữ lại nếu repository đã tạo run và endpoint đọc danh sách thành công sẽ trả về kết quả đó là kết quả lỗi

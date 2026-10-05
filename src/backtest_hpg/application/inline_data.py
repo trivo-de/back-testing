@@ -5,6 +5,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 from ..domain.market import StrategyBar
+from ..infrastructure.market_snapshot import normalize_raw_source
 
 
 @dataclass(frozen=True)
@@ -54,7 +55,10 @@ def _session_gaps(bars, source, name, policy, first, last):
     bounds = policy['calendar_range']
     if first < date.fromisoformat(bounds['start']) or last > date.fromisoformat(bounds['end']):
         raise ValueError('REPORT_OUTSIDE_STATIC_CALENDAR')
-    session = policy['sessions'][name]
+    sessions = policy['sessions']
+    session = sessions.get(name) or sessions.get(source.get('symbol'))
+    if session is None:
+        raise ValueError(f'SESSION_POLICY_MISSING:{name}')
     required, optional = session['required_times'], session['optional_times']
     observed = set()
     for bar in bars:
@@ -82,6 +86,9 @@ def _session_gaps(bars, source, name, policy, first, last):
 
 def resolve_inline(payload, policy=None):
     """Keep history, trim the report end, and never infer contract identity from prices."""
+    payload['trade_data'] = normalize_raw_source(payload['trade_data'])
+    if payload.get('market_data'):
+        payload['market_data'] = normalize_raw_source(payload['market_data'])
     trade = _bars(payload['trade_data'])
     report = payload.get('report') or {'start_date': trade[0].trading_date.date().isoformat(),
                                      'end_date': trade[-1].trading_date.date().isoformat()}

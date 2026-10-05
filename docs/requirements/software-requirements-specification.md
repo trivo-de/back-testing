@@ -94,6 +94,23 @@ run/dataset/config.
 | FR-017 | Web UI/API có thể liệt kê và mở lại run đã lưu theo `run_id`; restart service không làm mất history.             |
 | FR-018 | Dataset dùng cho run phải tham chiếu immutable dataset version/content hash để kết quả có thể tái lập.          |
 
+## Các trường hợp ngoại lệ và tiêu chí chấp nhận
+
+Bảng này gom các tình huống người dùng hoặc hệ thống có thể gặp ở cấp yêu cầu.
+Mã `SRS-EX-*` được dùng để nối sang test case; rule chi tiết thuộc tài liệu
+strategy, còn status HTTP thuộc đặc tả API.
+
+| Case ID | Điều kiện | Hành vi hệ thống bắt buộc | Tiêu chí kiểm tra |
+| --- | --- | --- | --- |
+| `SRS-EX-01` | Input sai schema, thiếu metadata/cột bắt buộc, ngày trùng hoặc giảm dần, OHLC không hợp lệ | Từ chối trước khi chạy; trả lỗi có cấu trúc; không tạo kết quả thành công | Validator test xác nhận lỗi và không có fill/result thành công |
+| `SRS-EX-02` | Thiếu dữ liệu cần cho indicator hoặc chưa đủ warm-up tại thời điểm `t` | Đánh dấu không đánh giá được; không coi là đạt, không tự lùi kỳ, không tự điền dữ liệu | Fixture thiếu history không sinh signal và ghi reason |
+| `SRS-EX-03` | Signal ở Close `t` không có Open thực thi kế tiếp hoặc là signal cuối kỳ | Giữ pending/unfilled hoặc ghi trạng thái cuối kỳ; không tạo fill giả | State-machine test xác nhận không có fill ngoài dữ liệu |
+| `SRS-EX-04` | Quantity dưới 1, không đủ cash hoặc lệnh bị từ chối | Giữ signal, ghi rejected order/reason, không thay đổi vị thế | Accounting/execution test đối chiếu signal, order và position |
+| `SRS-EX-05` | Core invariant, persistence hoặc ghi kết quả thất bại | Run ở trạng thái failed với lỗi có cấu trúc; không công bố partial result là thành công | Atomicity test xác nhận không đọc được run như succeeded |
+| `SRS-EX-06` | Service restart hoặc result/input không còn hợp lệ khi đọc lại | Run thành công hợp lệ phải đọc lại được; artifact sai hash/schema phải bị từ chối | Reload/integrity test đối chiếu cùng business result hoặc lỗi rõ ràng |
+| `SRS-EX-07` | Có dữ liệu sau thời điểm quyết định hoặc chạy lại cùng input/config | Không dùng dữ liệu tương lai; kết quả đến `t` phải giữ nguyên và chạy lại phải deterministic | Causality và determinism test so sánh event đến cutoff |
+| `SRS-EX-08` | UI/API nhận run no-trade, rejected, loading hoặc error | Phân biệt đúng trạng thái; không hiển thị lỗi/partial result như kết quả giao dịch thành công | Acceptance UI/API kiểm tra mapping theo cùng `run_id` |
+
 ## 4. Non-functional requirements
 
 - **Causality:** kết quả đến `t` không đổi nếu bỏ toàn bộ dữ liệu sau `t`.

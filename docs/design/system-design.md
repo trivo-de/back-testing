@@ -194,6 +194,23 @@ sequenceDiagram
 Không được precompute rồi expose indicator tương lai cho strategy. Có thể tính
 rolling vectorized nếu test chứng minh mỗi giá trị `t` chỉ phụ thuộc `<= t`.
 
+## Các trường hợp lỗi và phục hồi theo luồng
+
+Bảng này đặt lỗi tại đúng layer để không lẫn trách nhiệm giữa data, strategy,
+execution, portfolio và repository. Mã `SDD-EX-*` là điểm nối cho state-machine
+test và integration test.
+
+| Case ID | Điểm phát sinh | Ảnh hưởng trạng thái/dữ liệu | Hành động hệ thống |
+| --- | --- | --- | --- |
+| `SDD-EX-01` | Data loader/validator gặp schema, OHLC, thứ tự hoặc metadata sai | Chưa được phép vào indicator/strategy; chưa có signal hoặc fill hợp lệ | Dừng run và trả structured validation error; không tự sửa hoặc điền dữ liệu |
+| `SDD-EX-02` | Indicator/strategy thiếu warm-up hoặc required value tại `t` | Chỉ lần đánh giá hiện tại không có signal; state vị thế giữ nguyên | Ghi reason unevaluable và tiếp tục các bar hợp lệ sau đó |
+| `SDD-EX-03` | Execution nhận pending nhưng không có Open kế tiếp hợp lệ | Pending/unfilled được giữ; không phát sinh fill hoặc thay đổi position | Ghi trạng thái cuối kỳ/missing next bar theo result contract; không tạo giá giả |
+| `SDD-EX-04` | Execution hoặc ledger từ chối order do quantity/cash/side/fee | Signal vẫn tồn tại; order rejected; position và ledger không đổi bởi fill | Ghi order outcome/reason, chuyển sang bước mark/evaluate kế tiếp |
+| `SDD-EX-05` | Core phát hiện invariant sai như cash âm ngoài tolerance hoặc position âm | Run không còn đủ điều kiện thành công; child records không được xem là result hoàn chỉnh | Đánh dấu failed với structured error; không trả partial result thành công |
+| `SDD-EX-06` | Repository không ghi atomically hoặc artifact/result sai hash/schema khi đọc | Không được công bố aggregate succeeded; dữ liệu lỗi không được dùng làm result | Transaction ghi ngắn phải thất bại toàn bộ; đọc lại từ chối artifact sai và giữ lỗi cho audit |
+| `SDD-EX-07` | Evaluator có nguy cơ nhìn thấy dữ liệu sau decision hoặc full array | Có nguy cơ làm sai signal, fill và tính tái lập | Chỉ truyền prefix/record có `available_at <= decision`; causality test phải chặn vi phạm |
+| `SDD-EX-08` | Service restart sau khi run đã thành công hoặc failed | Run thành công phải giữ được business result; run failed không xuất hiện trong history thành công | Repository reload theo hash/schema; history mặc định chỉ đọc succeeded, audit đọc failed |
+
 ## 6. Position sizing boundary
 
 Strategy chỉ tạo BUY intent. Execution tính quantity đúng một lần tại Open từ:

@@ -3,8 +3,9 @@ from decimal import Decimal
 from typing import Annotated, Literal, get_args
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import re
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 from ..domain.expressions import STATE_REFS, validate_expression
+from ..infrastructure.market_snapshot import normalize_raw_source
 
 Positive = Annotated[Decimal, Field(gt=0, allow_inf_nan=False)]
 Nonnegative = Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
@@ -68,13 +69,18 @@ class ContractMapInput(StrictModel):
 
 
 class DataInput(StrictModel):
-    resolution: Literal['5', 'D']
+    resolution: Literal['5', 'D'] = '5'
     bars: list[CandleInput] = Field(min_length=1)
     symbol: str | None = None
     timestamp_unit: Literal['s', 'ms'] = 's'
     timezone: str = 'Asia/Ho_Chi_Minh'
     price_unit: str | None = None
     contract_map: list[ContractMapInput] = Field(default_factory=list)
+
+    @model_validator(mode='before')
+    @classmethod
+    def parse_raw_data(cls, value):
+        return normalize_raw_source(value)
 
     @model_validator(mode='after')
     def timestamps(self):
@@ -343,7 +349,7 @@ class ReportInput(StrictModel):
 
 
 class InlineRunRequest(StrictModel):
-    trade_data: DataInput
+    trade_data: DataInput | None = None
     market_data: DataInput | None = None
     strategy: StrategyInput
     execution: ExecutionInput
@@ -353,6 +359,8 @@ class InlineRunRequest(StrictModel):
 
     @model_validator(mode='after')
     def requirements(self):
+        if self.trade_data is None:
+            raise ValueError('MISSING_REQUIRED_DATA: trade_data')
         needed = set()
         volumes = set()
         for indicator in self.strategy.indicators.values():
@@ -374,7 +382,7 @@ class InlineRunRequest(StrictModel):
             if source is None: raise ValueError('MISSING_REQUIRED_DATA: ' + name)
             if name in volumes and any(b.volume is None for b in source.bars):
                 raise ValueError('MISSING_REQUIRED_VOLUME: ' + name)
-        if self.report:
+        if self.report and self.trade_data is not None:
             r = self.report
             scale = 1000 if self.trade_data.timestamp_unit == 'ms' else 1
             zone = ZoneInfo(self.trade_data.timezone)

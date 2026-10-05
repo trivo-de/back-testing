@@ -41,12 +41,6 @@ def get_strategy_definition(strategy_id: str, version: str | None = None) -> Str
     return definition
 
 
-def get_strategy(strategy_id: str):
-    """Return the runner registered for ``strategy_id`` or fail explicitly."""
-
-    return get_strategy_definition(strategy_id).runner
-
-
 def get_strategy_parameters(strategy_id: str, values: dict | None = None, version: str | None = None) -> dict:
     """Lấy đúng tham số đã kiểm tra, không dùng cấu hình của chiến lược khác."""
 

@@ -167,6 +167,11 @@ bộ keyword này; không tự hiểu chúng như phép toán đã hỗ trợ.
 
 ## 4. Params ngoài cùng của payload
 
+**Bổ sung 02/10/2026:** `auto_fetch_data` là boolean, mặc định `false`.
+Khi `true`, phải bỏ `trade_data`/`market_data`; máy chủ tải VN30F1M và VNINDEX
+5 phút từ endpoint cố định. Các yêu cầu nhập thủ công dưới đây vẫn áp dụng khi
+tắt. Xem [luồng tự tải dữ liệu](auto-fetch-data.md).
+
 **Params bắt buộc:**
 
 - `trade_data`: Lịch sử giá và khối lượng của mã đem giao dịch, dùng tính chỉ báo, xét tín hiệu và mô phỏng khớp lệnh.

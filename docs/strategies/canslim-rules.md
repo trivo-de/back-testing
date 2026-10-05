@@ -151,6 +151,23 @@ tới Close phiên `t`.
   phiên thoát. Vì exit signal tính theo Close và khớp tại Open phiên sau, realized
   loss vẫn có thể vượt `RISK_PER_TRADE_PCT`.
 
+## Các trường hợp biên và không áp dụng
+
+Bảng này là nơi tra cứu tập trung cho các tình huống không tạo ra kết quả giao dịch
+bình thường. Công thức chi tiết vẫn nằm ở mục rule tương ứng; các mã `V0-EX-*`
+dùng làm tham chiếu khi bổ sung test.
+
+| Case ID | Điều kiện | Kết quả bắt buộc |
+| --- | --- | --- |
+| `V0-EX-01` | Thiếu bar, indicator hoặc dữ liệu VN-Index cần tại `t`, hoặc chưa đủ warm-up | Điều kiện liên quan là `UNEVALUABLE`; không coi là đạt, không tạo BUY và không tự lùi kỳ báo cáo. |
+| `V0-EX-02` | R1 bằng SMA; depth vượt giới hạn; breakout nằm ngoài buy zone; average volume không dương; volume không đạt ngưỡng | Điều kiện không đạt; không tạo BUY. Không làm tròn hoặc thay ngưỡng để cho qua. |
+| `V0-EX-03` | Đang có vị thế hoặc lệnh chờ tại thời điểm xét R4 | Không tạo tín hiệu vào mới; không mở thêm vị thế. |
+| `V0-EX-04` | Có signal nhưng không có Open phiên kế tiếp hoặc bar thực thi hợp lệ | Giữ record pending/unfilled theo execution contract; không tạo fill giả. |
+| `V0-EX-05` | `quantity < 1` sau khi tính theo risk và khả năng chi trả | Giữ BUY signal, từ chối order/fill và ghi lý do; không sửa quantity sau khi tạo order. |
+| `V0-EX-06` | `initial_cash <= 0`, `fee_rate < 0` hoặc `slippage_rate` ngoài `[0, 1)` | Từ chối input; không chạy chiến lược. |
+| `V0-EX-07` | VN30F1M thiếu expected bar, session label hoặc rollover map cần thiết | Validation thất bại; không nội suy, không tự điền và không tự đóng vị thế. Quyết định giữ/đóng tại đáo hạn lấy từ runtime policy hiện hành. |
+| `V0-EX-08` | STOP_LOSS và TAKE_PROFIT cùng đạt trong cùng nến; stop/exit khớp ở Open kế tiếp | Ưu tiên STOP_LOSS, bán toàn bộ; gap có thể làm lỗ thực tế vượt tỷ lệ stop/risk budget. |
+
 ## 6. Bảng tham số
 
 | Tham số                | Giá trị   | Dùng ở       |

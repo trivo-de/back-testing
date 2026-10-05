@@ -13,6 +13,7 @@ from ..domain.trading import FixedSignal, OrderResult
 
 
 def continuous(stamp):
+    """Check if a timestamp is within the continuous trading hours."""
     local = stamp.strftime('%H:%M')
     return '09:00' <= local < '11:30' or '13:00' <= local < '14:30'
 
@@ -33,8 +34,8 @@ def check_runtime(payload):
         if levels not in ([], ['TP1'], ['TP1', 'TP2']):
             raise ValueError('UNSUPPORTED_TARGET_SEQUENCE')
 
-
 class IndicatorData:
+    """Data structure for storing indicator values."""
     def __init__(self, data, payload):
         self.rows, self.times, self.values, self.starts = {}, {}, {}, {}
         for source, rows in (('trade_data', data.bars), ('market_data', data.market_bars)):
@@ -77,6 +78,7 @@ class IndicatorData:
             for key, values in outputs.items(): self.values[name if key == 'value' else f'{name}.{key}'] = (source, values)
 
     def at(self, stamp):
+        """Get the indicator values at a specific timestamp."""
         counts = {source: bisect_right(times, stamp) for source, times in self.times.items()}
         starts = {source: self.starts[source][count - 1] if count else 0 for source, count in counts.items()}
         values = {name: rows[starts[source]:counts[source]] for name, (source, rows) in self.values.items()}
@@ -96,6 +98,16 @@ class InlineExecution(ContractExecution):
                          margin_buffer=self.spec['sizing']['margin_buffer'], max_contracts=self.spec['sizing']['max_contracts'])
 
     def before_open(self, stamp):
+        """
+        Check for overnight positions and update the current open timestamp.
+
+        By the current policy:
+        -  Overnight positions are not allowed.
+        -  Current open timestamp is used to track the start of a new trading day.
+        - Expected timeframe: 5 minutes, with a break from 11:30 to 13:00.
+
+        This method should not be used in the future in order to allow more flexibility in all fields of the strategy.
+        """
         strict_flat = self.spec['exit'].get('allow_overnight') is False
         if self.portfolio.position and self.current_open is not None:
             expected = self.current_open + timedelta(minutes=5)
@@ -110,6 +122,10 @@ class InlineExecution(ContractExecution):
         self.current_open = stamp
 
     def execute(self, signal, signal_date, fill_date, raw_open):
+        """
+        Execute a trade based on a signal.
+        
+        """
         is_market = signal_date != (self.entry_fill.fill_date if self.entry_fill else None) or signal.reason not in ('TP1', 'TP2', 'STOP_LOSS', 'TRAILING_STOP')
         if is_market and signal.side == 'CLOSE':
             expected = signal_date.replace(hour=13, minute=0) if signal_date.strftime('%H:%M') == '11:30' else signal_date

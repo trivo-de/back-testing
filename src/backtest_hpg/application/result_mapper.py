@@ -11,7 +11,6 @@ from .contracts import RunConfig
 # Precision boundary
 def quantize_result(value):
     """Recursively round Decimal values using the configured result precision."""
-
     if isinstance(value, Decimal):
         return value.quantize(RESULT.quantum, rounding=ROUND_HALF_UP)
     if is_dataclass(value):
@@ -25,7 +24,6 @@ def quantize_result(value):
 
 def serialize_result(value):
     """Convert rounded Decimal values into strings."""
-
     value = quantize_result(value)
     if isinstance(value, Decimal):
         return format(value, "f")

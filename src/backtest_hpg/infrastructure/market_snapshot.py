@@ -1,13 +1,8 @@
-"""Read the approved immutable VN30F1M snapshot without trading assumptions."""
+"""Validate and normalize raw OHLCV without trading assumptions."""
 
-import hashlib
-import json
 import math
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta, timezone
 from decimal import Decimal
-from pathlib import Path
-
-from ..config import VN30F1M_CONTENT_HASH as CONTENT_HASH, VN30F1M_DATASET_ID as DATASET_ID
 
 LOCAL_TZ = timezone(timedelta(hours=7))
 
@@ -38,24 +33,63 @@ def validate_bars(payload: dict) -> list[dict]:
     return bars
 
 
-def read_snapshot(path: Path) -> dict:
-    """Verify bytes against the approved hash before exposing any candles."""
-    raw = path.read_bytes()
-    if hashlib.sha256(raw).hexdigest() != CONTENT_HASH:
-        raise ValueError("Snapshot hash differs from the approved VN30F1M dataset")
-    bars = validate_bars(json.loads(raw))
-    start = datetime.fromtimestamp(bars[0]["time"], LOCAL_TZ).isoformat()
-    end = datetime.fromtimestamp(bars[-1]["time"], LOCAL_TZ).isoformat()
-    if len(bars) != 6174 or start != "2026-03-16T09:00:00+07:00" or end != "2026-09-15T14:45:00+07:00":
-        raise ValueError("Snapshot count or range differs from the approved contract")
-    return {
-        "metadata": {
-            "dataset_id": DATASET_ID, "dataset_version": CONTENT_HASH,
-            "content_hash": CONTENT_HASH, "symbol": "VN30F1M", "timeframe": "5m",
-            "timezone": "Asia/Ho_Chi_Minh", "price_unit": "source price",
-            "volume_unit": "unknown", "timestamp_semantics": "unconfirmed",
-            "start": start, "end": end, "total_bars": len(bars),
-            "mode": "market_snapshot", "extracted_at": None,
-        },
-        "bars": bars,
-    }
+def parse_raw_bars(raw_payload: dict) -> list[dict]:
+    """Parse raw columnar OHLCV payload ('s', 't', 'o', 'h', 'l', 'c', 'v') into standard bar dicts."""
+    payload = dict(raw_payload)
+    if "s" not in payload:
+        payload["s"] = "ok"
+    cleaned = {}
+    for key, val in payload.items():
+        if key in ("o", "h", "l", "c", "v") and isinstance(val, list):
+            converted = []
+            for item in val:
+                if isinstance(item, str):
+                    try:
+                        converted.append(Decimal(item))
+                    except Exception:
+                        converted.append(item)
+                else:
+                    converted.append(item)
+            cleaned[key] = converted
+        else:
+            cleaned[key] = val
+    bars = validate_bars(cleaned)
+    return [
+        {
+            "time": bar["time"],
+            "open": str(bar["open"]),
+            "high": str(bar["high"]),
+            "low": str(bar["low"]),
+            "close": str(bar["close"]),
+            "volume": str(bar["volume"]),
+        }
+        for bar in bars
+    ]
+
+
+def normalize_raw_source(source: dict) -> dict:
+    """Normalize source dictionary with raw columnar data into standard bars format."""
+    if not isinstance(source, dict):
+        return source
+    data = dict(source)
+    if isinstance(data.get("bars"), dict):
+        data["bars"] = parse_raw_bars(data["bars"])
+        return data
+
+    if isinstance(data.get("raw"), dict):
+        data["bars"] = parse_raw_bars(data.pop("raw"))
+        data.setdefault("resolution", "5")
+        data.setdefault("timezone", "Asia/Ho_Chi_Minh")
+        data.setdefault("timestamp_unit", "s")
+        return data
+
+    raw_keys = ("t", "o", "h", "l", "c", "v")
+    if any(key in data for key in raw_keys) or ("bars" not in data and "s" in data):
+        raw_dict = {key: data.pop(key) for key in ("s", "t", "o", "h", "l", "c", "v") if key in data}
+        data["bars"] = parse_raw_bars(raw_dict)
+        data.setdefault("resolution", "5")
+        data.setdefault("timezone", "Asia/Ho_Chi_Minh")
+        data.setdefault("timestamp_unit", "s")
+        return data
+
+    return data

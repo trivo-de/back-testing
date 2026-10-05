@@ -21,6 +21,7 @@ def exact_json(value):
 
 
 def contract_result_to_dict(run_id, data, result, *, input_hash, policy_hash, accounting):
+    """Convert a contract typeresult to a dictionary."""
     if not isinstance(result.portfolio, ContractPortfolio):
         raise ValueError('CONTRACT_RESULT_REQUIRED')
     if len(result.signals) != len(result.orders): raise ValueError('EVENT_COUNT_MISMATCH')
@@ -108,6 +109,7 @@ def contract_result_to_dict(run_id, data, result, *, input_hash, policy_hash, ac
 
 
 def normalized_result_to_dict(run_id, data, result, *, input_hash, policy_hash, accounting):
+    """Convert a normalized type result to a dictionary."""
     if not isinstance(result.portfolio, Portfolio):
         raise ValueError('NORMALIZED_RESULT_REQUIRED')
     if len(result.signals) != len(result.orders):
@@ -192,6 +194,7 @@ def normalized_result_to_dict(run_id, data, result, *, input_hash, policy_hash, 
 
 
 def inline_result_to_dict(run_id, data, result, *, input_hash, policy_hash, accounting):
+    "Reusing the appropriate result-to-dict function based on the accounting model."
     if accounting['model'] == 'contract':
         return contract_result_to_dict(run_id, data, result, input_hash=input_hash,
                                        policy_hash=policy_hash, accounting=accounting)

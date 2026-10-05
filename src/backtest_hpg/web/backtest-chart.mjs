@@ -89,7 +89,7 @@ export function renderCharts(data, metadata, onFillSelect = () => {}) {
     candles.setData(data.candles);
     createSeriesMarkers(candles, data.markers, {autoScale: true});
     markerOutline = markerOutlinePrimitive(candles, priceChart, data.markers);
-    priceChart.addSeries(HistogramSeries, {priceFormat: {type: 'volume'}, priceScaleId: ''}, 1).setData(data.volume);
+    priceChart.addSeries(HistogramSeries, {priceFormat: {type: 'volume'}}, 1).setData(data.volume);
     priceChart.panes()[1].setHeight(100);
     $('#market-panel').hidden = !data.market.length;
     $('#market-chart').style.height = '240px';
@@ -98,7 +98,7 @@ export function renderCharts(data, metadata, onFillSelect = () => {}) {
         marketChart.addSeries(LineSeries, {color: '#667085', title: 'Market Close'}).setData(data.market.map(point => ({time: point.time, value: point.close})));
         if (!data.intraday) marketChart.addSeries(LineSeries, {color: '#b54708', lineWidth: 2, title: 'SMA200'}).setData(data.market.filter(point => point.sma200 != null).map(point => ({time: point.time, value: point.sma200})));
     }
-    const panes = new Map();
+    const panes = new Map([['trade_data:volume', 1]]);
     const colors = ['#b54708', '#245ea8', '#9c27b0', '#269982'];
     let color = 0;
     for (const [name, points] of Object.entries(data.indicators || {})) {
@@ -107,12 +107,14 @@ export function renderCharts(data, metadata, onFillSelect = () => {}) {
         const chart = spec.source.startsWith('market_data') ? marketChart : priceChart;
         if (!chart) continue;
         let pane = 0;
-        if (['MACD', 'MFI'].includes(spec.type)) {
-            const key = spec.source.split('.')[0] + ':' + spec.type;
+        const oscillator = ['MACD', 'MFI'].includes(spec.type);
+        const volume = !oscillator && spec.source.endsWith('.volume');
+        if (oscillator || volume) {
+            const key = spec.source.split('.')[0] + ':' + (volume ? 'volume' : spec.type);
             if (!panes.has(key)) panes.set(key, chart.panes().length);
             pane = panes.get(key);
         }
-        chart.addSeries(LineSeries, {title: name, color: colors[color++ % colors.length], lineWidth: 1}, pane).setData(points);
+        chart.addSeries(LineSeries, {title: name, color: colors[color++ % colors.length], lineWidth: 1, ...(volume ? {priceFormat: {type: 'volume'}} : {})}, pane).setData(points);
         if (pane) chart.panes()[pane].setHeight(120);
     }
     if (marketChart) $('#market-chart').style.height = `${240 + (marketChart.panes().length - 1) * 120}px`;

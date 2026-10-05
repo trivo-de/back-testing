@@ -179,7 +179,6 @@ trong backend. Loading phải ngăn submit trùng và hide/xóa kết quả củ
 
 - User duyệt áp dụng [DESIGN.md](DESIGN.md), gồm light/dark mode, cho
   `backtest_hpg.main:app` tại port 8000. Bỏ banner `Runway · UI preview`.
-  `backtest_hpg.preview_main:app` tại port 8001 vẫn dùng cùng bộ style.
 - Tái sử dụng HTML/controller và API hiện có, thêm stylesheet và theme riêng ở
   preview. Giữ form, history, filter marker, equity collapse, metadata.
 - User duyệt bổ sung dark mode: nền espresso, chữ kem, CTA amber chữ espresso.
@@ -190,11 +189,8 @@ trong backend. Loading phải ngăn submit trùng và hide/xóa kết quả củ
   nến/BUY/SELL giữ semantics và contract chart hiện hành. Không thêm widget giả.
 - Font dùng Interphases/Inter Variable nếu máy có, fallback system sans-serif;
   chưa có font asset được cung cấp, không tải font bên ngoài.
-- Hai process dùng chung DATABASE_URL: xem lại run không ghi dữ liệu; bấm chạy
-  backtest vẫn lưu run vào lịch sử chung. Đây là tách giao diện, không clone DB.
 - Chạy từ repo bằng `.venv/Scripts/python.exe -m uvicorn
-  backtest_hpg.preview_main:app --host 127.0.0.1 --port 8001`.
-  Web chính chạy với entrypoint `backtest_hpg.main:app` và port 8000;
+  backtest_hpg.main:app --host 127.0.0.1 --port 8000`.
   không cần migration hoặc thay đổi dữ liệu để áp dụng giao diện.
 
 - HTML/CSS/JavaScript ES modules; FastAPI phục vụ /static cùng backend.
@@ -203,3 +199,14 @@ trong backend. Loading phải ngăn submit trùng và hide/xóa kết quả củ
 - Flow/diagram, cây file và test cases: [plan chart](../plans/candlestick-ui-plan.md).
 - State công việc: [PROGRESS](../plans/progress.md). CFM-01 dataset nghiệm thu còn chờ
   xác nhận; pagination/filter history và tương tác nâng cao để scope sau.
+
+
+### Sửa thang đo chỉ báo khối lượng — 30/09/2026
+
+- Chỉ báo giá dùng vùng giá; MACD/MFI tiếp tục có vùng riêng.
+- Các chỉ báo còn lại lấy nguồn `.volume` dùng vùng khối lượng và định dạng
+  volume; không tham gia tự căn trục giá nến. Với trade_data, dùng chung trục
+  với histogram; với market_data, tạo vùng khối lượng riêng.
+- Phân loại theo nguồn và loại chỉ báo, không theo tên `average_volume`.
+- Kiểm tra hồi quy: giá/volume khác bậc độ lớn, nguồn trade/market, MACD/MFI,
+  daily và 5 phút; manual test cùng run trước/sau, vừa khung và tải lại.

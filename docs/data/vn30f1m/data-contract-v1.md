@@ -2,13 +2,12 @@
 
 Cập nhật: 28/09/2026. U05 đã có bộ ánh xạ JSON, lịch phiên/map và báo khoảng
 thiếu dữ liệu. U08 đã chạy v1 trên dữ liệu tổng hợp; chưa nghiệm thu dataset thật.
-Các mục trống chưa được phép suy ra default. Không thay
-[contract v0 hiện hành](data-contract.md) hoặc raw/version đã lưu.
 Rule sử dụng dữ liệu tại [CANSLIM v1](../../strategies/canslim-v1-rules.md).
 
 ## 1. Dữ liệu yêu cầu
 
-- Primary: OHLCV 5 phút của hợp đồng F1M thực tế tại ngày giao dịch.
+Primary: OHLCV 5 phút của hợp đồng F1M thực tế tại ngày giao dịch.
+
 - Map theo ngày từ nhãn VN30F1M sang mã hợp đồng thực.
 - VNINDEX 5 phút có OHLCV để tính SMA/EMA/BB/MACD/MFI, tối thiểu 150 nến đã đóng tính cả t.
 - Calendar/session, instrument metadata và margin/fee/tax policy có version.
@@ -32,34 +31,28 @@ Rule sử dụng dữ liệu tại [CANSLIM v1](../../strategies/canslim-v1-rule
 
 ## 3. Lịch giao dịch
 
-Giờ giao dịch dùng lịch Việt Nam cấu hình sẵn, múi giờ Asia/Ho_Chi_Minh;
-không yêu cầu nhập lại mỗi request. Hợp đồng: ATO 08:45–09:00; liên tục
-09:00–11:30 và 13:00–14:30; ATC 14:30–14:45; nghỉ cuối tuần/ngày nghỉ của sở.
-[Hướng dẫn HSC](https://www.hsc.com.vn/vi/3-quy-dinh-giao-dich-hop-dong-tuong-lai-1).
-VNINDEX dùng lịch và thời gian khả dụng của nguồn thị trường cơ sở, không
-áp giờ ATO phái sinh cho VNINDEX. Không tạo nến giả để ghép hai nguồn.
-Khung giờ entry v1 giữ nguyên; thiếu nến VNINDEX hợp lệ thì chưa xét entry.
+- Giờ giao dịch: lịch Việt Nam, múi giờ Asia/Ho_Chi_Minh.
+- Hợp đồng: ATO 08:45–09:00; liên tục
+  09:00–11:30 và 13:00–14:30; ATC 14:30–14:45; nghỉ cuối tuần/ngày nghỉ của sở.
+  [Hướng dẫn HSC](https://www.hsc.com.vn/vi/3-quy-dinh-giao-dich-hop-dong-tuong-lai-1).
+  VNINDEX dùng lịch và thời gian khả dụng của nguồn thị trường cơ sở, không
+  áp giờ ATO phái sinh cho VNINDEX.
 
 ## 4. Map đáo hạn và chuyển hợp đồng
 
-Map đầu vào tại `trade_data.contract_map` trong [payload](../../../data/payload.json):
-mỗi dòng có contract_code (mã thực), expiry_date (YYYY-MM-DD), expiry_unix
-(Unix giây của ngày đáo hạn theo UTC+7). Dùng nguyên lịch năm 2026 người dùng
-đã điền. expiry_unix biểu diễn ngày, không phải giá hoặc thời điểm khớp lệnh.
-Kiểm tra ngày khớp timestamp, mã/ngày không trùng và thứ tự tăng dần.
-Theo quy tắc chuyển kỳ bên dưới, ngày giao dịch sau đáo hạn trước đến hết
-ngày đáo hạn hiện tại thuộc hợp đồng hiện tại; đầu/cuối khoảng chạy phải có
-map bao phủ. Không đổi nguồn hoặc suy lịch từ OHLCV.
+Map đầu vào tại `trade_data.contract_map` trong [payload](../../../data/payload.json), gồm:
 
+- contract_code (mã thực)
+- expiry_date (YYYY-MM-DD)
+- expiry_unix (Unix giây của ngày đáo hạn theo UTC+7). expiry_unix biểu diễn ngày, không phải giá hoặc thời điểm khớp lệnh.
+- Map đáo hạn đúng là map khớp timestamp, mã/ngày không trùng và thứ tự tăng dần.
+- Theo quy tắc chuyển kỳ bên dưới, ngày giao dịch sau đáo hạn trước đến hết ngày đáo hạn hiện tại thuộc hợp đồng hiện tại; đầu/cuối khoảng chạy phải có map bao phủ.
 - Mã hợp đồng và ngày/giờ chuyển kỳ: internal dùng `VN30FYYMM`; hợp đồng tháng hiện tại giữ đến hết ngày giao dịch cuối cùng, chuyển sang tháng kế tiếp từ Open phiên giao dịch kế tiếp.
 - Quy tắc đối chiếu với vendor: đối chiếu `trading_date + contract_code + vendor_symbol + expiry_date`; mismatch hoặc alias không rõ → fail validation.
-- Policy xử lý thiếu map: `INVALID`; không suy ra F1M từ tên file, giá hoặc volume.
+- Policy xử lý thiếu map: `INVALID`
 - Chuyển hợp đồng không làm mất warm-up VNINDEX; dữ liệu khớp lệnh vẫn phải đúng mã hợp đồng mới.
 
 ## 5. Instrument và policy metadata
-
-Các giá trị sau là tham số mô phỏng đã nhận từ quyết định user, không phải
-kết luận đã kiểm chứng quy định thị trường cho toàn kỳ lịch sử:
 
 - Multiplier: 100.000; tiền tệ mô hình: VND.
 - Tick mô phỏng: 0,1 điểm; quantity là số hợp đồng nguyên.

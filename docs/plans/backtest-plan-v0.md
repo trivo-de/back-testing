@@ -52,7 +52,7 @@ artifact quản lý local, không phải source of truth được push.
 
 ## 1. Mục tiêu thực sự
 
-- Hoàn thành một bài test thực tập: xây được luồng **VN30F1M 5 phút → strategy đã
+- Xây được luồng **VN30F1M 5 phút → strategy đã
   duyệt → giao dịch mô phỏng → P/L → lịch sử hiệu suất → web chart**, sau đó thêm
   **ngôn ngữ tự nhiên → StrategySpec → backtest**.
 - Năng lực cần thể hiện qua sản phẩm:
@@ -68,7 +68,7 @@ artifact quản lý local, không phải source of truth được push.
 | Phase                                | Thời gian        | Quỹ ngày làm việc | Đầu ra chính                                                                                                                        |
 | ------------------------------------ | ----------------- | --------------------: | -------------------------------------------------------------------------------------------------------------------------------------- |
 | 1 — Nghiệp vụ & MVP backtest      | Baseline cũ      |                     6 | VN30F1M, CANSLIM và normalized accounting đã chốt; còn timeframe/data mapping; persist history bằng pickle local, API và Web UI |
-| 2 — Tổng quát hóa backtest       | 16–21/09/2026    |                     4 | StrategySpec và backtest service dùng chung; ít nhất **2 chiến lược**                                                    |
+| 2 — Tổng quát hóa backtest       | 16–21/09/2026    |                     4 | StrategySpec và backtest service dùng chung; ít nhất**2 chiến lược**                                                      |
 | 3 — Web chart & trực quan hóa     | 22–25/09/2026    |                     4 | Nến, volume, indicator, marker mua/bán, bảng giao dịch và hiệu suất từ API                                                     |
 | 4 — Agent & hoàn thiện end-to-end | 28/09–02/10/2026 |                     5 | Ngôn ngữ tự nhiên → spec hợp lệ → API → chart; test, tài liệu và final demo                                                |
 

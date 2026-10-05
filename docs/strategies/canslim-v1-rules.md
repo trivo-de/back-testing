@@ -171,3 +171,21 @@ tại fill, không dùng High/Low/Close tương lai của nến thực thi.
 - Kiểm tra/trừ chi phí mở lệnh ngoài buffer margin: có; trước fill yêu cầu `equity_after_open_cost >= required_margin × 1.10`, không đủ thì reject entry.
 - Giới hạn lỗ/ngày hoặc số lệnh/ngày: ngừng mở mới khi P/L ròng trong ngày ≤ −2% equity đầu ngày hoặc đã có 3 entry fill; vị thế đang mở vẫn được quản trị/đóng bình thường.
 - Vốn demo v1: 100.000.000 VND, gắn nhãn `SIMULATION_ASSUMPTION`; không kế thừa 10.000.000 VND của v0.
+
+## Các trường hợp biên và không áp dụng
+
+Bảng này gom các tình huống có thể bị ghi rải rác trong rule v1. Chi tiết công
+thức và thứ tự xử lý vẫn giữ ở các mục R01–R07; mã `V1-EX-*` là điểm nối để tạo
+test case.
+
+| Case ID | Điều kiện | Kết quả bắt buộc |
+| --- | --- | --- |
+| `V1-EX-01` | Thiếu warm-up hoặc giá trị indicator bắt buộc tại thời điểm `t` | `UNEVALUABLE`; không tạo entry và không coi điều kiện thiếu là đạt. |
+| `V1-EX-02` | VNINDEX chưa khả dụng tại `t`, dữ liệu công bố sau thời điểm quyết định, hoặc chuyển kỳ hợp đồng | Chỉ dùng record có `available_at <= t`; không trộn giá hợp đồng vào indicator, không khởi tạo lại chuỗi VNINDEX và không dùng dữ liệu tương lai. |
+| `V1-EX-03` | LONG và SHORT cùng đúng trong một lần đánh giá | Không giao dịch; ghi reason `SIGNAL_CONFLICT`. |
+| `V1-EX-04` | Pending entry hết một nến hoặc đi qua nghỉ trưa, cutoff hay phiên khác | Hủy pending; không tạo fill ngoài một nến thực thi hợp lệ. |
+| `V1-EX-05` | Gap qua stop/target, stop và target cùng chạm, hoặc TP1/TP2 cùng chạm | Gap stop fill tại Open; gap target fill tại target; stop ưu tiên; TP1 xử lý trước TP2. |
+| `V1-EX-06` | Initial quantity bằng 1, từ 2 trở lên, hoặc TP1 trùng TP2 | Quantity 1: TP1 đóng hết. Quantity từ 2: TP1 đóng `floor(initial_qty/2)`, TP2 đóng phần còn lại; nếu trùng mức thì vẫn xử lý TP1 rồi TP2 tại cùng giá. |
+| `V1-EX-07` | TP1 vừa khớp, trailing cùng stop, hoặc margin breach/forced exit/time-stop đồng thời | Trailing chỉ áp dụng phần còn lại, không dùng High/Low của chính nến TP1 để seed và không nới stop; tại Close ưu tiên `MARGIN_BREACH`, `FORCED_EXIT`, `TIME_STOP`. |
+| `V1-EX-08` | Đến cutoff, cuối report hoặc thiếu Open thực thi để forced exit/time-stop/margin breach | Pending cuối report hủy với `END_OF_REPORT`; nếu vị thế cần thoát mà không có Open hợp lệ thì run/data `INVALID`; không chế giá và không giữ qua đêm. |
+| `V1-EX-09` | Quantity tính ra nhỏ hơn 1, không đủ buffer margin, đạt giới hạn lỗ/ngày hoặc 3 entry fill | Từ chối entry hoặc ngừng entry mới; vị thế đang mở vẫn được quản trị và đóng theo rule. Không pyramiding. |
