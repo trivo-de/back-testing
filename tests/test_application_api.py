@@ -1,36 +1,29 @@
-from datetime import date, timedelta
-from decimal import Decimal
 import unittest
 from unittest.mock import Mock
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
-from backtest_hpg.api.app import create_app
-from backtest_hpg.application.contracts import RunConfig
-from backtest_hpg.application.run_backtest import BacktestService
-from backtest_hpg.domain.market import DatasetSnapshot, StrategyBar
-from backtest_hpg.domain.results import BacktestResult
-
-
-D = Decimal
+from backtesting_api.api.app import create_app
+from backtesting_api.application.run_backtest import BacktestService
 
 
 class MemoryRepository:
     def __init__(self):
-        start = date(2019, 1, 1)
-        bars = tuple(StrategyBar(start + timedelta(days=i), D(100), D(101), D(99), D(100), D(1000), D(100)) for i in range(800))
-        self.dataset = DatasetSnapshot({"dataset_id": "fixture", "dataset_version": "1", "content_hash": "fixture-hash"}, bars)
         self.runs = {}
         self.failed = set()
 
-    def start_run(self, config: RunConfig):
-        if (config.dataset_id, config.dataset_version) != ("fixture", "1"):
-            raise ValueError("dataset not found")
+    def start_inline(self, payload, policy, data):
         run_id = uuid4()
-        return run_id, self.dataset
+        return run_id, "mock-input-hash", "mock-policy-hash"
 
-    def complete_run(self, run_id: UUID, result: BacktestResult, response: dict):
+    def get_input(self, run_id: UUID):
+        return None
+
+    def get_chart(self, run_id: UUID):
+        return None
+
+    def complete_run(self, run_id: UUID, result, response: dict):
         self.runs[run_id] = response
 
     def fail_run(self, run_id: UUID, error: Exception):
@@ -41,6 +34,7 @@ class MemoryRepository:
 
     def list_runs(self):
         return list(self.runs.values())
+
 
 
 class ApplicationApiTest(unittest.TestCase):

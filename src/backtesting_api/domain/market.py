@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
 
 BarTime = date | datetime
 
@@ -38,9 +37,3 @@ class StrategyBar:
     def closed_at(self) -> BarTime:
         return self.close_time if self.close_time is not None else self.trading_date
 
-
-@dataclass(frozen=True)
-class DatasetSnapshot:
-    metadata: dict[str, Any]
-    bars: tuple[StrategyBar, ...]
-    market_bars: tuple[Bar, ...] = ()

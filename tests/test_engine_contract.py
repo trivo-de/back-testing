@@ -4,18 +4,35 @@ from dataclasses import fields, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal as D
 import unittest
-from uuid import UUID
 
-from backtest_hpg.application.contracts import RunConfig
-from backtest_hpg.application.result_mapper import result_to_dict
-from backtest_hpg.domain.engine import run_engine, run_fixed_signals
-from backtest_hpg.domain.market import Bar
-from backtest_hpg.domain.strategies.canslim_breakout_v0 import CanslimStrategy, size_buy
-from backtest_hpg.domain.trading import FixedSignal
+from backtesting_api.domain.engine import run_engine, run_fixed_signals
+from backtesting_api.domain.market import Bar
+from backtesting_api.domain.trading import FixedSignal
 
 
 def bars():
     return [Bar(date(2026, 1, i), D(100), D(100)) for i in range(1, 6)]
+
+
+def mock_size_buy(context):
+    risk_quantity = int((context.cash * D("0.02")) // (context.fill_price * D("0.07")))
+    affordable_quantity = int(context.cash // (context.fill_price * (1 + context.fee_rate)))
+    return min(risk_quantity, affordable_quantity)
+
+
+class MockStrategyState:
+    def __init__(self):
+        self.entry_pivot = None
+        self.stop_reference = None
+
+    def on_execution(self, signal, order, fill):
+        if order.status != "FILLED":
+            return
+        if signal.side == "BUY":
+            self.entry_pivot = dict(signal.details)["pivot"]
+            self.stop_reference = fill.price * (1 - D("0.07"))
+        else:
+            self.entry_pivot = self.stop_reference = None
 
 
 class EngineContractTest(unittest.TestCase):
@@ -36,20 +53,13 @@ class EngineContractTest(unittest.TestCase):
         self.assertEqual(pending_buy.fills, ())
         self.assertEqual(pending_buy.orders[0].reason, "SCHEDULED_FLAT_DAY")
 
-    def test_fixed_quantity_without_stop_or_market_and_mapper_compatibility(self):
+    def test_fixed_quantity_without_stop_or_market(self):
         data = bars()
         result = run_fixed_signals(data, {data[0].trading_date: FixedSignal("BUY", 2)},
                                    initial_cash=1000, fee_rate="0.001")
         self.assertEqual(result.portfolio.cash, D("799.800"))
         self.assertEqual(result.position_details, ())
         self.assertEqual({f.name for f in fields(result.portfolio.position)}, {"quantity", "entry_price", "entry_fee"})
-        # Only test the mapper; no additional strategy is registered/exposed by API.
-        config = RunConfig("fixture", "1", "HPG", data[0].trading_date, data[-1].trading_date,
-                           "canslim_breakout_v0", 1000, "0.001", 0)
-        response = result_to_dict(UUID(int=1), {}, config, result, strategy_parameters={})
-        self.assertIsNone(response["signals"][0]["pivot"])
-        self.assertIsNone(response["open_position"]["entry_pivot"])
-        self.assertIsNone(response["open_position"]["stop_reference"])
 
     def test_sizing_at_open_and_only_fill_context(self):
         data = bars()[:2]
@@ -58,7 +68,7 @@ class EngineContractTest(unittest.TestCase):
 
         def sizing(context):
             seen.append(context)
-            return size_buy(context)
+            return mock_size_buy(context)
 
         result = run_fixed_signals(data, {data[0].trading_date: FixedSignal("BUY")},
                                    initial_cash=10000, fee_rate="0.001", slippage_rate="0.01", size_buy=sizing)
@@ -74,7 +84,7 @@ class EngineContractTest(unittest.TestCase):
 
     def test_state_feedback_rejection_fill_exit_and_final_pending(self):
         data = bars()
-        state = CanslimStrategy()
+        state = MockStrategyState()
         observed = []
         signals = {
             data[0].trading_date: FixedSignal("BUY", 100, details=(("pivot", D(90)),)),
@@ -92,11 +102,12 @@ class EngineContractTest(unittest.TestCase):
         self.assertEqual(result.orders[-1].status, "PENDING")
         self.assertEqual(len(result.fills), 2)
         self.assertIsNone(state.entry_pivot)
-        holding = CanslimStrategy()
+        holding = MockStrategyState()
         run_fixed_signals(data[:2], {data[0].trading_date: signals[data[1].trading_date]},
                           initial_cash=1000, fee_rate=0, on_execution=holding.on_execution)
         self.assertEqual(holding.entry_pivot, D(95))
-        self.assertIsNone(CanslimStrategy().entry_pivot)
+        self.assertIsNone(MockStrategyState().entry_pivot)
+
 
     def test_context_is_completed_prefix_and_feedback_precedes_next_decision(self):
         start = datetime(2026, 3, 18, 9, tzinfo=timezone(timedelta(hours=7)))
@@ -139,7 +150,8 @@ class EngineContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Open"):
             run_fixed_signals([data[0], replace(data[1], open=D(0))],
                               {data[0].trading_date: FixedSignal("BUY")}, initial_cash=1000,
-                              fee_rate=0, size_buy=size_buy)
+                              fee_rate=0, size_buy=mock_size_buy)
+
         with self.assertRaisesRegex(ValueError, "partial SELL"):
             run_fixed_signals(data, {data[0].trading_date: FixedSignal("BUY", 2),
                                      data[1].trading_date: FixedSignal("SELL", 1)}, initial_cash=1000, fee_rate=0)

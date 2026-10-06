@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 test('volume indicators never scale candles, for daily and intraday runs', () => {
-    const source = readFileSync(new URL('../../src/backtest_hpg/web/backtest-chart.mjs', import.meta.url), 'utf8')
+    const source = readFileSync(new URL('../../src/backtesting_api/web/backtest-chart.mjs', import.meta.url), 'utf8')
         .replace(/^import .*;\r?\n/gm, '').replace(/export function /g, 'function ');
     for (const intraday of [false, true]) {
         const charts = [];

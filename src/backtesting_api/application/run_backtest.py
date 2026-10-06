@@ -11,17 +11,17 @@ from .ports import RunRepository
 class BacktestService:
     """Coordinate a strategy run through the repository lifecycle."""
 
-    def __init__(self, repository: RunRepository, *, inline_repository=None, inline_runner=None,
+    def __init__(self, repository: RunRepository, *, inline_runner=None,
                  inline_policy_path=Path('docs/data/vn30f1m/runtime-policy-v1.json'),
                  auto_fetch_policy_path=Path('docs/data/vn30f1m/runtime-policy.json'), data_fetcher=None):
         """Bind the use case to a repository port implementation."""
 
         self.repository = repository
-        self.inline_repository = inline_repository if inline_repository is not None else repository
         self.inline_runner = inline_runner
         self.inline_policy_path = Path(inline_policy_path)
         self.auto_fetch_policy_path = Path(auto_fetch_policy_path)
         self.data_fetcher = data_fetcher
+
 
     def prepare_inline(self, payload):
         """Resolve supplied or automatically fetched data without creating a run."""
@@ -57,40 +57,31 @@ class BacktestService:
         data, policy = self.validate_inline(payload)
         if self.inline_runner is None:
             raise ValueError('INLINE_STRATEGY_RUNTIME_NOT_IMPLEMENTED: U08')
-        run_id, input_hash, policy_hash = self.inline_repository.start_inline(payload, policy, data)
+        run_id, input_hash, policy_hash = self.repository.start_inline(payload, policy, data)
         try:
             result = self.inline_runner(data, payload)
             if any(not data.start_date <= fill.fill_date.date() <= data.end_date for fill in result.fills):
                 raise ValueError('FILL_OUTSIDE_REPORT_RANGE')
             response = inline_result_to_dict(run_id, data, result, input_hash=input_hash,
                                              policy_hash=policy_hash, accounting=payload['accounting'])
-            self.inline_repository.complete_run(run_id, result, response)
+            self.repository.complete_run(run_id, result, response)
             return response
         except Exception as error:
-            self.inline_repository.fail_run(run_id, error)
+            self.repository.fail_run(run_id, error)
             raise
 
     def get(self, run_id: UUID) -> dict[str, Any] | None:
         """Return one successful persisted run if it exists."""
-
-        result = self.inline_repository.get_run(run_id)
-        return (self.repository.get_run(run_id)
-                if result is None and self.inline_repository is not self.repository else result)
+        return self.repository.get_run(run_id)
 
     def list(self) -> Sequence[dict[str, Any]]:
         """Return successful persisted runs."""
-
-        results = self.inline_repository.list_runs()
-        return (results + list(self.repository.list_runs())
-                if self.inline_repository is not self.repository else results)
+        return self.repository.list_runs()
 
     def get_chart(self, run_id: UUID) -> dict[str, Any] | None:
         """Read chart data without executing the strategy again."""
-        result = self.inline_repository.get_chart(run_id)
-        return (self.repository.get_chart(run_id)
-                if result is None and self.inline_repository is not self.repository else result)
+        return self.repository.get_chart(run_id)
 
-    def get_input(self, run_id):
-        if not hasattr(self.inline_repository, 'get_input'):
-            raise ValueError('INLINE_INPUT_NOT_AVAILABLE_FOR_LEGACY_RUN')
-        return self.inline_repository.get_input(run_id)
+    def get_input(self, run_id: UUID):
+        return self.repository.get_input(run_id)
+

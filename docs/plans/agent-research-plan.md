@@ -6,54 +6,33 @@ không phê duyệt thêm strategy hoặc thay scope dữ liệu hiện hành.
 
 ## 1. Mục tiêu và hiện trạng đã kiểm tra
 
-Bảng dưới là snapshot kiểm kê ngày 17/09, không phải trạng thái hiện tại.
-Đến 21/09, source intraday đã có API, engine timestamp và repository Parquet/JSON;
-CANSLIM, VN-Index R1 và normalized accounting đã được chốt. Nghiệm thu đủ kỳ
-15/03–15/09 vẫn phụ thuộc history còn thiếu trước 18/03; có source không đồng
-nghĩa đã nghiệm thu agent hoặc backtest trên dữ liệu thật đủ kỳ.
+Source hiện có nhận JSON, kiểm tra dữ liệu/cây điều kiện, chạy engine và lưu
+kết quả qua kho file. Giao diện/notebook đọc cùng API; chưa có agent runtime,
+provider SDK hoặc phiên hội thoại. Nghiệm thu dữ liệu thật đủ kỳ và agent
+là các kiểm tra riêng, không suy ra từ việc API đã chạy.
 
-Đầu ra mong muốn: người dùng nhập “backtest mã xxx nếu giá vượt ...” hoặc
-“dùng thuật toán xxx để backtest”, hệ thống làm rõ yêu cầu, chạy engine và trả
-summary, nến, executed fills, trades, equity và metadata như output hiện có.
+Đầu ra mong muốn của agent: làm rõ yêu cầu tiếng Việt, tạo JSON bằng các khả
+năng thực sự được schema/bộ chạy hỗ trợ, gọi API và giải thích kết quả đã lưu.
 
-| Thành phần           | State                            | Bằng chứng tại thời điểm kiểm tra                                                                                                                            |
-| ---------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Kế hoạch agent       | Done (tài liệu)                | P4.1–P4.5 trong backtest-plan-v0.md: danh mục hỗ trợ, tiếng Việt → spec, validation, nối API/chart, demo                                                    |
-| Tổng quát hóa       | Not started ở mức StrategySpec | P2.1–P2.4 có kế hoạch; application/contracts.py mới có RunConfig                                                                                              |
-| Chọn strategy         | Có nền tảng                   | domain/strategies/__init__.py có registry, mới đăng ký canslim_breakout_v0                                                                               |
-| Application/API/result | Có source                       | BacktestService.run/get/list; POST/list/detail /api/backtests; result_mapper.py                                                                                     |
-| Phạm vi source        | Legacy HPG daily                 | config.py giới hạn HPG; domain/market.py dùng date; request chưa nhận entry/exit tùy chọn                                                                    |
-| Persistence            | Source PostgreSQL                | infrastructure/database.py;[Parquet + JSON](technical-plan.md#6-persistence-parquet-json) là target 18/09; metadata/session SQLite hoặc PostgreSQL còn chờ chốt |
-| Chart snapshot VN30F1M | Đã bỏ entrypoint độc lập 29/09 | Trang/API snapshot cũ đã gỡ; dữ liệu thị trường chỉ hiển thị trong chart của kết quả backtest |
-| Agent chạy thật      | Not started                      | Chưa có strategy_agent/, provider, schema/spec interpreter hoặc bộ eval prompt                                                                                  |
-| VN30F1M                | Blocked phần nghiệp vụ        | Contract 5 phút đã có; strategy và futures accounting chưa được duyệt                                                                                     |
+| Thành phần | Trạng thái | Điểm nối hiện có |
+| --- | --- | --- |
+| Agent và provider | Thiết kế dự kiến | Chưa có runtime/SDK mới |
+| Schema và biểu thức | Có source | api/inline_schemas.py, domain/expressions.py |
+| Chiến lược JSON | Có source | application/inline_strategy.py, domain/indicators.py |
+| Application/API | Có source | BacktestService.run_inline/validate_inline/get/list, /api/backtests |
+| Thực thi và tiền | Có source | domain/engine.py, execution.py, portfolio.py, contract_accounting.py |
+| Lưu trữ | Có source | FileRunRepository; JSON và đọc Parquet lịch sử |
+| Giao diện/notebook | Có source | Chart/bảng từ result; notebook gọi cùng API |
+| Session/tool audit | Chưa chốt | Tách khỏi kho đầu vào/kết quả backtest |
 
-“Cổ phiếu xxx” là hướng mở rộng ngoài target VN30F1M hiện hành. Agent không tự
-mở rộng dữ liệu được hỗ trợ. Chọn một mã cho mỗi run trước; portfolio nhiều mã là
-scope riêng, không đồng nghĩa với thay symbol trong prompt.
-
-* [ ] 2. Kiến trúc sản phẩm agent
-
-Tham khảo PDF **DNSE MCP Backtest: phân tích kiến trúc sản phẩm và blueprint để
-xây dựng**, trang 3–4 (gateway và storage), 15–19 (tools, workflow và vai trò),
-33 (sơ đồ target). File tham khảo nằm trong `local_only_docs/`; tài liệu này ghi
-đủ mapping để đọc độc lập với PDF. Kiến trúc DNSE trong PDF là phân tích/suy luận
-của tác giả, không phải kiến trúc nội bộ đã được DNSE xác nhận.
-
-Các component dưới đây là **target sản phẩm của project**, còn implementation
-là dự kiến. Khuyến nghị trong PDF không tự trở thành yêu cầu triển khai: giữ
-VN30F1M 5 phút, CANSLIM đã chốt, VN-Index R1 và normalized accounting; không lấy
-daily, rolling six-month window, strategy ví dụ hoặc stack greenfield của PDF
-để thay baseline. Yêu cầu lần này cập nhật thiết kế, chưa triển khai runtime.
-
-### 2.1. Component diagram và implementation dự kiến
+## 2.1. Component diagram và implementation dự kiến
 
 Hai diagram nối nhau tại **Domain tools**. Mũi tên liền là luồng gọi/dữ liệu;
 nét đứt nối note implementation đặt cạnh component. Các vai trò AI dùng chung
 một router và một model trước; mỗi box không đồng nghĩa một service hoặc
 một autonomous agent riêng.
 
-* [ ] 
+* [ ]
   ```mermaid
   flowchart LR
       U["User"] --> UI
@@ -73,7 +52,7 @@ một autonomous agent riêng.
       end
       subgraph Gateway["Gateway — kiểm soát phía server"]
           MCP["MCP Gateway"] -.-> NMCP["Dự kiến: adapter Python mỏng tới domain tools;<br/>SDK / transport / version chưa chọn"]
-          AU["OAuth / Scope / Tenant Policy"] -.-> NAU["Dự kiến: xác thực client, scope theo tool;<br/>kiểm tra quyền với strategy_id / run_id"]
+          AU["OAuth / Scope / Tenant Policy"] -.-> NAU["Dự kiến: xác thực client, scope theo tool;<br/>kiểm tra quyền với yêu cầu JSON / run_id"]
           TO["Domain tools"] -.-> NTO["Dự kiến: allowlist + typed arguments;<br/>gọi application trực tiếp trong cùng process"]
           MCP --> AU
           AU --> TO
@@ -100,9 +79,9 @@ flowchart LR
     TO --> EXP
     TO -->|"get_result"| RUN
     subgraph SP["Strategy Platform"]
-        CAP["Capability Registry"] -.-> NCAP["Dự kiến: strategy registry + dataset catalog;<br/>chỉ công bố feature / config thực sự hỗ trợ"]
+        CAP["Capability Registry"] -.-> NCAP["Dự kiến: danh mục khả năng JSON và dữ liệu;<br/>chỉ công bố feature / config thực sự hỗ trợ"]
         VAL["Strategy Validator"] -.-> NVAL["Dự kiến: Pydantic + semantic / scope checks;<br/>thiếu field thì hỏi lại, unsupported thì dừng"]
-        COMP["Strategy Compiler"] -.-> NCOMP["MVP: map config hợp lệ → RunConfig;<br/>P2: compile StrategySpec hữu hạn, không exec code"]
+        COMP["Strategy Compiler"] -.-> NCOMP["MVP: JSON → InlineRunRequest;<br/>mở rộng hữu hạn, không thực thi mã"]
         EXP["Experiment Manager"] -.-> NEXP["Dự kiến: parent strategy / run, diff và trial count;<br/>compare trước, optimization sau khi rule được duyệt"]
         CAP --> VAL
         VAL --> COMP
@@ -112,7 +91,7 @@ flowchart LR
         BT["Backtest Engine"] -.-> NBT["Tái dùng BacktestService + domain/engine.py;<br/>strategy evaluation → signal → execution"]
         FE["Feature Engine"] -.-> NFE["Tái dùng domain/indicators.py;<br/>window 200 / 65 / 50 nến 5 phút đã chốt"]
         EX["Execution Simulator"] -.-> NEX["Tái dùng engine + portfolio Decimal;<br/>next valid Open, normalized accounting"]
-        ME["Metrics"] -.-> NME["Tái dùng domain/results.py + result_mapper.py;<br/>summary / fills / trades / equity từ engine"]
+        ME["Metrics"] -.-> NME["Tái dùng domain/results.py + inline_results.py;<br/>summary / fills / trades / equity từ engine"]
         FE --> BT
         BT --> EX
         EX --> ME
@@ -121,7 +100,7 @@ flowchart LR
         RAW["Raw Data Lake"] -.-> NRAW["Hiện có: raw JSON bất biến + manifest / hash;<br/>local files, chưa cần object-storage service"]
         PIT["Point-in-Time Store"] -.-> NPIT["Tái dùng Parquet + timestamp / available_at;<br/>validator kiểm tra session / rollover policy"]
         FS["Feature Store"] -.-> NFS["MVP: tính trong run, chưa persist riêng;<br/>cache sau nếu đo được nhu cầu, pin version / hash"]
-        META["Metadata / Strategy Store"] -.-> NMETA["Dự kiến: StrategySpec versions, session, audit;<br/>SQLite hoặc PostgreSQL còn chờ chốt"]
+        META["Metadata / Strategy Store"] -.-> NMETA["Dự kiến: StrategySpec versions, session, audit;<br/>kho phiên/audit còn chờ chốt"]
         RUN["Run Artifacts"] -.-> NRUN["Hiện có: FileRunRepository, JSON atomic replace;<br/>result + dataset / policy hashes, chart theo run_id"]
         RAW -->|"validate / normalize"| PIT
         PIT --> FE
@@ -138,12 +117,9 @@ flowchart LR
     class NCAP,NVAL,NCOMP,NEXP,NBT,NFE,NEX,NME,NRAW,NPIT,NFS,NMETA,NRUN note;
 ```
 
-**Metadata / Strategy Store** tương ứng box *Postgres Metadata* ở trang 33 và
-*Strategy Store* ở trang 4 của PDF. Giữ component, nhưng database cho agent chưa
-chốt; PostgreSQL legacy hiện có không phải bằng chứng đã lưu session/strategy
-agent. Feature Store là boundary logic: MVP tính indicators trong run, không cần
-dựng một dịch vụ lưu feature riêng. PIT ở đây phục vụ bar/support data đã được
-duyệt; chưa hàm ý có fundamentals, tin tức hoặc dữ liệu dòng tiền.
+**Metadata / Strategy Store** là nơi dự kiến lưu phiên, bản JSON chiến lược
+và nhật ký gọi công cụ. Loại kho/retention chưa được chọn; phần này không được
+coi là đã triển khai chỉ vì kho kết quả backtest đang hoạt động.
 
 ### 2.2. Mapping triển khai và phạm vi từng bước
 
@@ -152,10 +128,10 @@ duyệt; chưa hàm ý có fundamentals, tin tức hoặc dữ liệu dòng ti�
 | Own UI, Router, Generator, Explainer                     | Chat endpoint trong`api/`; workflow và provider trong `strategy_agent/` khi bắt đầu implement; dùng chung model Bedrock dự kiến                               | Not started cho agent; model/region/budget chưa chốt                |
 | Research Module                                               | Tool trả coverage, snapshot và policy trước; bổ sung market research khi có nguồn/phạm vi được duyệt                                                         | Not started                                                           |
 | MCP Gateway, OAuth / Scope / Tenant Policy                    | Adapter tới cùng tool handlers; kiểm tra scope và ownership phía server, không dựa vào prompt                                                                    | Not started; cần chốt deployment/auth trước khi mở client ngoài |
-| Capability Registry, Validator, Compiler                      | Tái dùng`domain/strategies/`, `api/backtest_schemas.py`, `application/contracts.py`; lát cắt A chọn strategy/config, lát cắt B mới có IR rule composition | Có nền; agent catalog / compiler Not started                        |
-| Experiment Manager, Metadata / Strategy Store                 | Version spec, parent/diff, tool audit và liên kết run; session store chờ chọn SQLite/PostgreSQL                                                                     | Not started                                                           |
-| Feature Engine, Backtest Engine, Execution Simulator, Metrics | `domain/indicators.py`, `domain/engine.py`, `domain/portfolio.py`, `domain/results.py`, `application/run_backtest.py`, `application/result_mapper.py`        | Có source; không đồng nghĩa nghiệm thu real-data đủ kỳ       |
-| Raw Data Lake, PIT Store, Run Artifacts                       | `infrastructure/snapshot_bundle.py`, `infrastructure/file_repository.py`, `intraday_main.py`; raw → Parquet, result JSON                                          | Có source; history trước 18/03 còn thiếu                         |
+| Capability Registry, Validator, Compiler | Tái dùng `api/inline_schemas.py`, `domain/expressions.py`, `application/inline_strategy.py`; danh mục khả năng agent là phần dự kiến | Kiểm tra JSON đã có; agent catalog/compiler chưa triển khai |
+| Experiment Manager, Metadata / Strategy Store                 | Version spec, parent/diff, tool audit và liên kết run; session store chờ chọn kho phiên chưa chốt                                                                     | Not started                                                           |
+| Feature Engine, Backtest Engine, Execution Simulator, Metrics | `domain/indicators.py`, `domain/engine.py`, `domain/portfolio.py`, `domain/results.py`, `application/run_backtest.py`, `application/inline_results.py`        | Có source; không đồng nghĩa nghiệm thu real-data đủ kỳ       |
+| Raw Data Lake, PIT Store, Run Artifacts | `infrastructure/market_snapshot.py`, `infrastructure/file_repository.py`, `main.py`; OHLCV JSON, input/result JSON và Parquet lịch sử | Có source; độ phủ dữ liệu thật cần nghiệm thu riêng |
 | Feature Store                                                 | Tính trong run trước; cache chỉ khi cần, khóa theo dataset hash + indicator version + parameters + timeframe                                                       | Not started cho persistent cache                                      |
 
 Tool contract dự kiến dùng tên thống nhất cho cả router và MCP:
@@ -197,7 +173,7 @@ quyết định đã được duyệt.
 ### 3.1. Kiến trúc hệ thống dự kiến
 
 MVP đề xuất: một agent phục vụ baseline VN30F1M 5 phút, chọn
-`canslim_breakout_v0` và config được phép. Web chat và agent là phần cần xây;
+JSON theo schema và khả năng được bộ chạy hỗ trợ. Web chat và agent là phần cần xây;
 API, engine, repository và chart được tái sử dụng. Bedrock là hướng tích hợp
 theo checklist local; model ID, region, budget và khả năng tool calling trên
 model được cấp phải xác minh khi triển khai, chưa có runtime evidence trong plan.
@@ -216,13 +192,13 @@ flowchart TB
         I --> ST["Strategy evaluation"]
         ST --> SI["Signal"]
         SI --> EX["Execution: next Open"]
-        EX --> P["Portfolio: Decimal normalized"]
+        EX --> P["Portfolio: Decimal theo accounting JSON"]
         P --> M["Metrics và result mapper"]
         M --> S
         S --> R["Result và run_id"]
     end
     A <-->|"Boto3 / Converse: dự kiến"| L["Amazon Bedrock: model chờ chốt"]
-    A -.-> AU[("Session và tool audit: SQLite hoặc PostgreSQL, chờ chốt")]
+    A -.-> AU[("Session và tool audit: chưa chọn kho")]
     F[("Raw + manifest + Parquet bất biến")] --> D
     S <-->|"FileRunRepository"| J[("JSON kết quả: atomic replace")]
     R --> A
@@ -240,9 +216,9 @@ Mọi đường chạy vẫn qua validation của application/data; signal khôn
 Trong cùng process, tool gọi `BacktestService` trực tiếp; REST API giữ cho
 notebook và client. Không cần gọi HTTP vòng lại chính backend.
 
-UI hiện có chưa hoàn tất nối bundle VN30F1M mới: market chart vẫn pin snapshot
-cũ, form backtest còn gửi HPG. Bước tích hợp agent phải sửa binding này và kiểm tra
-chart/result cùng run ID và dataset hash; diagram không có nghĩa UI đã nghiệm thu.
+UI hiện có nhận JSON và đọc result/chart theo run_id/hash. Bước tích hợp agent
+phải giữ cùng quan hệ dữ liệu này; diagram không phải bằng chứng đã nghiệm thu
+giao diện chat hoặc agent trong trình duyệt.
 
 ### 3.2. Công nghệ áp dụng và trạng thái
 
@@ -253,13 +229,13 @@ chart/result cùng run ID và dataset hash; diagram không có nghĩa UI đã ng
 | Chart                  | Lightweight Charts 5.2.0 vendored                 | Có asset; vẽ OHLCV, volume, fill markers và equity từ API, không tính lại P/L                  |
 | Agent orchestration    | Python workflow với tool allowlist               | Đề xuất một agent; chưa cần LangChain/LangGraph, multi-agent hoặc worker queue                 |
 | LLM provider           | Amazon Bedrock, Converse API qua Boto3            | Đề xuất theo checklist; Boto3 chưa khai báo dependency, model/region/budget chưa pin trong plan |
-| Tool input             | Pydantic + kiểm tra nghiệp vụ phía server     | Tái dùng pattern API; MVP ánh xạ về RunConfig, StrategySpec tùy biến để P2                   |
-| Backtest               | Engine Python hiện có,`decimal.Decimal`       | Giữ CANSLIM, timing 5 phút, next-Open và normalized accounting                                     |
+| Tool input | Pydantic và kiểm tra nghiệp vụ phía server | Tái dùng InlineRunRequest; JSON phải qua cùng kiểm tra và bộ chạy hiện có |
+| Backtest | Engine Python hiện có, `decimal.Decimal` | Giữ timing, rule và accounting được cung cấp trong JSON hợp lệ |
 | Market data            | Raw JSON + manifest/hash, Parquet qua PyArrow     | Repository intraday đã có; chỉ dùng snapshot được cung cấp và policy được duyệt         |
-| Run/result             | JSON,`os.replace`                               | FileRunRepository hiện có; một writer/process, pin dataset và policy hashes                       |
-| Session/audit agent    | SQLite hoặc PostgreSQL                           | Chờ chốt; tách khỏi market data/result, không tự migrate PostgreSQL HPG                         |
+| Run/result | JSON, `os.replace` | FileRunRepository; một tiến trình ghi, ghim input/policy/result hash |
+| Session/audit agent | Chưa chọn kho | Tách khỏi market data/result; chưa có runtime lưu phiên |
 | Notebook               | Jupyter kernel/ipykernel, pandas                  | Trình bày kết quả từ API; không chạy lại strategy hoặc tự tính metrics                     |
-| Đóng gói/kiểm thử | Docker/Compose, unittest, HTTPX, Node test runner | Có cấu hình/test nền; agent eval và Docker acceptance là kiểm tra riêng chưa hoàn thành    |
+| Đóng gói/kiểm thử | Docker/Compose, unittest, HTTPX, Node test runner | Kiểm tra backtest tại checklist tích hợp; agent eval chưa triển khai |
 
 Version dependency hiện có lấy từ [pyproject.toml](../../pyproject.toml), không
 phải khuyến nghị nâng cấp. Khi thêm Boto3 phải kiểm tra version/license tương thích
@@ -293,24 +269,21 @@ Agent chỉ chuẩn hóa ý định và gọi application. Engine tiếp tục t
 signal, execution, portfolio và metrics. Không chạy Python/SQL do LLM sinh,
 không eval chuỗi biểu thức, không cho agent sửa rule hoặc tìm dataset thay thế.
 
-Hai nấc hỗ trợ:
+Phạm vi hỗ trợ bắt đầu từ JSON đã có schema/bộ chạy. Agent có thể giúp điền
+mẫu hoặc tạo cây điều kiện bằng indicator/operator được công bố, nhưng phải
+kiểm tra qua cùng InlineRunRequest và BacktestService. Khả năng mới cần rule,
+validator, evaluator và kiểm thử riêng trước khi được agent đề xuất.
 
-- A: chọn strategy_id đã đăng ký và config được cho phép. Đây là lát cắt demo
-  ngắn nhất, tái dùng registry hiện có; chưa hỗ trợ tự ghép entry/exit.
-- B: tạo StrategySpec giới hạn bằng indicator/operator đã duyệt. Cần P2 schema,
-  evaluator và regression trước khi thực thi prompt dạng “giá vượt ...”.
-
-Draft contract cần research: schema_version, instrument/dataset/version,
-timeframe/timezone, date range, strategy_id/version hoặc entry/exit spec,
-sizing, costs, execution policy và missing_fields. Các field phụ thuộc tài sản
-phải được validator kiểm tra; schema hợp lệ không đủ chứng minh nghiệp vụ đúng.
-Default được phép phải đến từ cấu hình đã duyệt và được hiển thị/lưu lại.
+Draft contract chứa dữ liệu/nguồn, timeframe/timezone, kỳ báo cáo, chỉ báo,
+entry/exit, sizing, execution, accounting, vốn và phần còn thiếu. Không thêm
+ID/phiên bản chiến lược vào request hiện tại. Giá trị mặc định chỉ đến từ
+schema/quyết định đã chốt và phải được lưu lại cùng đầu vào.
 
 Ví dụ “backtest HPG nếu giá vượt 30” chưa đủ: đơn vị 30 là gì, dùng Close/High,
 `>` hay crossing từ dưới lên, mua bao nhiêu, thoát lúc nào, kỳ backtest và dataset
 nào? Agent hỏi phần còn thiếu thay vì tự thêm stop-loss, take-profit hay timeframe.
-“Dùng thuật toán xxx” phải ánh xạ đúng ID/version có trong danh mục; tên chưa có
-trả unsupported, không tự thay bằng CANSLIM hoặc ORB.
+“Dùng thuật toán xxx” phải được diễn giải thành rule/JSON có khả năng thực thi
+đã xác nhận; chưa đủ nghĩa thì hỏi rõ, không tự thay bằng CANSLIM hoặc ORB.
 
 Tools dự kiến: list_capabilities, validate_spec, run_backtest, get_result.
 Validation cuối và quyền chạy do application kiểm soát. Timeout/retry không được
@@ -330,7 +303,7 @@ hoặc thời gian chờ duyệt; không thay baseline bằng lịch cam kết m
 | Bước | Effort | Câu hỏi / việc làm                                                                | Deliverable và điểm dừng                                                                               |
 | ------ | ------ | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | R-A    | 2–3h  | Chốt demo một instrument; phân biệt chọn strategy và ghép rule                 | Capability matrix + danh sách unsupported + field phải hỏi                                              |
-| R-B    | 3–4h  | RunConfig hiện có thiếu gì để thành StrategySpec?                              | Schema draft, ví dụ valid/invalid; semantics > và crosses_above rõ; không tự duyệt rule             |
+| R-B    | 3–4h  | JSON hiện có cần trường nào cho dự thảo và yêu cầu làm rõ?                              | Schema draft, ví dụ valid/invalid; semantics > và crosses_above rõ; không tự duyệt rule             |
 | R-C    | 3–4h  | Provider/model nào đáp ứng tiếng Việt, structured output, tool calling, budget? | So sánh tối đa 2 ứng viên trên cùng prompt set; giá/license/version kiểm tra tại lúc lựa chọn |
 | R-D    | 2–3h  | Tool boundary, lỗi, retry, audit và secrets                                         | Contract tool và flow missing/unsupported/timeout; chưa cần framework                                   |
 | R-E    | 3–4h  | Độ đúng có đo được không?                                                   | Bộ eval có expected spec hoặc expected clarification; báo accuracy, latency và cost                   |
@@ -376,18 +349,15 @@ Các case này hiện **Not run**, không phải bằng chứng đã pass.
 
 1. Bàn giao chart theo mức đã thống nhất, kèm trạng thái fixture/integration rõ.
 2. Làm research agent R-A → R-F; chuẩn bị schema/eval độc lập provider.
-3. Implement lát cắt A với strategy đã được hỗ trợ và dữ liệu hợp lệ.
-4. Implement P2 và lát cắt B sau khi rule được duyệt; mở từng capability có test.
+3. Triển khai bước tiếng Việt → JSON được kiểm tra → API với dữ liệu hợp lệ.
+4. Chỉ mở khả năng mới sau khi rule và kiểm thử tương ứng được duyệt.
 5. Mở rộng symbol/instrument qua data contract và accounting phù hợp; không chỉ
    xóa guard HPG hoặc đổi label thành VN30F1M.
 
-Cần quyết định để triển khai agent runtime: xác nhận demo lát cắt A trên baseline
-VN30F1M đã chốt; model/region/budget; session store; default được phép và contract
-tool. Lát cắt B cần tập rule/operator được duyệt riêng. Timing/session và normalized
-accounting theo contract hiện hành; không tự thêm futures accounting. History
-còn thiếu chặn nghiệm thu backtest đủ kỳ, không chặn thiết kế schema và eval plan.
+Cần quyết định trước runtime agent: phạm vi demo, model/region/budget,
+kho phiên, giá trị mặc định được phép và giao diện công cụ. Giữ nguyên dữ liệu,
+quy tắc, timing và accounting hiện tại; không tự thêm dữ liệu hoặc cách tính
+tiền. Nghiệm thu dữ liệu thật đủ kỳ không chặn việc chuẩn bị schema/eval.
 
-Ngày 17/09 mới xác nhận hiện trạng qua source và tài liệu; chưa chạy agent,
-benchmark provider hoặc acceptance Docker trong bước research này. Sau xác nhận
-user cần chart trên dữ liệu mới, đã implement snapshot viewer VN30F1M và kiểm tra
-browser local.
+Tài liệu này là kế hoạch, không phải bằng chứng đã chạy agent hoặc benchmark
+provider. Bằng chứng backtest/Docker theo [checklist tích hợp](legacy-cleanup-checklist.md).

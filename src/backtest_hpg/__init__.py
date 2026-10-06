@@ -1,1 +1,0 @@
-"""Deterministic HPG backtest core."""

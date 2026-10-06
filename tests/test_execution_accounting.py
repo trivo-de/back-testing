@@ -2,9 +2,9 @@ from datetime import date
 from decimal import Decimal
 import unittest
 
-from backtest_hpg.domain.engine import run_fixed_signals
-from backtest_hpg.domain.market import Bar
-from backtest_hpg.domain.trading import FixedSignal
+from backtesting_api.domain.engine import run_fixed_signals
+from backtesting_api.domain.market import Bar
+from backtesting_api.domain.trading import FixedSignal
 
 
 D = Decimal

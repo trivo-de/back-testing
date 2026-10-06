@@ -1,11 +1,11 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal as D
 import unittest
-from backtest_hpg.domain.contract_accounting import ContractAccounting, ContractPortfolio
-from backtest_hpg.domain.engine import run_engine
-from backtest_hpg.domain.execution import Bracket, ContractExecution
-from backtest_hpg.domain.market import StrategyBar
-from backtest_hpg.domain.trading import FixedSignal
+from backtesting_api.domain.contract_accounting import ContractAccounting, ContractPortfolio
+from backtesting_api.domain.engine import run_engine
+from backtesting_api.domain.execution import Bracket, ContractExecution
+from backtesting_api.domain.market import StrategyBar
+from backtesting_api.domain.trading import FixedSignal
 
 
 ACCOUNTING = ContractAccounting(D('.17'), D('.001'), D(2700), D(2550), D(0))

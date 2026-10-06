@@ -40,7 +40,7 @@ Primary: OHLCV 5 phút của hợp đồng F1M thực tế tại ngày giao dị
 
 ## 4. Map đáo hạn và chuyển hợp đồng
 
-Map đầu vào tại `trade_data.contract_map` trong [payload](../../../data/payload.json), gồm:
+Map đầu vào tại `trade_data.contract_map` trong [payload minh họa](../../../src/backtesting_api/web/canslim-v1-example.json), gồm:
 
 - contract_code (mã thực)
 - expiry_date (YYYY-MM-DD)

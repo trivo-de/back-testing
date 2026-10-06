@@ -1,4 +1,8 @@
-# Data Contract — Backtest HPG v0 (legacy)
+# Hợp đồng dữ liệu HPG — tham chiếu lịch sử
+
+Tài liệu mô tả dữ liệu và record normalized lịch sử. Yêu cầu chạy JSON mới
+theo [đặc tả API](../../design/backtest-api-specification.md); cấu hình lịch sử
+bên dưới không phải body của POST hiện tại.
 
 > Scope hiện hành dùng [VN30F1M Data Contract](../vn30f1m/data-contract.md). Nội dung
 > dưới được giữ để truy vết snapshot HPG cũ.
@@ -83,7 +87,7 @@ Lưu ý: Rule R1 cần 200 VN-Index sessions kết thúc tại `t` để có war
   endpoint công bố rõ. Giữ các field này ở trạng thái unknown/limitation thay vì
   điền giá trị suy đoán.
 
-## 6. Run config tối thiểu
+## 6. Metadata cấu hình lịch sử
 
 ```text
 dataset_id
@@ -116,45 +120,18 @@ Strategy parameters cố định của `canslim_breakout_v0` được ghi trong
 Các field không tồn tại vì chưa fill phải là null/absent theo schema đã chọn, không
 được tạo giá giả.
 
-## 8. Contract phục vụ Web UI
+## 8. Trình bày kết quả
 
-Triển khai HPG 17/09: `GET /api/backtests/{run_id}/chart` trả metadata
-(run_id, dataset_id/version/hash, symbol, timeframe, timezone, price_unit,
-start_date/end_date) và bars (time là ISO trading_date, OHLCV là decimal strings).
-Query theo dataset_version_id và symbol của persisted run, trong khoảng ngày
-inclusive, chỉ run succeeded. UUID sai trả 422, thiếu/failed run trả 404 với
-RUN_NOT_FOUND, OHLCV/fill thiếu hoặc sai trả 409 CHART_DATA_INCONSISTENT, storage
-lỗi trả 500 CHART_STORAGE_ERROR không lộ nội bộ. Frontend kiểm tra metadata với
-result trước khi vẽ. API không chạy lại strategy hoặc fetch dataset ngoài.
+Các record lịch sử dùng metadata/config và IDs đã lưu để đối chiếu summary,
+fills, trades, vị thế mở và equity. Không diễn giải quantity normalized thành
+số hợp đồng. Chart và endpoint đọc hiện tại theo
+[đặc tả API](../../design/backtest-api-specification.md) và
+[đặc tả giao diện](../../design/web-ui-specification.md).
 
-Response chart HPG còn có `market`: mỗi ngày trong run gồm VNINDEX `close` và
-`sma200`. `sma200` là trung bình 200 closes VNINDEX tính tại ngày đó, dùng các
-ngày warm-up cùng immutable dataset trước `start_date`; không dùng dữ liệu sau
-ngày đang vẽ. Thiếu VNINDEX aligned trả lỗi consistency thay vì vẽ SMA sai.
+## 9. Lưu trữ và tính toàn vẹn
 
-- UI lấy summary, equity, fills, trades và open position từ cùng một response và
-  `run_id`; không tự tính lại nghiệp vụ ở frontend.
-- Bảng executed orders lấy `fill_time`, `fill_price`, `side`, `quantity`, `fee` và
-  `order_id` từ `fills`.
-- Equity view lấy trực tiếp `trading_date` và `equity` từ `equity_history`.
-- Open position hiển thị riêng từ `open_position`, không ép thành closed trade.
-- Signals và rejected/unfilled orders hiển thị ở audit view, không trộn với fills.
-- Khi xây chart nến ở Phase 3, OHLCV phải lấy từ chính dataset snapshot của run;
-  BUY/SELL marker phải dùng fill time/price, không dùng signal time/price.
-
-## 9. Persistence contract
-
-- PostgreSQL là system of record cho dataset metadata và backtest history.
-- `run_id`, `signal_id`, `order_id`, `fill_id` và `trade_id` là stable IDs sau khi
-  persist; API reload phải trả đúng relationships này.
-- Mỗi run tham chiếu đúng một immutable dataset version/content hash; không copy
-  cùng OHLCV vào từng run.
-- Raw source snapshot và export lớn lưu qua artifact-storage URI kèm content hash;
-  database lưu metadata và reference.
-- Run result chỉ được đánh dấu `succeeded` khi metadata, signals, orders, fills,
-  trades, position và equity history đã được ghi nguyên vẹn trong một transaction.
-- Failed run lưu status/error nhưng không được expose partial result như một lần
-  backtest thành công.
-- Các field thường filter/sort/join phải là relational columns. JSONB chỉ dùng cho
-  config, strategy parameters và details ít ổn định; không nhét toàn bộ history vào
-  một JSON document duy nhất.
+- Dữ liệu nguồn/fixture lịch sử giữ nguyên, không thay UUID/hash để khớp kiểm thử.
+- Kết quả đọc từ kho file; quan hệ run/signal/order/fill/trade phải khớp IDs đã lưu.
+- Chỉ kết quả succeeded được trả qua danh sách/chi tiết API.
+- Kết quả và đầu vào JSON mới theo cơ chế ghim hash tại
+  [thiết kế hệ thống](../../design/system-design.md).

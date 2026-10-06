@@ -9,11 +9,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from backtest_hpg.api.app import create_app
-from backtest_hpg.api.inline_schemas import InlineRunRequest
-from backtest_hpg.application.inline_data import resolve_inline
-from backtest_hpg.application.inline_strategy import run_inline_strategy
-from backtest_hpg.application.run_backtest import BacktestService
+from backtesting_api.api.app import create_app
+from backtesting_api.api.inline_schemas import InlineRunRequest
+from backtesting_api.application.inline_data import resolve_inline
+from backtesting_api.application.inline_strategy import run_inline_strategy
+from backtesting_api.application.run_backtest import BacktestService
 from test_inline_strategy import sample
 
 
@@ -116,7 +116,7 @@ class RawDataInputTest(unittest.TestCase):
     def test_api_validate_and_run_with_raw_payload(self):
         import tempfile
         from pathlib import Path
-        from backtest_hpg.infrastructure.file_repository import FileRunRepository
+        from backtesting_api.infrastructure.file_repository import FileRunRepository
         from test_inline_runtime import approved_payload
 
         def to_raw(bars):
@@ -150,7 +150,8 @@ class RawDataInputTest(unittest.TestCase):
             # Run endpoint
             run_res = client.post('/api/backtests', json=p)
             self.assertEqual(run_res.status_code, 201, run_res.text)
-            self.assertIn('run_id', run_res.json())
+            self.assertIn('run_id', run_res.json()['metadata'])
+
 
 
 if __name__ == '__main__':

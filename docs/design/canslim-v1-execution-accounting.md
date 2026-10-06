@@ -4,7 +4,7 @@ Cập nhật: 28/09/2026. U04 đã có sổ tiền hợp đồng, khớp long/sh
 phần và stop/target/trailing, được kiểm thử riêng và qua vòng lặp engine.
 U05/U06 đã ánh xạ lịch phiên và lưu/đọc kết quả hợp đồng. U08 (29/09) đã nối
 cây quy tắc, sizing tại Open, giới hạn ngày và giờ thoát; kiểm thử bằng dữ liệu
-tổng hợp. Xem [phạm vi U07–U08](../plans/engine-upgrade-u07-u08.md).
+tổng hợp. Xem [phạm vi thực thi JSON](backtest-api-specification.md).
 Chỉ áp dụng profile v1; normalized accounting v0 giữ nguyên.
 Các mục trống chưa được dùng làm default. Xem
 [rule v1](../strategies/canslim-v1-rules.md) và

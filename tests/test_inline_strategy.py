@@ -6,10 +6,10 @@ from pathlib import Path
 import unittest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
-from backtest_hpg.api.app import create_app
-from backtest_hpg.api.inline_schemas import InlineRunRequest
-from backtest_hpg.application.run_backtest import BacktestService
-from backtest_hpg.domain.expressions import evaluate_expression, validate_expression, MissingValue
+from backtesting_api.api.app import create_app
+from backtesting_api.api.inline_schemas import InlineRunRequest
+from backtesting_api.application.run_backtest import BacktestService
+from backtesting_api.domain.expressions import evaluate_expression, validate_expression, MissingValue
 from test_application_api import MemoryRepository
 
 

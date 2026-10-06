@@ -11,15 +11,15 @@ from unittest.mock import patch
 from uuid import UUID
 from zoneinfo import ZoneInfo
 from fastapi.testclient import TestClient
-from backtest_hpg.api.app import create_app
-from backtest_hpg.api.inline_schemas import InlineRunRequest
-from backtest_hpg.application.inline_data import resolve_inline
-from backtest_hpg.application.run_backtest import BacktestService
-from backtest_hpg.domain.contract_accounting import ContractAccounting
-from backtest_hpg.domain.engine import run_engine
-from backtest_hpg.domain.execution import Bracket, ContractExecution
-from backtest_hpg.domain.trading import FixedSignal
-from backtest_hpg.infrastructure.file_repository import FileRunRepository, _json_bytes
+from backtesting_api.api.app import create_app
+from backtesting_api.api.inline_schemas import InlineRunRequest
+from backtesting_api.application.inline_data import resolve_inline
+from backtesting_api.application.run_backtest import BacktestService
+from backtesting_api.domain.contract_accounting import ContractAccounting
+from backtesting_api.domain.engine import run_engine
+from backtesting_api.domain.execution import Bracket, ContractExecution
+from backtesting_api.domain.trading import FixedSignal
+from backtesting_api.infrastructure.file_repository import FileRunRepository, _json_bytes
 from test_inline_strategy import sample
 
 
@@ -127,7 +127,7 @@ class InlinePipelineTest(unittest.TestCase):
         self.assertIn('input_hash', records[0])
         self.assertEqual(self.client.get('/api/backtests').json(), [])
         self.service.inline_runner = fixture_runner
-        with patch('backtest_hpg.infrastructure.file_repository.os.replace', side_effect=OSError('disk unavailable')):
+        with patch('backtesting_api.infrastructure.file_repository.os.replace', side_effect=OSError('disk unavailable')):
             self.assertEqual(self.client.post('/api/backtests', json=payload()).status_code, 503)
         self.assertFalse(list(self.store.rglob('*.tmp')))
 
@@ -165,23 +165,10 @@ class InlinePipelineTest(unittest.TestCase):
         p['initial_cash'] = '1'
         rejected = self.client.post('/api/backtests', json=p)
         self.assertEqual(rejected.status_code, 422)  # Fixture cannot close a rejected entry.
-        from test_application_api import MemoryRepository
-        old = MemoryRepository()
-        old_id = UUID(int=123)
-        old.runs[old_id] = {'metadata': {'run_id': str(old_id)}, 'legacy': True}
-        mixed = TestClient(create_app(BacktestService(old, inline_repository=self.repository)))
-        self.assertEqual(mixed.get('/api/backtests/' + str(old_id)).json(), old.runs[old_id])
-        self.assertEqual(len(mixed.get('/api/backtests').json()), 2)
-
-    def test_shared_entrypoint_selects_backend_explicitly(self):
-        from backtest_hpg.main import build_service, app
-        from backtest_hpg.intraday_main import app as alias
-        self.assertIs(app, alias)
-        service = build_service()
-        self.assertIs(service.repository, service.inline_repository)
 
 
 class InlineDataTest(unittest.TestCase):
+
     def test_seconds_milliseconds_daily_optional_volume_and_delayed_market(self):
         p = normalized(payload())
         data = resolve_inline(p)

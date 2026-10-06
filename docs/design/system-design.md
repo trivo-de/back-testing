@@ -1,319 +1,140 @@
-# System Design — Backtest HPG v0 (legacy implementation)
+# Thiết kế hệ thống — Backtesting API
 
-## Đích nâng cấp 28/09/2026 — U01
+## 1. Mục tiêu và luồng xử lý
 
-Luồng mới: JSON → kiểm tra/ánh xạ dữ liệu → chỉ báo → cây điều kiện chiến
-lược → tín hiệu → khớp lệnh → tài khoản → kết quả/lưu trữ. Engine điều phối
-thời gian, không chọn rule theo symbol/tên CANSLIM. VNINDEX cấp chỉ báo v1;
-giá hợp đồng cấp khớp lệnh, stop/TP/trailing và P/L. Tham chiếu chỉ thấy dữ
-liệu đã khả dụng. accounting cấp hệ số, ký quỹ, thuế/phí; initial_cash ở ngoài.
-Tái dùng hàm/callback hiện có, không dựng hệ thống plugin hoặc thực thi mã
-Python từ HTTP. Một ứng dụng phục vụ API/notebook/UI, đọc được run cũ;
-kho tệp dùng Parquet/JSON.
-Xem [ma trận phạm vi và mốc v0](../plans/engine-upgrade-u01-u02.md).
-U03/U04 đã triển khai bộ kiểm tra JSON/cây điều kiện và tách khớp lệnh/tính
-tiền. `run_engine(execution=...)` nhận hàm tạo thành phần thực thi từ vốn ban
-đầu; mặc định là `NormalizedExecution` giữ v0. `ContractExecution` dùng sổ tiền
-hợp đồng và xử lý stop/target/trailing; vòng lặp chỉ điều phối thời gian/sự kiện.
-U05/U06 đã thêm inline_data, inline_results và lưu input/kết quả phiên bản 2
-trong FileRunRepository. main/intraday_main dùng cùng ứng dụng và kết nối trực tiếp
-vào FileRunRepository. BacktestService
-nhận bộ thực thi JSON qua inline_runner; main đã nối run_inline_strategy ở U08.
-IndicatorData chuẩn bị chuỗi chỉ báo; mỗi lần đánh giá chỉ đọc đoạn đã khả dụng.
-U07 hiển thị giá trị máy chủ, không tính lại tiền hoặc chỉ báo trên trình duyệt.
-Không công bố bộ thực thi giả của test thành chiến lược sản phẩm. Xem
-[kết quả U05–U06](../plans/engine-upgrade-u05-u06.md); các phần dưới mô tả v0.
-
-> Target data đã chuyển sang VN30F1M 5 phút và storage plan sang Parquet + JSON (18/09); metadata/session agent c?n ch? ch?t.
-> Xác nhận 17/09: giữ CANSLIM, VN-Index R1 và accounting normalized như baseline;
-> **18/09:** strategy/execution chính dùng 5 phút, 1D chỉ hỗ trợ; mapping indicator,
-> session và support data chờ [C01–C06](../../.agents/checklists/vn30f1m-backtest-checklist.md). Xem
-> [Technical Plan hiện hành](../plans/technical-plan.md); phần dưới mô tả source chưa migrate.
-
-Cập nhật: 15/09/2026.
-
-**Adaptation 18/09 theo C04/C06 mới:** timestamp nguồn = Open; Close/available_at
-= Open + 5 phút (assumption mô phỏng cả ATC). Engine nhận Open/Close time riêng,
-ghi signal/equity tại Close và fill tại Open bar kế tiếp. Chuỗi market độc lập,
-SMA200 dùng 200 market samples đã available. Report 15/03–15/09 theo ngày Open
-UTC+7. Static policy session/rollover bắt buộc trước core theo C05. Composition
-root dùng kho tệp Parquet + JSON thống nhất.
-
-Target 18/09: tái sử dụng luồng API → application → deterministic core → repository
-→ result; notebook gọi cùng API, chưa cần agent. Timestamp intraday phải giữ offset
-qua model/serialization/storage; không ép về date-only. Support data được chọn theo
-available_at tại decision, không lặp daily bar thành nhiều mẫu để tính indicator.
-Equity ghi sau mỗi Close bar 5 phút hợp lệ. Session/gap/14:45 chờ C04–C05.
-Thiết kế daily bên dưới là mô tả baseline, chưa phải runtime VN30F1M.
-
-## 1. Design goals
-
-Contract refactor được duyệt 21/09 tại [mục 12](#12-contract-core-r0r2--21092026)
-thay phần ownership pivot/sizing của baseline bên dưới; không thay trading rules.
-
-- Correct-by-construction về timing và không look-ahead.
-- Có thể kiểm thử từng layer bằng fixture nhỏ.
-- Rule strategy không phụ thuộc framework hoặc backtest library bên ngoài.
-- Mỗi run có thể tái lập và audit.
-- Đủ nhỏ cho Phase 1 nhưng có boundary để mở rộng Phase 2.
-
-## 2. Context
-
-Kiến trúc sản phẩm agent dự kiến cập nhật 21/09 nằm tại
-[Agent Research Plan — component diagram và implementation](../plans/agent-research-plan.md#2-kiến-trúc-sản-phẩm-agent--cập-nhật-21092026).
-Sơ đồ đó bao gồm Client, AI, Gateway, Strategy Platform, Quant và Data, với note
-implementation cạnh component và trạng thái riêng. Agent/MCP chưa triển khai;
-context bên dưới tiếp tục mô tả baseline legacy.
+Ứng dụng đồng bộ nhận JSON và đi qua các lớp:
+`data → indicator → strategy evaluation → signal → execution → portfolio → metrics`.
+Giao diện và notebook gọi cùng API; domain không chọn rule dựa trên tên symbol.
+Quy tắc thuộc [hướng dẫn JSON](strategy-payload-guide.md),
+[CANSLIM v1](../strategies/canslim-v1-rules.md) và
+[accounting](canslim-v1-execution-accounting.md).
 
 ```mermaid
 flowchart LR
-    U[User] --> W[Web UI]
-    W --> API[HTTP API]
-    API --> A[Backtest application]
-    D[Versioned datasets] --> A
-    A --> C[Deterministic core]
-    C --> R[Backtest result]
-    A --> F[(Kho tệp kết quả)]
-    O[Artifact storage] --> D
-    R --> API
-    API --> W
+    UI[Giao diện và notebook] --> API[HTTP API]
+    API --> APP[BacktestService]
+    APP --> DATA[Kiểm tra và ánh xạ JSON]
+    DATA --> STRAT[Chỉ báo và cây điều kiện]
+    STRAT --> ENGINE[Engine: tín hiệu, khớp lệnh, tài khoản]
+    ENGINE --> RESULT[Kết quả JSON]
+    APP --> STORE[(FileRunRepository)]
+    RESULT --> STORE
+    STORE --> API
 ```
 
-Backend chạy đồng bộ trong một process và lưu trữ lịch sử vào kho tệp JSON cục bộ;
-chưa cần queue hoặc background worker. Web UI chỉ trình bày kết quả do API trả về
-hoặc đọc lại từ kho tệp. Theo điều chỉnh 15/09, phần nến và fill marker thuộc
-Phase 3 được ưu tiên cho đợt push Docker/notebook/chart trước Phase 2; thiết kế
-triển khai dự kiến trong [kế hoạch chart](../plans/candlestick-ui-plan.md).
+## 2. Ranh giới module
 
-## 3. Container/module view
+| Thành phần | Source | Trách nhiệm |
+| --- | --- | --- |
+| Điểm khởi chạy | `backtesting_api/main.py` | Nối repository, bộ chạy JSON, chính sách và FastAPI |
+| HTTP | `api/app.py`, `api/backtest_routes.py`, `api/inline_schemas.py` | Kiểm tra yêu cầu và ánh xạ lỗi HTTP |
+| Điều phối | `application/run_backtest.py`, `application/ports.py` | Kiểm tra, chạy, lưu và đọc qua một repository |
+| Dữ liệu | `application/inline_data.py`, `infrastructure/market_snapshot.py` | Ánh xạ và kiểm tra OHLCV, thời gian, map hợp đồng |
+| Chiến lược JSON | `application/inline_strategy.py`, `domain/expressions.py`, `domain/indicators.py` | Chỉ báo, biểu thức, điều kiện và trạng thái chiến lược |
+| Thực thi và tiền | `domain/engine.py`, `execution.py`, `portfolio.py`, `contract_accounting.py` | Điều phối thời gian, khớp lệnh và sổ tài khoản |
+| Kết quả | `application/inline_results.py`, `domain/results.py` | Chuyển kết quả engine thành JSON |
+| Kho file | `infrastructure/file_repository.py` | Ghim đầu vào, lưu/đọc kết quả và dựng dữ liệu chart |
+| Giao diện | `web/` | Trình bày cùng một kết quả từ API |
 
-```mermaid
-flowchart TD
-    APP[application/run_backtest]
-    DATA[data loader + validator]
-    IND[indicators]
-    STRAT[strategy evaluator]
-    EXEC[execution simulator]
-    PORT[portfolio ledger]
-    MET[metrics/result mapper]
-    REPO[FileRunRepository]
-    FS[(Kho tệp JSON)]
-    ART[artifact storage adapter]
-    API[HTTP API adapter]
-    WEB[Web UI]
+Domain không import API, application, infrastructure hoặc web. Chiến lược được
+khai báo bằng chỉ báo/biểu thức trong JSON; không thực thi mã Python do HTTP gửi.
+Cấu trúc đầy đủ tại [cấu trúc repository](project-structure.md).
 
-    APP --> DATA
-    APP --> IND
-    APP --> STRAT
-    APP --> EXEC
-    APP --> PORT
-    APP --> MET
-    DATA --> IND
-    IND --> STRAT
-    STRAT --> EXEC
-    EXEC --> PORT
-    PORT --> MET
-    APP --> REPO
-    REPO --> FS
-    DATA --> ART
-    WEB --> API
-    API --> APP
-```
+## 3. Thời gian, tín hiệu và trạng thái
 
-| Module      | Input                                      | Output                                          |
-| ----------- | ------------------------------------------ | ----------------------------------------------- |
-| data        | Raw snapshot + metadata                    | Validated aligned daily bars                    |
-| indicators  | Bars through`t`                          | Indicator snapshot at`t` hoặc warm-up status |
-| strategy    | Indicator snapshot + portfolio/order state | Zero hoặc one signal                           |
-| execution   | Pending order + Open + portfolio/config    | Order result/fill + portfolio event             |
-| portfolio   | Fill và Close                             | Immutable ledger/snapshot                       |
-| metrics     | Ledger, signals, orders, config            | Result DTO                                      |
-| application | Run request                                | Result hoặc structured error                   |
-| repository  | Dataset/run/result entities                | Persisted/reloaded aggregate                   |
-| kho tệp     | Tệp JSON nguyên tử + Parquet               | Lưu trữ kết quả và dữ liệu đầu vào             |
-| artifact storage | Raw snapshots và large exports       | Immutable object URI/hash                      |
-| API         | HTTP request/result DTO                    | Stable JSON contract                           |
-| Web UI      | API result                                 | Summary, equity, fills, position và trades     |
-
-Không module domain nào được import từ API, Web UI hoặc storage adapter.
-
-Physical package mapping:
-
-| Boundary | Source package |
-| --- | --- |
-| HTTP API adapter | `backtest_hpg/api/` |
-| Application use case và repository port | `backtest_hpg/application/` |
-| Models, engine, portfolio, indicators và strategy registry | `backtest_hpg/domain/` |
-| File repository adapter | `backtest_hpg/infrastructure/file_repository.py` |
-| Static backend settings | `backtest_hpg/config.py` |
-| Composition root | `backtest_hpg/main.py` |
-| Web UI | `backtest_hpg/web/` |
-
-Luồng code của một request là `main -> api -> application -> strategy registry ->
-domain engine`, còn application gọi repository port được hiện thực bởi
-`infrastructure/file_repository.py`.
-
-## 4. Domain state
+Engine xử lý các bước tại nến: thực thi lệnh chờ ở Open → áp dụng fill/rejection
+→ xử lý thoát trong nến theo rule → ghi tài khoản tại Close → đánh giá điều kiện
+bằng dữ liệu đã khả dụng → tạo tín hiệu/lệnh chờ cho Open kế tiếp.
+Dữ liệu thị trường được ghép theo available_at, không theo chỉ số dòng.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Flat
-    Flat --> BuyPending: BUY signal after Close
-    BuyPending --> Holding: BUY filled next Open
-    BuyPending --> Flat: rejected
-    BuyPending --> BuyPending: final dataset / unfilled
-    Holding --> SellPending: SELL signal after Close
-    SellPending --> Flat: SELL filled next Open
-    SellPending --> Holding: rejected
-    SellPending --> SellPending: final dataset / unfilled
+    Flat --> EntryPending: tín hiệu sau Close
+    EntryPending --> Holding: khớp tại Open hợp lệ
+    EntryPending --> Flat: lệnh bị từ chối hoặc hết hiệu lực
+    Holding --> ExitPending: tín hiệu thoát sau Close
+    Holding --> Holding: đóng một phần trong nến
+    Holding --> Flat: đóng toàn bộ trong nến
+    ExitPending --> Holding: đóng một phần hoặc bị từ chối
+    ExitPending --> Flat: đóng toàn bộ
 ```
 
-Signal, pending order và fill là ba record khác nhau. State transition chỉ xảy ra
-khi execution tạo fill hợp lệ.
+Signal, order và fill là record khác nhau. Không có fill thì không được tạo
+trade hoặc thay đổi vị thế như đã giao dịch. Sizing sử dụng giá/thông tin tại
+lúc thực thi, theo nhóm sizing/accounting trong JSON. Normalized và contract
+là hai mô hình tiền hiện hỗ trợ; các giới hạn cụ thể thuộc đặc tả API.
 
-## 5. Sequence của một session
-
-```mermaid
-sequenceDiagram
-    participant App
-    participant Exec as Execution
-    participant Port as Portfolio
-    participant Ind as Indicators
-    participant Strat as Strategy
-
-    App->>Exec: process pending order at Open[t]
-    Exec->>Port: apply fill/rejection
-    App->>Ind: calculate using bars <= t
-    Ind-->>Strat: snapshot at Close[t]
-    App->>Strat: evaluate with current state
-    Strat-->>App: signal or no signal
-    App->>Port: mark to Close[t]
-    App->>App: enqueue signal for next session
-```
-
-Không được precompute rồi expose indicator tương lai cho strategy. Có thể tính
-rolling vectorized nếu test chứng minh mỗi giá trị `t` chỉ phụ thuộc `<= t`.
+IndicatorData chuẩn bị chuỗi nhưng mỗi lần đánh giá chỉ đọc phần đã khả dụng.
+Thiếu lịch sử hoặc dữ liệu bắt buộc tại t phải ghi UNEVALUABLE. Không lặp nến
+tham chiếu, không tự điền gap, không ghép giá hợp đồng tương lai để tính quá khứ.
 
 ## Các trường hợp lỗi và phục hồi theo luồng
+
 
 Bảng này đặt lỗi tại đúng layer để không lẫn trách nhiệm giữa data, strategy,
 execution, portfolio và repository. Mã `SDD-EX-*` là điểm nối cho state-machine
 test và integration test.
 
-| Case ID | Điểm phát sinh | Ảnh hưởng trạng thái/dữ liệu | Hành động hệ thống |
-| --- | --- | --- | --- |
-| `SDD-EX-01` | Data loader/validator gặp schema, OHLC, thứ tự hoặc metadata sai | Chưa được phép vào indicator/strategy; chưa có signal hoặc fill hợp lệ | Dừng run và trả structured validation error; không tự sửa hoặc điền dữ liệu |
-| `SDD-EX-02` | Indicator/strategy thiếu warm-up hoặc required value tại `t` | Chỉ lần đánh giá hiện tại không có signal; state vị thế giữ nguyên | Ghi reason unevaluable và tiếp tục các bar hợp lệ sau đó |
-| `SDD-EX-03` | Execution nhận pending nhưng không có Open kế tiếp hợp lệ | Pending/unfilled được giữ; không phát sinh fill hoặc thay đổi position | Ghi trạng thái cuối kỳ/missing next bar theo result contract; không tạo giá giả |
-| `SDD-EX-04` | Execution hoặc ledger từ chối order do quantity/cash/side/fee | Signal vẫn tồn tại; order rejected; position và ledger không đổi bởi fill | Ghi order outcome/reason, chuyển sang bước mark/evaluate kế tiếp |
-| `SDD-EX-05` | Core phát hiện invariant sai như cash âm ngoài tolerance hoặc position âm | Run không còn đủ điều kiện thành công; child records không được xem là result hoàn chỉnh | Đánh dấu failed với structured error; không trả partial result thành công |
-| `SDD-EX-06` | Repository không ghi atomically hoặc artifact/result sai hash/schema khi đọc | Không được công bố aggregate succeeded; dữ liệu lỗi không được dùng làm result | Transaction ghi ngắn phải thất bại toàn bộ; đọc lại từ chối artifact sai và giữ lỗi cho audit |
-| `SDD-EX-07` | Evaluator có nguy cơ nhìn thấy dữ liệu sau decision hoặc full array | Có nguy cơ làm sai signal, fill và tính tái lập | Chỉ truyền prefix/record có `available_at <= decision`; causality test phải chặn vi phạm |
-| `SDD-EX-08` | Service restart sau khi run đã thành công hoặc failed | Run thành công phải giữ được business result; run failed không xuất hiện trong history thành công | Repository reload theo hash/schema; history mặc định chỉ đọc succeeded, audit đọc failed |
+| Case ID       | Điểm phát sinh                                                                | Ảnh hưởng trạng thái/dữ liệu                                                                           | Hành động hệ thống                                                                                     |
+| ------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `SDD-EX-01` | Data loader/validator gặp schema, OHLC, thứ tự hoặc metadata sai             | Chưa được phép vào indicator/strategy; chưa có signal hoặc fill hợp lệ                             | Dừng run và trả structured validation error; không tự sửa hoặc điền dữ liệu                      |
+| `SDD-EX-02` | Indicator/strategy thiếu warm-up hoặc required value tại`t`                 | Chỉ lần đánh giá hiện tại không có signal; state vị thế giữ nguyên                               | Ghi reason unevaluable và tiếp tục các bar hợp lệ sau đó                                            |
+| `SDD-EX-03` | Execution nhận pending nhưng không có Open kế tiếp hợp lệ                | Order ghi trạng thái chưa khớp hoặc cuối kỳ theo cấu hình; không phát sinh fill hoặc thay đổi position                               | Ghi trạng thái cuối kỳ/missing next bar theo result contract; không tạo giá giả                     |
+| `SDD-EX-04` | Execution hoặc ledger từ chối order do quantity/cash/side/fee                 | Signal vẫn tồn tại; order rejected; position và ledger không đổi bởi fill                             | Ghi order outcome/reason, chuyển sang bước mark/evaluate kế tiếp                                       |
+| `SDD-EX-05` | Core phát hiện invariant sai như cash âm ngoài tolerance hoặc position âm | Run không còn đủ điều kiện thành công; child records không được xem là result hoàn chỉnh      | Đánh dấu failed với structured error; không trả partial result thành công                           |
+| `SDD-EX-06` | Repository không ghi atomically hoặc artifact/result sai hash/schema khi đọc | Không được công bố aggregate succeeded; dữ liệu lỗi không được dùng làm result                 | Công bố từng tệp bằng thay thế nguyên tử; không công bố kết quả thiếu, từ chối tệp sai khi đọc |
+| `SDD-EX-07` | Evaluator có nguy cơ nhìn thấy dữ liệu sau decision hoặc full array       | Có nguy cơ làm sai signal, fill và tính tái lập                                                        | Chỉ truyền prefix/record có`available_at <= decision`; causality test phải chặn vi phạm             |
+| `SDD-EX-08` | Service restart sau khi run đã thành công hoặc failed                       | Run thành công phải giữ được business result; run failed không xuất hiện trong history thành công | Repository reload theo hash/schema; API chỉ đọc succeeded; trạng thái failed được lưu trong tệp run để đối chiếu            |
 
-## 6. Position sizing boundary
+## 4. Kho file và trạng thái lượt chạy
 
-Strategy chỉ tạo BUY intent. Execution tính quantity đúng một lần tại Open từ:
+`BACKTEST_STORE_PATH` mặc định `data/backtest-store`:
 
-- equity/cash trước fill;
-- entry fill price đã gồm entry slippage;
-- stop distance 7%;
-- risk fraction 2%;
-- affordability đã gồm entry fee.
-
-Quantity dưới 1 làm order bị reject, không xóa BUY signal. Risk 2% là nominal risk
-tới stop reference; Close-based exit và gap có thể làm realized loss lớn hơn.
-
-## 7. Error model
-
-| Nhóm                | Ví dụ                                                  | Hành vi                                                |
-| -------------------- | -------------------------------------------------------- | ------------------------------------------------------- |
-| Input error          | Sai schema, OHLC invalid, duplicate date                 | Dừng run, trả structured validation error             |
-| Unevaluable strategy | Chưa đủ warm-up hoặc thiếu required value tại`t` | Không sinh signal, ghi reason                          |
-| Execution rejection  | Quantity dưới 1 hoặc không đủ cash                 | Giữ signal, ghi rejected order                         |
-| Missing next bar     | Signal cuối kỳ                                         | Giữ pending/unfilled record                            |
-| Internal invariant   | Cash âm ngoài tolerance, position âm                  | Fail run; không trả kết quả thành công một phần |
-
-## 8. Test architecture
-
-- Unit: validator, từng indicator, strategy boundaries, sizing và accounting.
-- State-machine: buy/sell pending, reject, final bar và same-session transitions.
-- Integration: dataset fixture → complete result.
-- Causality: full input so với input truncate tại nhiều mốc `t`.
-- Determinism: serialize result của hai run cùng input và so sánh sau khi loại bỏ
-  run ID không deterministic; ưu tiên run ID content-derived.
-
-## 9. Persistence flow
-
-1. API/application tạo `backtest_run` với status `pending` rồi `running`.
-2. Core nhận immutable dataset version và chạy hoàn toàn ngoài transaction dài.
-3. Khi core thành công, repository mở một transaction ngắn để ghi signals, orders,
-   fills, trades, position/equity history và chuyển run sang `succeeded`.
-4. Nếu core hoặc persistence lỗi, run chuyển `failed` với structured error; Web UI
-   không xem partial child records như kết quả thành công.
-5. `GET` history chỉ trả run `succeeded` theo mặc định; audit có thể xem failed run.
-
-Raw source snapshot/export lớn không nhân bản vào từng run. Run tham chiếu một
-immutable `dataset_id/version/content_hash`. Đầu vào, cấu hình và kết quả được
-lưu trong JSON; dữ liệu dataset theo manifest dùng Parquet cùng JSON nguồn.
-
-## 10. Evolution path
-
-- Strategy registry tối thiểu đã tồn tại; Phase 2 thêm strategy module mới sau khi
-  interface signal ổn định và phải giữ regression result của v0.
-- Repository adapter cho phép thay đổi storage implementation mà không đổi domain
-  core; kho tệp JSON cục bộ là implementation đã chọn.
-- Queue/worker có thể được thêm sau qua application boundary khi thời gian chạy hoặc
-  concurrency yêu cầu, không đổi result schema.
-- Engine/library bên ngoài chỉ được thêm qua adapter và phải pass cùng contract
-  tests; library semantics không được override project semantics.
-- Multi-symbol/multi-position yêu cầu thiết kế lại portfolio và event ordering,
-  không mở rộng ngầm từ implementation v0.
-
-## 11. Web UI data flow
-
-```mermaid
-flowchart LR
-    FORM[Run configuration] --> API[Backtest API]
-    API --> RESULT[One run result]
-    RESULT --> SUMMARY[P/L summary]
-    RESULT --> EQUITY[Equity history]
-    RESULT --> FILLS[Executed fills]
-    RESULT --> TRADES[Trade history]
-    RESULT --> AUDIT[Signals/orders audit]
-    RESULT -. Phase 3 .-> CHART[Candlestick + markers]
+```text
+backtest-store/
+├── inputs/<input_hash>.json       # JSON đầy đủ, chính sách và metadata dữ liệu
+├── runs/<run_id>.json             # running / failed / succeeded và kết quả
+├── datasets/                     # Dataset/Parquet đã ghim cho lịch sử phiên bản 1
+└── policies/                     # Chính sách của lịch sử đã có
 ```
 
-Ở bước hiện tại, UI dùng cards/tables và có thể dùng equity line đơn giản. Chart nến
-và marker trực quan thuộc Phase 3, được kéo sớm theo kế hoạch 15/09. Khi thêm chart, marker phải dùng `fills`, không
-dùng signal làm bằng chứng giao dịch. Chi tiết nằm trong
-[web-ui-specification.md](web-ui-specification.md).
+`start_inline()` ghi đầu vào, tính input_hash/policy_hash và tạo run running.
+Core chạy trong bộ nhớ; `complete_run()` kiểm tra run/input và công bố toàn bộ
+kết quả succeeded bằng thay tệp nguyên tử, kèm result_hash. Lỗi sau khi tạo run
+được lưu bằng `fail_run()`. Đây là công bố từng tệp, không phải giao dịch nhiều
+file; run chỉ thành công khi tệp kết quả đầy đủ đã được công bố.
 
-## 12. Contract core R0–R2 — 21/09/2026
+`get_run()` kiểm tra phiên bản, trạng thái, run_id, hash kết quả và đầu vào/chính
+sách của phiên bản 2. `list_runs()` chỉ trả succeeded, theo tên tệp giảm dần;
+không coi thứ tự UUID là thứ tự thời gian tạo. API không cung cấp danh sách failed.
+`get_input()` phục vụ kết quả phiên bản 2; lịch sử phiên bản 1 không có input JSON
+này và trả lỗi tương thích khi gọi endpoint input.
 
-- `indicators.py` chỉ có `sma/highest/lowest(series, window, end_exclusive)`.
-  Window nguyên dương, end trong `[0, len(series)]`; mẫu được đọc phải finite.
-  Chưa đủ history trả None; bounds/window/value sai báo lỗi. CANSLIM tự phối hợp
-  snapshot/depth, gồm market sample hiện tại đã available, loại primary bar t
-  khỏi pivot/volume windows. Không tính feature không được strategy yêu cầu.
-- Engine cấp context Close với immutable primary prefix và support prefix có
-  `available_at <= decision`, cùng portfolio hiện tại. Không đưa full arrays vào
-  evaluator. Đây là boundary cho trusted strategy code, không phải sandbox Python.
-  Named requirements/catalog và nhiều support series thuộc R3 trở đi.
-- Engine nhận BUY sizing callable với cash, fill price đã gồm slippage và fee;
-  không truyền future Close/High/Low. Quantity cố định không cần stop giả. Ledger
-  kiểm tra positive integer/cash/fee; unsupported side/partial SELL bị từ chối.
-- Thứ tự giữ: pending tại Open → ledger → feedback filled/rejected → mark Close
-  → evaluate → pending mới. Feedback gồm intent, order outcome và optional fill;
-  CANSLIM giữ entry pivot/stop riêng từng run, chỉ cập nhật theo fill thực sự.
-- Intent/SignalRecord có `details` bất biến: tuple các cặp tên duy nhất và finite
-  Decimal, schema nội bộ v1. Engine chỉ chuyển tiếp audit, không đọc details để
-  sizing/fill. CANSLIM dùng key `pivot`; result có position details do strategy
-  cung cấp (`entry_pivot`, `stop_reference`). Không nhét strategy state vào ledger.
-- API tiếp tục projection `signals[].pivot`, `open_position.entry_pivot` và
-  `stop_reference`; không áp dụng thì null. CANSLIM DTO cũ giữ nguyên, JSON/hash
-  run cũ không rewrite; kho lưu trữ chỉ tiếp tục đường CANSLIM và luồng JSON. Mapper
-  compatibility này cần cho R2, không phải mở API đa chiến lược của R3.
-- Không thêm framework/dependency hoặc đổi model accounting/data policy. Chạy
-  cùng input phải giữ signals/orders/fills/trades/equity/summary và projection
-  CANSLIM; kiểm tra prefix chỉ so event đến cutoff, không so final summary khác kỳ.
+Chart phiên bản 2 dựng từ đầu vào đã ghim; không chạy lại chiến lược hoặc gọi
+nguồn ngoài. Trường open_time của một đầu vào lịch sử được ánh xạ khi đọc trên
+bản sao; JSON mới vẫn bắt buộc time. Chart phiên bản 1 đọc manifest và nến
+Parquet của lịch sử còn giữ; pyarrow phục vụ nhánh đọc này.
+
+Kho có một tiến trình ghi. Đường dẫn chính sách/kho file tương đối được xác
+định từ thư mục làm việc; chạy ứng dụng từ gốc repository theo
+[runbook](../plans/vn30f1m-backtest-runbook.md).
+
+## 5. Giao diện và đọc kết quả
+
+API trả một result cho mỗi run. Summary, chart, fill marker, bảng giao dịch,
+vị thế mở, audit và equity đều dùng cùng run_id/hash. Frontend chỉ định dạng
+và lọc record, không tính lại chỉ báo hoặc tiền. Lỗi chart không tạo lượt chạy
+mới; nút thử lại đọc kết quả/chart theo run_id đã có.
+Chi tiết tại [đặc tả giao diện](web-ui-specification.md).
+
+## 6. Kiểm thử và mở rộng
+
+Kiểm thử các lớp dữ liệu/biểu thức, trạng thái lệnh, tính tiền, lỗi ghi nguyên
+tử, hash/schema, đọc lịch sử, API, notebook và ánh xạ chart. Đối chiếu đầy đủ
+với dữ liệu cắt tại t và dữ liệu tương lai bị thay đổi; chạy cùng JSON nhiều
+lần phải giữ kết quả nghiệp vụ sau khi tách UUID.
+
+Agent/MCP là thiết kế dự kiến tại [kế hoạch agent](../plans/agent-research-plan.md),
+chưa tham gia luồng thực thi. Chưa có queue, nhiều tiến trình ghi hoặc kho phiên
+agent được chọn. Mở rộng phải dùng cùng kiểm tra JSON và application boundary.

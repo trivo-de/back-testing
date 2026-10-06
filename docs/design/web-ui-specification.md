@@ -1,213 +1,87 @@
-# Web UI Specification — Backtest HPG v0 (legacy baseline)
+# Đặc tả giao diện — Backtesting API
 
-Cập nhật 29/09/2026: bỏ trang và API snapshot VN30F1M riêng `/market-chart`
-và liên kết trên trang chủ. Giao diện chỉ xem biểu đồ gắn với kết quả backtest;
-API đọc snapshot được giữ riêng. Các mô tả trang snapshot bên dưới là lịch sử.
+## 1. Phạm vi hiện tại
 
-## Đích nâng cấp 28/09/2026 — U01
+Trang `/` nhận nội dung JSON hoặc file JSON, có nút tải mẫu, kiểm tra và chạy.
+Giao diện mở lại kết quả từ lịch sử, hiển thị summary, nến, khối lượng, chỉ báo,
+marker giao dịch, equity và bảng đối chiếu. Notebook dùng cùng API.
+Giao diện không tính lại chiến lược, chỉ báo hoặc tiền; dữ liệu thuộc cùng một run.
 
-UI và notebook dùng chung API mới, không cố định HPG hoặc bắt chọn mẫu đã
-lưu. Mẫu chỉ giúp điền JSON. Giữ style chung; biểu đồ theo độ phân giải và
-nguồn dữ liệu của run. V1 hiển thị chỉ báo trên VNINDEX, giá/marker khớp trên
-hợp đồng, P/L đã chốt/chưa chốt riêng. UI không tính lại chỉ báo hay tiền;
-hiển thị cấu hình accounting và vốn ban đầu từ kết quả. V0 vẫn đọc/hiển thị
-được. U07 đã triển khai ngày 29/09: form JSON/file JSON, nút kiểm tra/chạy,
-form v0 riêng, panel thị trường tùy dữ liệu, chỉ báo lấy từ kết quả máy chủ,
-mũi tên LONG/SHORT/CLOSE theo nến khớp, bảng phí/ký quỹ và P/L riêng.
-Biểu đồ thời gian Unix hiển thị theo múi giờ của lần chạy; equity giữ mốc Close.
-Xem [phạm vi nâng cấp](../plans/engine-upgrade-u07-u08.md).
+## 2. Luồng người dùng
 
-Giao diện đọc kết quả từ API dùng kho file [Parquet + JSON](../plans/technical-plan.md#6-persistence-parquet-json).
-Dữ liệu nguồn giữ nguyên; phương án lưu phiên và trạng thái agent còn chờ thiết kế.
-
-
-**Yêu cầu 17/09:** quay lại HPG cũ để show kết quả backtest trên chart. Trang chủ
-của app có BacktestService mở run HPG gần nhất; nến/volume lấy qua
-`GET /api/backtests/{run_id}/chart`, markers/equity từ result cùng run. Chọn fill
-để zoom và xem detail; dữ liệu thị trường chỉ hiển thị trong kết quả backtest. Đây là scope
-demo được user chọn, không phê duyệt adaptation CANSLIM cho VN30F1M.
-
-**Bổ sung 17/09:** `canslim_breakout_v0` dùng điều kiện thị trường
-`VNINDEX Close > SMA200(VNINDEX)`. Chart HPG hiển thị panel riêng VN-Index Close
-(xám) và SMA200 (cam), tính server-side từ đúng dataset version của run, gồm
-warm-up trước kỳ báo cáo. Không overlay SMA200 này lên giá HPG và frontend không
-tự tính indicator.
-
-> Target 18/09: VN30F1M 5 phút, CANSLIM/long-only/normalized baseline; indicator
-> mapping và session chờ [C01–C06](../../.agents/checklists/vn30f1m-backtest-checklist.md).
-> API + notebook là ưu tiên, chưa cần agent. Marker chỉ từ executed fills;
-> storage target là Parquet + JSON. Nội dung HPG daily dưới giữ làm baseline cũ.
-
-Cập nhật: 15/09/2026.
-
-## 1. Mục tiêu
-
-Web UI cho phép người dùng chạy một backtest và xem kết quả của cùng một run. UI
-không triển khai lại strategy, execution hoặc accounting logic.
-
-## 2. Phạm vi theo phase
-
-### UI tối thiểu — làm sau khi core/API ổn định
-
-- Form cấu hình run.
-- Summary P/L và equity.
-- Danh sách fills.
-- Lịch sử closed trades.
-- Open position cuối kỳ.
-- Audit signals và rejected/unfilled orders.
-- Run ID, dataset version/hash và strategy parameters.
-- Trong JSON "Run và dataset của chart", hiển thị toàn bộ `metadata.config`, gồm
-  dataset, symbol, kỳ chạy, strategy, vốn ban đầu, `fee_rate` và `slippage_rate`;
-  không lấy lại giá trị hiện có trong form để mô tả run cũ.
-- Danh sách các run đã lưu và khả năng mở lại kết quả sau service restart.
-
-### Chart tối thiểu — ưu tiên cho đợt push Docker + notebook + chart
-
-Quyết định 15/09: kéo P3.1 (nến) và phần marker P3.3 lên trước Phase 2.
-Implementation chưa bắt đầu. [Kế hoạch triển khai](../plans/candlestick-ui-plan.md).
-
-- Candlestick VN30F1M 5 phút trong khoảng thời gian của run, có zoom/scroll và fit view.
-- Mỗi executed fill có marker BUY/SELL tại đúng `fill_time` và `fill_price`.
-- Phân biệt BUY/SELL bằng chữ và hình dạng, kèm màu; có chú giải.
-- Hover/click marker xem ngày, giá khớp, quantity, fee, signal time và reason.
-- Click marker lọc các bảng theo fill được chọn: fills cùng ngày, signal/order liên
-  quan, equity tại thời điểm fill, closed trade chứa fill và open position bắt đầu
-  từ fill đó. Click vùng trống trên chart để bỏ lọc.
-- Giữ bảng fills để tra cứu bằng bàn phím và đối chiếu với chart.
-- Volume histogram lấy trực tiếp từ OHLCV, chung trục ngày với nến.
-- Equity line riêng lấy từ equity_history; giữ bảng equity và summary hiện có.
-- Bảng Equity history có nút thu gọn/mở rộng, không làm thay đổi dữ liệu.
-- Bảng trades bổ sung entry_price, exit_price và fees đã có trong response.
-- Form đặt `slippage_rate` mặc định là `0`; người dùng có thể nhập giá trị khác
-  trong giới hạn validation của API.
-
-### Phần Phase 3 còn lại theo baseline
-
-- Indicator overlays/panels; trade return chưa có field/quy ước backend.
-- Tương tác chart nâng cao và đồng bộ zoom/crosshair giữa nhiều chart.
+1. Nhập JSON hoặc đọc một file JSON vào form; mẫu chỉ minh họa cấu trúc.
+2. Kiểm tra bằng `POST /api/backtests/validate`; STRUCTURE_VALID không bảo đảm
+   mọi nến đã đủ lịch sử chỉ báo.
+3. Chạy bằng `POST /api/backtests`; submit khóa trong khi chờ để tránh gửi trùng.
+4. Hiển thị result và tải chart theo `metadata.run_id`; làm mới danh sách lịch sử.
+5. Mở kết quả đã lưu bằng GET, không chạy lại chiến lược.
 
 ## 3. Mapping dữ liệu
 
-| UI component | Backend source | Quy tắc |
+| Thành phần | Nguồn | Quy tắc |
 | --- | --- | --- |
-| Summary cards | `summary` | Không tính lại ở frontend |
-| Run/dataset JSON | `chart metadata` + `metadata.config` | Hiển thị đúng input đã lưu của từng run |
-| Equity table/line | `equity_history` | Một điểm tại Close mỗi phiên |
-| Fill table | `fills` | Hiển thị đúng fill time/price |
-| Trade table | `trades` | Chỉ giao dịch đã đóng |
-| Open position | `open_position` | Hiển thị unrealized P/L riêng |
-| Audit table | `signals` + `orders` | Phân biệt pending/rejected/filled |
-| Run history | persisted `backtest_runs` | List/filter và mở lại theo `run_id` |
-| Candlestick Phase 3 | OHLCV snapshot của run | Không fetch live dataset khác |
-| Marker Phase 3 | `fills` | Không dùng signal làm executed marker |
-| Volume histogram | OHLCV `volume` | Cùng ngày với nến, không tự fill dữ liệu |
-| Equity line | `equity_history` | Lấy equity backend, không tính lại cash/position |
+| Summary | `summary` | Chỉ định dạng số/return |
+| Lịch sử | `GET /api/backtests` | Dùng thứ tự repository trả về |
+| Nến và volume | `GET /api/backtests/{run_id}/chart` | Đúng nguồn, kỳ báo cáo, resolution và timezone |
+| Chỉ báo | `evaluations` và dữ liệu market của run | Dùng giá trị máy chủ; chỉ hiển thị khi có |
+| Marker | `fills` | Giá khớp thật; không dùng signal làm giao dịch |
+| Giao dịch đóng | `trades` | Hiển thị quantity, phí và lãi/lỗ đã chốt |
+| Vị thế mở | `open_position` | Hiển thị lãi/lỗ chưa chốt riêng |
+| Audit | `signals`, `orders` | Giữ trạng thái rejected/pending/filled riêng |
+| Equity | `equity_history` | Điểm tại Close, trục riêng với giá nến |
 
-## 4. Trạng thái giao diện
+Normalized dùng BUY/SELL; contract dùng LONG/SHORT/CLOSE và thông tin hướng,
+mã hợp đồng, phí/thuế/ký quỹ khi có. Không diễn giải normalized quantity thành
+số hợp đồng. Các run lịch sử được trình bày theo metadata đã lưu.
 
-- **Initial:** chưa chạy, hiển thị form và required input.
-- **Loading:** ngăn chạy request trùng.
-- **Success with trades:** hiển thị summary, fills, trades và equity.
-- **Success without trades:** kết quả hợp lệ; trade/fill table rỗng có giải thích.
-- **Open position:** hiển thị unrealized P/L; không tạo SELL giả cuối kỳ.
-- **Validation error:** hiển thị field/code/message từ API.
-- **Data/internal error:** không render số liệu một phần như kết quả thành công.
+## 4. Chart và chọn giao dịch
 
-Nếu POST đã thành công nhưng chart GET lỗi, Thử lại chỉ tải result/chart theo
-run ID đó. Lỗi history hiển thị riêng, không làm mất kết quả hiện tại. Controller
-giữ request sequence ID để bỏ response đến muộn; hủy HTTP không coi là hủy run
-trong backend. Loading phải ngăn submit trùng và hide/xóa kết quả của run trước.
+- Kiểm tra run_id và hash/dataset phù hợp trước khi vẽ; không trộn run cũ/mới.
+- Marker neo đúng fill_price; nến chứa fill theo bar_time khi có. Không ép giá
+  khớp về High/Low nếu trượt giá đưa fill ra ngoài nến.
+- Tooltip lấy reason theo fill.order_id → order.signal_id → signal.reason.
+- Chọn marker lọc fills cùng ngày, trade chứa fill, signal/order liên quan,
+  vị thế mở từ fill và equity tương ứng. Chọn vùng trống để bỏ lọc.
+- Giữ bảng fills để đối chiếu. Rejected/unfilled không có marker.
+- Volume và chỉ báo volume không dùng trục giá nến; equity có chart riêng.
+- Zoom/scroll/resize không làm marker lệch giá/thời gian; dọn chart/listener khi đổi run.
+- Thiếu nến hoặc sai OHLC/hash báo lỗi, không tự điền nến, sort hoặc dời marker.
+- Nút thu gọn/mở rộng equity chỉ thay cách trình bày, không sửa dữ liệu.
 
-## 5. Quy tắc chart Phase 3
+## 5. Trạng thái và lỗi
 
-- BUY/SELL marker đặt tại `fill_time` và `fill_price`.
-- Tooltip marker có side, quantity, fee, signal time và reason.
-- Chọn marker chỉ lọc dữ liệu đã có trong cùng response; không tính lại signal,
-  execution, position, P/L hoặc equity ở frontend.
-- Rejected/unfilled order không tạo marker giao dịch.
-- Nếu chart không có bar khớp `fill_time`, báo data consistency error; không tự dời
-  marker sang bar gần nhất.
-- Chart, summary và tables phải dùng cùng `run_id` và dataset version.
-- Dùng timestamp có timezone rõ ràng, không đổi timezone làm marker lệch bar/phiên.
-- Giữ nguyên giá khớp đã gồm slippage, kể cả khi nằm ngoài high/low của nến;
-  trục giá phải bao phủ marker. Không ép marker về Open/Close/high/low.
-- Khi marker dày, dùng mũi tên nhỏ không kèm nhãn chữ cố định: đầu mũi tên vẫn
-  neo đúng `fill_price`; BUY đi từ dưới lên và SELL đi từ trên xuống. Legend và
-  tooltip giữ chữ BUY/SELL, bảng fills giữ đường truy cập bằng bàn phím.
-- Reason lấy theo quan hệ `fill.order_id -> order.signal_id -> signal.reason`.
-- Khi đổi run, xóa chart/tooltip cũ; bỏ qua response đến muộn của run trước.
-- Không có fill: vẫn vẽ nến và báo chưa có giao dịch đã khớp. Vị thế đang mở
-  chỉ hiển thị các marker fill thực có, không tạo exit giả cuối kỳ.
-- Lightweight Charts 5.2 không có thuộc tính viền native cho series marker. UI mở
-  rộng marker bằng primitive canvas, dùng `borderWidth` trực tiếp trên hình mũi tên;
-  `borderColor` là đen ở Light mode và trắng ở Dark mode, không đổi màu BUY/SELL.
+Chưa có run, đang tải, thành công có giao dịch, thành công không giao dịch,
+vị thế mở và lỗi phải phân biệt rõ. No-trade không đồng nghĩa đủ dữ liệu đánh giá;
+hiển thị evaluation_status khi có.
 
-### Acceptance chart tối thiểu của đợt push
+Controller dùng sequence để bỏ response đến muộn. POST thành công nhưng chart
+GET lỗi thì giữ result/bảng đã tải và cho thử lại bằng GET. Lỗi history hiển thị
+riêng. Khi result lỗi, ẩn kết quả/chart cũ để không gắn với run mới.
+Thông báo API được hiển thị bằng text; không thực thi HTML từ dữ liệu.
 
-- Fixture có ít nhất hai executed fills với side khác nhau; số marker bằng số fill.
-- Ngày/giá của từng marker khớp API và bảng fills, kể cả sau reload run.
-- Zoom, scroll, resize không làm marker lệch nến/giá.
-- No-fill, pending/rejected và vị thế mở hiển thị đúng các quy tắc trên.
-- Thiếu bar, sai OHLC hoặc lệch run/version/hash phải báo lỗi và không vẽ chart
-  như dữ liệu hợp lệ; lỗi API không để chart cũ gắn với run mới.
-- Acceptance chạy bằng Docker với pickle persist/reload và snapshot đã xác nhận.
-- Volume khớp từng bar kể cả zero volume; không che nến/marker.
-- Equity line khớp equity_history và summary cuối; có trục giá riêng.
-- Các cột entry/exit price, quantity, fees, net_pnl khớp trades API.
-- Keyboard/focus/labels và thông báo aria-live; chuỗi từ API được render an toàn
-  như text; mở run nhiều lần không nhân canvas/listeners.
-- Assets CSS/JS/vendor tải được từ package/Docker cùng origin, có attribution.
-- Indicator, trade return và tương tác chart nâng cao không thuộc acceptance đợt này.
+## 6. Tài nguyên và giao diện đã chọn
 
-## 6. Acceptance trước Phase 3
+HTML/CSS/JavaScript ES modules đóng gói trong `backtesting_api/web`, được
+FastAPI phục vụ cùng origin tại `/static`. Module .mjs dùng MIME text/javascript.
+Lightweight Charts và LICENSE/NOTICE được lưu trong `web/vendor`.
 
-- UI render đúng initial cash, final equity, realized/unrealized P/L và total return
-  từ backend.
-- Fills, trades, open position và equity khớp API response.
-- Run đã thành công vẫn mở lại được sau khi restart backend.
-- No-trade, rejected-order và error fixtures hiển thị đúng semantics.
-- Không yêu cầu candlestick chart để nghiệm thu bước UI tối thiểu.
+Style theo [DESIGN.md](DESIGN.md): nền cream, chữ espresso, nút amber;
+light/dark qua nút có nhãn truy cập. Main nối `create_app(..., preview=True)`
+để dùng preview.css và preview-theme.mjs cho giao diện chính. Theme lưu bằng
+`backtest-preview-theme`, đồng bộ tab và phát themechange; không tải lại run.
+Màu nến/hướng giao dịch giữ ý nghĩa đã chọn. Font dùng tài nguyên máy/fallback;
+không yêu cầu tải font ngoài để chạy.
 
-## 7. Acceptance Phase 3
+## 7. Nghiệm thu
 
-- Render daily candlestick và volume của dataset trong run.
-- Marker khớp chính xác fill records.
-- BUY/SELL, summary, equity và trade history nhất quán với cùng backend response.
+- Form/validate/run/history dùng đúng hợp đồng JSON và endpoint còn hoạt động.
+- Chart, summary và bảng khớp cùng run/hash; marker đúng số fill và giá/thời gian.
+- No-fill, rejected, vị thế mở và lỗi chart được trình bày đúng trạng thái.
+- Không tạo POST mới khi thử đọc lại chart; response cũ không thay run đang chọn.
+- Tài nguyên đóng gói tải được sau cài đặt/Docker, có attribution của thư viện.
+- Mở run sau restart vẫn đọc cùng result; keyboard, label, focus, aria-live và
+  bố cục mobile là các mục kiểm tra giao diện.
 
-## 8. Lựa chọn triển khai và quyết định còn mở
-
-### Runway UI — duyệt áp dụng web chính 23/09/2026
-
-- User duyệt áp dụng [DESIGN.md](DESIGN.md), gồm light/dark mode, cho
-  `backtest_hpg.main:app` tại port 8000. Bỏ banner `Runway · UI preview`.
-- Tái sử dụng HTML/controller và API hiện có, thêm stylesheet và theme riêng ở
-  preview. Giữ form, history, filter marker, equity collapse, metadata.
-- User duyệt bổ sung dark mode: nền espresso, chữ kem, CTA amber chữ espresso.
-  Nút chuyển theme có accessible label; lưu bằng `backtest-preview-theme`, độc lập
-  với theme cũ. Mặc định light khi chưa lưu; đồng bộ tab và cập nhật chart qua
-  `themechange`, không tải lại run hoặc tính lại dữ liệu.
-- Nền cream, card trắng, viền linen, chữ espresso, nút chính amber; các màu
-  nến/BUY/SELL giữ semantics và contract chart hiện hành. Không thêm widget giả.
-- Font dùng Interphases/Inter Variable nếu máy có, fallback system sans-serif;
-  chưa có font asset được cung cấp, không tải font bên ngoài.
-- Chạy từ repo bằng `.venv/Scripts/python.exe -m uvicorn
-  backtest_hpg.main:app --host 127.0.0.1 --port 8000`.
-  không cần migration hoặc thay đổi dữ liệu để áp dụng giao diện.
-
-- HTML/CSS/JavaScript ES modules; FastAPI phục vụ /static cùng backend.
-- Chart library: Lightweight Charts v5 standalone ESM. Người triển khai tự chọn
-  và xác minh patch release có marker theo giá, pin asset/license/NOTICE.
-- Flow/diagram, cây file và test cases: [plan chart](../plans/candlestick-ui-plan.md).
-- State công việc: [PROGRESS](../plans/progress.md). CFM-01 dataset nghiệm thu còn chờ
-  xác nhận; pagination/filter history và tương tác nâng cao để scope sau.
-
-
-### Sửa thang đo chỉ báo khối lượng — 30/09/2026
-
-- Chỉ báo giá dùng vùng giá; MACD/MFI tiếp tục có vùng riêng.
-- Các chỉ báo còn lại lấy nguồn `.volume` dùng vùng khối lượng và định dạng
-  volume; không tham gia tự căn trục giá nến. Với trade_data, dùng chung trục
-  với histogram; với market_data, tạo vùng khối lượng riêng.
-- Phân loại theo nguồn và loại chỉ báo, không theo tên `average_volume`.
-- Kiểm tra hồi quy: giá/volume khác bậc độ lớn, nguồn trade/market, MACD/MFI,
-  daily và 5 phút; manual test cùng run trước/sau, vừa khung và tải lại.
+Các phép kiểm tra và giới hạn bằng chứng tại
+[kế hoạch chart](../plans/candlestick-ui-plan.md) và
+[checklist tích hợp](../plans/legacy-cleanup-checklist.md).

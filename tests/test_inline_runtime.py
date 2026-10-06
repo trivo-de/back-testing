@@ -13,13 +13,13 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from fastapi.testclient import TestClient
-from backtest_hpg.api.app import create_app
-from backtest_hpg.application.inline_data import resolve_inline
-from backtest_hpg.application.inline_strategy import run_inline_strategy, InlineExecution, IndicatorData
-from backtest_hpg.application.run_backtest import BacktestService
-from backtest_hpg.domain import indicators
-from backtest_hpg.domain.trading import FixedSignal
-from backtest_hpg.infrastructure.file_repository import FileRunRepository
+from backtesting_api.api.app import create_app
+from backtesting_api.application.inline_data import resolve_inline
+from backtesting_api.application.inline_strategy import run_inline_strategy, InlineExecution, IndicatorData
+from backtesting_api.application.run_backtest import BacktestService
+from backtesting_api.domain import indicators
+from backtesting_api.domain.trading import FixedSignal
+from backtesting_api.infrastructure.file_repository import FileRunRepository
 from test_inline_pipeline import ZONE, candle, normalized, payload
 from test_inline_strategy import sample
 from test_contract_execution import bar

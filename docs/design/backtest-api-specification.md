@@ -1,13 +1,10 @@
 # Đặc tả API backtest — nhận dữ liệu và định nghĩa chiến lược trực tiếp
 
-Cập nhật: 28/09/2026. **U03 đã có schema và POST /api/backtests/validate** để
-kiểm tra payload JSON, tham chiếu và cây điều kiện. U04 đã tách khớp lệnh/tính
-tiền khỏi vòng lặp. U05/U06 đã nối tiếp nhận JSON, ánh xạ dữ liệu và lưu/đọc kết
-quả hợp đồng. U07/U08 (29/09) đã nối bộ thực thi cây JSON và giao diện nhập trực tiếp.
-POST /api/backtests chỉ nhận payload JSON trực tiếp. CANSLIM v0 và v1 đều được
-biểu diễn bằng `trade_data`, `market_data`, `strategy`, `execution`, `accounting`
-và `initial_cash`; không chọn nhánh chạy bằng strategy ID.
-Xem [phạm vi U07–U08](../plans/engine-upgrade-u07-u08.md); U09 nghiệm thu dữ liệu thật còn riêng.
+API nhận dữ liệu và cây chiến lược JSON trực tiếp, kiểm tra nội dung và chạy
+qua cùng bộ thực thi. Normalized và contract là mô hình tính tiền trong JSON;
+không chọn nhánh thực thi bằng tên chiến lược. Đầu vào, chính sách và kết quả
+được ghim tại kho file. Nghiệm thu dữ liệu thật toàn kỳ là kiểm tra riêng theo
+[đặc tả yêu cầu](../requirements/software-requirements-specification.md).
 
 Hỗ trợ chứa template các chiến lược có sẵn sẽ được cân nhắc sau khi mở rộng đủ trường hợp cho mọi chiến lược.
 
@@ -35,11 +32,8 @@ chấm: [Hướng dẫn payload chiến lược](strategy-payload-guide.md).
 
 ## 3. Các nhóm dữ liệu
 
-**Bổ sung 02/10/2026:** boolean `auto_fetch_data=false`; khi bật, phải bỏ
-`trade_data` và `market_data` ở yêu cầu đầu vào. Máy chủ tải cả VN30F1M và
-VNINDEX 5 phút, sau đó chuyển về cùng payload đã kiểm tra để lưu và chạy lại
-không cần gọi mạng. Quy định bảng dưới áp dụng chế độ nhập thủ công. Chi tiết tại
-[Tự tải dữ liệu](auto-fetch-data.md).
+Yêu cầu phải cung cấp dữ liệu trong JSON. Trường ngoài schema, bao gồm
+`auto_fetch_data`, bị từ chối với HTTP 422.
 
 | Nhóm        | Nội dung                                                                                                                                |
 | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
@@ -248,6 +242,7 @@ Dưới đây là minh họa một payload với đầy đủ mọi tham số hi
     "broker_fee_per_contract": "0"
   }
 }
+
 ```
 
 ### Phần rút gọn và lịch sử khởi tạo
@@ -279,7 +274,7 @@ bắt người gọi lặp lại trong mỗi payload:
   EMA/MACD/BB/MFI chưa được triển khai chỉ vì đã xuất hiện trong payload.
   SMA/EMA/BB/MACD/MFI cần 150 nến VNINDEX đã đóng tính cả t, không dùng
   ATO/ATC; không khởi tạo lại chuỗi chỉ báo khi hợp đồng giao dịch chuyển kỳ.
-- EMA seed bằng SMA N mẫu đầu, tính tiếp từ N+1. BB chia phương sai cho N.
+- EMA seed bằng SMA N mẫu đầu,, tính tiếp từ N+1. BB chia phương sai cho N.
   MACD line = EMA12 − EMA26; histogram bằng line; signal EMA9 chỉ hiển thị.
   MFI theo TP=(H+L+C)/3 và dòng tiền TP×Volume; TP không đổi thì bỏ dòng đó;
   hai dòng cùng bằng 0 ưu tiên MFI=50 trước hai quy tắc một dòng bằng 0.
@@ -390,7 +385,7 @@ chốt; không tự thu hẹp kỳ vì market_data hoặc lịch sử chỉ báo
 
 ### Dữ liệu trực tiếp
 
-- Mỗi chuỗi có tên để quy tắc tham chiếu; đó là tên trong yêu cầu
+- Mỗi chuỗi có tên để quy tắc tham chiếu.
 - OHLCV được truyền trong JSON.
 - `trade_data` và `market_data` có thể khác số nến, khung thời gian và giờ phiên.
   Tại thời điểm quyết định t chỉ lấy bản ghi market có available_at <= t; không
@@ -410,25 +405,20 @@ chốt; không tự thu hẹp kỳ vì market_data hoặc lịch sử chỉ báo
 
 Tiếp nhận JSON không thay đổi [quy ước dữ liệu v0](../data/vn30f1m/data-contract.md)
 hoặc [quy ước dữ liệu v1](../data/vn30f1m/data-contract-v1.md).
-Thiếu lịch sử được xử lý theo quy tắc chiến lược; không tự rút ngắn báo cáo hoặc
-đổi chu kỳ chỉ báo. V1 giữ kỳ sáu tháng đã chốt. Ngoại lệ rút kỳ chỉ thuộc lần
+Thiếu lịch sử được xử lý theo quy tắc chiến lược. V1 giữ kỳ sáu tháng đã chốt. Ngoại lệ rút kỳ chỉ thuộc lần
 chạy VN30F1M với CANSLIM v0.
 
 ## Phạm vi cây công thức hiện tại
 
 - Các phép so sánh, all/any, tham chiếu, entry/exit đã có bộ kiểm tra và hàm
-  tính cây công thức. Stop/target/trailing, sổ tiền, dữ liệu và trạng thái đều
-  được nối trong cùng luồng chạy JSON.
+  tính cây công thức.
 - Phép giao cắt chỉ bổ sung khi có chiến lược cần; v1 hiện dùng so sánh.
 - Mã hợp đồng lấy từ `trade_data.contract_map`; lịch phiên lấy từ policy máy chủ;
   ký quỹ, phí và hệ số hợp đồng lấy từ `accounting`.
 
-Các việc còn lại là triển khai những quyết định đã có, không yêu cầu người dùng
-chốt lại rule. Cây chỉ nhận các toán tử đã liệt kê; không thực thi mã Python từ HTTP.
-
 ## 8. Source hiện có
 
-`POST /api/backtests` chỉ nhận payload JSON trực tiếp:
+Các field chính trong `POST /api/backtests`:
 
 ```text
 trade_data, market_data, strategy, execution, accounting, initial_cash, report
@@ -446,12 +436,7 @@ payload: nội dung đã kiểm tra, kèm mặc định công khai như contract
 ```
 
 Sai cấu trúc, toán tử, tham chiếu, kiểu, thứ tự nến, OHLC, thời gian hoặc thiếu
-market/volume được rule sử dụng: HTTP 422. Trường không được hỗ trợ cũng bị
-từ chối, không bị bỏ qua. Xem schema đầy đủ tại `/docs`, endpoint `/validate`.
-Chỉ báo được kiểm tra khai báo ở đây; hàm tính SMA/EMA/BB/MACD/MFI đã có trong indicators.py.
-U05 đã ánh xạ thời gian, độ phủ map, lịch phiên và các khoảng thiếu dữ liệu.
-`STRUCTURE_VALID` không xác nhận đủ 150 mẫu chỉ báo liên tục hoặc đủ điều kiện
-giao dịch; bộ thực thi xét trạng thái đó tại từng nến. Không ghép theo số thứ tự dòng.
+market/volume được rule sử dụng trả về lỗi 422. Xem schema đầy đủ tại `/docs`, endpoint `/validate`.
 
 ### Chạy và đọc kết quả sau U05/U06
 
@@ -478,16 +463,8 @@ của nến chứa lần khớp, dùng gắn mũi tên; `fill_time` giữ quy ư
 Metadata lưu input_hash, policy_hash, accounting và đơn vị. Tệp kết quả kèm
 result_hash; hash sai, thiếu input hoặc phiên bản không hỗ trợ trả HTTP 409 khi đọc.
 
-Ứng dụng chung `backtest_hpg.main:app`; `intraday_main:app` là tên tương thích.
-`BACKTEST_LEGACY_BACKEND=file|postgres` chỉ chọn nơi đọc lịch sử cũ; không chọn
-cách chạy CANSLIM v0 cho yêu cầu mới.
-JSON mới dùng `BACKTEST_STORE_PATH`; PostgreSQL không bị chuyển đổi/xóa tự động.
-
-Các kiểm thử từ lượt 26/09 chỉ xác nhận luồng tham số đã triển khai; không chứng
-minh thiết kế ngày 28/09 đã chạy. Phần tham số đó có thể tái sử dụng ở các thành
-phần chỉ báo/quy tắc, nhưng không dùng sự tồn tại của mẫu làm điều kiện kiểm tra.
-
-Bảng kiểm triển khai nằm riêng tại `.agents/checklists/engine-upgrade-checklist.md`.
+Ứng dụng chung `backtesting_api.main:app`.
+JSON mới dùng `BACKTEST_STORE_PATH`.
 
 ## 9. Status code và các trường hợp ngoại lệ
 
@@ -502,25 +479,21 @@ lỗi đã liệt kê dưới đây:
 | `POST /api/backtests/validate`      | `422 Unprocessable Entity`  | Lỗi schema hoặc mã kiểm tra nội dung                          |         | JSON/schema, kiểu, thời gian, OHLC, tham chiếu, toán tử, dữ liệu bắt buộc hoặc tổ hợp execution/accounting không hợp lệ; không chạy và không lưu run.                                                 |
 | `POST /api/backtests/validate`      | `503 Service Unavailable`   | `INLINE_POLICY_UNAVAILABLE`                                      |         | Không đọc được policy phiên; không trả kết quả kiểm tra hoàn chỉnh.                                                                                                                                         |
 | `POST /api/backtests`               | `201 Created`               | —                                                                 |         | Backtest chạy xong và lưu kết quả; trả result của run.                                                                                                                                                             |
-| `POST /api/backtests`               | `422 Unprocessable Entity`  | Lỗi schema hoặc mã lỗi chạy                                   |         | Payload không hợp lệ, thiếu dữ liệu, thiếu warm-up, tổ hợp chưa hỗ trợ, runtime chưa có, execution bị từ chối hoặc run thất bại do lỗi đầu vào; không công bố partial result là thành công. |
+| `POST /api/backtests`               | `422 Unprocessable Entity`  | Lỗi schema hoặc mã lỗi chạy                                   |         | Payload không hợp lệ, thiếu dữ liệu, thiếu dữ liệu bắt buộc để thực thi, tổ hợp chưa hỗ trợ, runtime chưa có, run thất bại do lỗi đầu vào; không công bố partial result là thành công. |
 | `POST /api/backtests`               | `503 Service Unavailable`   | `BACKTEST_STORAGE_UNAVAILABLE`                                   |         | Lỗi lưu trữ hoặc ghi kết quả; run không được công bố là thành công.                                                                                                                                        |
 | `GET /api/backtests`                | `200 OK`                    | —                                                                 |         | Trả danh sách các run thành công theo thứ tự repository.                                                                                                                                                           |
 | `GET /api/backtests`                | `409 Conflict`              | `RESULT_STORAGE_INVALID`                                         |         | Kết quả hoặc chỉ mục lưu trữ không đọc được, sai schema hoặc sai integrity.                                                                                                                                 |
 | `GET /api/backtests/{run_id}`       | `200 OK`                    | —                                                                 |         | `run_id` tồn tại và kết quả đọc qua kiểm tra integrity.                                                                                                                                                         |
-| `GET /api/backtests/{run_id}`       | `404 Not Found`             | `RUN_NOT_FOUND`                                                  |         | Không có run tương ứng.                                                                                                                                                                                              |
+| `GET /api/backtests/{run_id}`       | `404 Not Found`             | `detail: "run not found"`                                                  |         | Không có run tương ứng.                                                                                                                                                                                              |
 | `GET /api/backtests/{run_id}`       | `409 Conflict`              | `RESULT_STORAGE_INVALID`                                         |         | Hash, input, schema, trạng thái hoặc quan hệ result không hợp lệ.                                                                                                                                                  |
 | `GET /api/backtests/{run_id}`       | `422 Unprocessable Entity`  | —                                                                 |         | `run_id` không phải UUID hoặc path/request không hợp lệ.                                                                                                                                                          |
 | `GET /api/backtests/{run_id}/input` | `200 OK`                    | —                                                                 |         | Trả input đầy đủ và metadata policy của run.                                                                                                                                                                       |
-| `GET /api/backtests/{run_id}/input` | `404 Not Found`             | `INPUT_RUN_NOT_FOUND`                                            |         | Không có input/run tương ứng.                                                                                                                                                                                        |
-| `GET /api/backtests/{run_id}/input` | `409 Conflict`              | `INPUT_STORAGE_INVALID`                                          |         | Input thiếu, sai hash, sai schema hoặc không tương thích với run.                                                                                                                                                  |
+| `GET /api/backtests/{run_id}/input` | `404 Not Found`             | `detail: "run not found"`                                            |         | Không có run thành công tương ứng.                                                                                                                                                                                        |
+| `GET /api/backtests/{run_id}/input` | `409 Conflict`              | `INPUT_STORAGE_INVALID`                                          |         | Input thiếu, sai hash/schema hoặc lịch sử phiên bản 1 không hỗ trợ đọc input JSON; detail là chuỗi INPUT_STORAGE_INVALID.                                                                                                                                                  |
 | `GET /api/backtests/{run_id}/input` | `422 Unprocessable Entity`  | —                                                                 |         | `run_id` không phải UUID hoặc path/request không hợp lệ.                                                                                                                                                          |
 | `GET /api/backtests/{run_id}/chart` | `200 OK`                    | —                                                                 |         | Trả chart snapshot từ input đã lưu của run.                                                                                                                                                                         |
-| `GET /api/backtests/{run_id}/chart` | `404 Not Found`             | `CHART_RUN_NOT_FOUND`                                            |         | Không có run hoặc run không có chart khả dụng.                                                                                                                                                                     |
+| `GET /api/backtests/{run_id}/chart` | `404 Not Found`             | `RUN_NOT_FOUND`                                            |         | Không có run hoặc run không có chart khả dụng.                                                                                                                                                                     |
 | `GET /api/backtests/{run_id}/chart` | `409 Conflict`              | `CHART_DATA_INCONSISTENT`                                        |         | Bar, OHLCV hoặc fill trong chart không khớp dữ liệu run.                                                                                                                                                             |
 | `GET /api/backtests/{run_id}/chart` | `422 Unprocessable Entity`  | —                                                                 |         | `run_id` không phải UUID hoặc path/request không hợp lệ.                                                                                                                                                          |
 | `GET /api/backtests/{run_id}/chart` | `500 Internal Server Error` | `CHART_STORAGE_ERROR`                                            |         | Lỗi đọc storage ngoài nhóm lỗi integrity đã biết; không lộ chi tiết nội bộ.                                                                                                                                 |
-| `GET /api/strategies`               | `200 OK`                    | —                                                                 |         | Trả danh mục mẫu chiến lược và capability; danh mục không phải điều kiện để chạy request mới.                                                                                                            |
-| `GET /api/strategies/{strategy_id}` | `200 OK`                    | —                                                                 |         | Trả schema/version của strategy được yêu cầu.                                                                                                                                                                      |
-| `GET /api/strategies/{strategy_id}` | `404 Not Found`             | `unsupported strategy_id` hoặc `unsupported strategy_version` |         | Không có strategy hoặc version tương ứng trong danh mục mẫu.                                                                                                                                                      |
-
-Đối với các trạng thái `422` phát sinh trong quá trình chạy, record lỗi của run vẫn sẽ được giữ lại nếu repository đã tạo run và endpoint đọc danh sách thành công sẽ trả về kết quả đó là kết quả lỗi
+Nếu lỗi phát sinh sau khi repository đã tạo run, trạng thái failed được lưu trong tệp run. API danh sách/chi tiết thành công không trả failed hoặc running; GET chi tiết của các trạng thái này trả HTTP 404.

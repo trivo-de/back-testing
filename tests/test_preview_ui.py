@@ -3,8 +3,8 @@ import unittest
 
 from fastapi.testclient import TestClient
 
-from backtest_hpg.api.app import create_app
-from backtest_hpg.application.run_backtest import BacktestService
+from backtesting_api.api.app import create_app
+from backtesting_api.application.run_backtest import BacktestService
 from test_application_api import MemoryRepository
 
 

@@ -28,9 +28,7 @@
     "src\\backtest_hpg\\infrastructure\\file_repository.py": "04475bbd9aef483b4203463401fea796357ec281d53501eb7c2833fed8a98708",
     "src\\backtest_hpg\\infrastructure\\market_snapshot.py": "cd706c5449391c17f11d6fc3cf435fcb793e4d5cc762b6ce9249bc37d933f566",
     "src\\backtest_hpg\\infrastructure\\snapshot_bundle.py": "abde7a732b10065c54f71de9ebc84940336c85784cb07de81eed23fe9870646a",
-    "src\\backtest_hpg\\intraday_main.py": "bd9652de40e069a3e02d724a0466a60108a7994e0967e328933879096acc3c0f",
-    "src\\backtest_hpg\\main.py": "b1ebdf781aeda042741aca3c8622ba8287ca1b750a2d140b2de77203c0f89ec8",
-    "src\\backtest_hpg\\preview_main.py": "3339ae54f084762318f629a7f1bc8ab0598ef0fff76163184ec670d64ae2ea78"
+    "src\\backtest_hpg\\main.py": "b1ebdf781aeda042741aca3c8622ba8287ca1b750a2d140b2de77203c0f89ec8",    "src\\backtest_hpg\\preview_main.py": "3339ae54f084762318f629a7f1bc8ab0598ef0fff76163184ec670d64ae2ea78"
   },
   "cases": [
     {

@@ -12,14 +12,14 @@ test('preview toggles, persists, syncs tabs and updates charts without touching 
     globalThis.getComputedStyle = () => ({fontFamily: 'system-ui', getPropertyValue: () => document.documentElement.dataset.theme});
     let updates = 0;
     window.addEventListener('themechange', () => updates++);
-    const theme = await import('../../src/backtest_hpg/web/preview-theme.mjs');
+    const theme = await import('../../src/backtesting_api/web/preview-theme.mjs');
     assert.equal(document.documentElement.dataset.theme, 'light');
     button.dispatchEvent(new Event('click'));
     assert.equal(storage.get('backtest-preview-theme'), 'dark');
     assert.equal(button['aria-pressed'], 'true');
     assert.equal(button['aria-label'], 'Chuyển sang giao diện sáng');
     assert.equal(theme.chartTheme().layout.background.color, 'dark');
-    await import('../../src/backtest_hpg/web/preview-theme.mjs?reload');
+    await import('../../src/backtesting_api/web/preview-theme.mjs?reload');
     assert.equal(document.documentElement.dataset.theme, 'dark');
     button.dispatchEvent(new Event('click'));
     assert.equal(document.documentElement.dataset.theme, 'light');

@@ -1,84 +1,18 @@
-> **Cập nhật 25/09/2026:** VN30F1M với policy `close_at_expiry_open` đóng toàn bộ
-> tại Open đầu phiên đáo hạn, hủy pending cũ và không entry trong ngày đó.
-> Phí/slippage giữ nguyên; policy `hold` cũ vẫn đọc/chạy được. Các mô tả hold
-> bên dưới thuộc baseline trước quyết định này; HPG không thay đổi.
->
-> **Xác nhận 17/09/2026:** User chốt giữ rule CANSLIM, dùng VN30F1M thay HPG,
-> giữ VN-Index cho R1 và mô hình tiền normalized như baseline.
-> **Cập nhật 18/09:** strategy/execution chính dùng 5 phút, 1D chỉ hỗ trợ.
-> C01–C03 đã chốt window 200/65/50 nến 5 phút; C04 chốt Close/available_at
-> = Open + 5 phút, kể cả ATC. Map tham khảo được user cho phép, giữ vị thế.
-> Source intraday đã implement/test fixture; report thật còn thiếu history.
-> Xem [plan hiện hành](../plans/technical-plan.md).
+# Công thức nền CANSLIM — normalized
 
-## Tham số theo lần chạy — 26/09/2026
+Đây là đặc tả công thức nền dùng đối chiếu kết quả normalized lịch sử và cây
+JSON tương đương. Các giá trị quy tắc bên dưới giữ nguyên. Yêu cầu chạy cung
+cấp chỉ báo, điều kiện và sizing trong strategy JSON theo
+[hướng dẫn payload](../design/strategy-payload-guide.md), không chọn bộ chạy
+bằng ID hoặc gửi strategy_params riêng.
 
-Theo yêu cầu tổng quát hóa API, các chu kỳ/ngưỡng dưới đây là bộ mặc định v0.
-Người gọi có thể truyền các giá trị riêng qua `strategy_params`; công thức,
-thứ tự đánh giá và thời điểm khớp giữ nguyên. Không truyền tham số thì dùng đúng
-bộ mặc định. Giá trị được kiểm tra và lưu riêng từng lần chạy, không sửa cấu hình
-chung. Danh sách và giới hạn được công bố tại `GET /api/strategies/canslim_breakout_v0`.
-Tham số tăng chu kỳ chỉ làm tăng lịch sử cần thiết; thiếu lịch sử vẫn chưa đánh giá
-được, không tự lùi báo cáo. Xem [đặc tả API](../design/backtest-api-specification.md).
+Mapping VN30F1M đã chốt cho công thức nền: R1 dùng 200 mẫu VNINDEX đã khả dụng;
+R2 dùng 65 nến giao dịch trước t; R3 dùng volume nến t so với 50 nến trước t.
+Signal sau Close, khớp tại Open hợp lệ kế tiếp; không fallback daily hoặc điền
+nến thiếu. Policy/run lịch sử giữ nguyên; quy tắc v1 riêng tại
+[CANSLIM v1](canslim-v1-rules.md).
 
-## Mapping đã xác nhận trong checklist — 18/09
-
-Refactor R1–R2 (21/09) giữ mọi công thức/threshold bên dưới. Snapshot indicator,
-fixed fractional sizing 2%/stop 7% và entry pivot thuộc module CANSLIM. Pivot
-đi theo pending intent; chỉ thành state vị thế sau BUY fill, BUY reject không
-giữ pivot, SELL fill mới xóa state. State mới cho mỗi run. Stop reference được
-strategy xác định từ giá fill; mapper chỉ xuất projection tương thích, không
-tính lại. Ledger không sở hữu pivot/stop; quantity vẫn tính tại Open execution
-sau slippage, cash trước fill và fee như baseline.
-
-- R1: VN-Index 5 phút, SMA200 dùng 200 nến liên tục qua phiên; thiếu lịch sử
-  thì UNEVALUABLE, không fallback daily.
-- R2: pivot/base-low theo 65 nến 5 phút trước t, không gồm t.
-- R3: volume riêng nến t đã đóng, so với trung bình cộng 50 nến trước t;
-  average > 0, volume[t] >= 1.50 * average. Không reset đầu ngày, không fill.
-- Đây là thay đổi đơn vị window so với baseline daily được user xác nhận;
-  các con số, công thức và thresholds giữ nguyên. Daily specification bên dưới
-  chỉ là baseline lịch sử. C04 nay chốt Open + 5 phút như assumption mô phỏng.
-- C05: giữ vị thế/pending qua nghỉ trưa/qua đêm; fill tại Open bar hợp lệ
-  đầu tiên khi mở lại. Missing expected bar hoặc thiếu static rollover map
-  cho bất kỳ đoạn nào phải fail validation; không nội suy hay tự đóng vị thế.
-- User xác nhận thêm 18/09: cho phép dùng lịch/mã tham khảo của
-  [static map](../data/vn30f1m/vn30f1m-rollover-map.md) làm assumption mô phỏng;
-  **giữ vị thế/pending qua đáo hạn**, không forced exit hoặc price adjustment.
-
-## Quyết định áp dụng VN30F1M — 17/09/2026
-
-- Giữ R1–R4, công thức indicator, các window/threshold, long-only, một vị thế,
-  không vay/pyramiding, stop 7%, target 20% và risk budget 2% như baseline bên dưới.
-- R1 tiếp tục dùng VN-Index Close và SMA200 của VN-Index. Không thay market
-  series bằng VN30 hoặc VN30F1M, không bỏ R1 khi thiếu dữ liệu.
-- Giữ công thức sizing, cash, fees, realized/unrealized P/L và equity cũ.
-  Config báo cáo vẫn là initial_cash 10.000.000, fee_rate 0.001,
-  slippage_rate 0.002. Quantity là đơn vị mô phỏng theo giá nguồn; kết quả mang
-  nhãn `normalized simulation`, không diễn giải thành số hợp đồng hay P/L futures
-  thực tế. Không thêm multiplier, margin, thuế hoặc settlement phái sinh.
-- Giữ nguyên nguyên tắc signal sau Close, fill ở Open kế tiếp. Định nghĩa bar/
-  phiên hợp lệ trên VN30F1M còn chờ chốt; timeframe chính đã chọn 5 phút ngày 18/09.
-- Các window 200/65/50 baseline là phiên ngày; C01–C03 đã xác nhận chuyển
-  đơn vị sang nến 5 phút như mapping bên trên. Chưa duyệt daily aggregation.
-- Snapshot VN-Index phù hợp kỳ chạy, warm-up, session/timestamp và cách xử lý
-  chuỗi VN30F1M qua rollover còn cần đặc tả. Thiếu input thì không đánh giá được;
-  không tự fetch nguồn bổ sung hoặc fill dữ liệu để tạo giao dịch.
-
-Phần VIE/ENG dưới đây giữ đặc tả HPG daily làm baseline công thức. Contract nguồn
-VN30F1M và đề xuất aggregation chưa duyệt nằm tại
-[VN30F1M Data Contract](../data/vn30f1m/data-contract.md).
-
-Confirmed scope: retain CANSLIM rules, VN-Index R1 and baseline normalized
-accounting when replacing HPG with VN30F1M. As of 18/09, evaluation/execution
-use 5-minute bars; daily data is auxiliary only. Window units, volume mapping,
-Open/Close availability uses the approved five-minute simulation convention;
-rollover retains positions under the user-approved reference map. The daily HPG specification
-below is the formula baseline, not an implemented intraday specification.
-
-VIE
-
-# CANSLIM Rule — canslim_breakout_v0
+## Đặc tả công thức nền
 
 ## 1. Khái niệm
 
@@ -189,7 +123,7 @@ dùng làm tham chiếu khi bổ sung test.
 
 ENG
 
-# CAN SLIM — canslim_breakout_v0 (condensed)
+## CANSLIM normalized (condensed)
 
 ## 1. Terms
 

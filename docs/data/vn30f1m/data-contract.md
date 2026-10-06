@@ -1,6 +1,7 @@
 # Data Contract — VN30F1M 5 phút
 
-> **Storage 18/09/2026:** [Parquet + JSON](../../plans/technical-plan.md#6-persistence-parquet-json) thay target pickle trong kế hoạch bên dưới. Raw nguồn giữ nguyên; SQLite/PostgreSQL cho metadata/session agent còn chờ chốt. Nội dung implementation/mốc cũ giữ để truy vết; chưa migrate code hoặc nghiệm thu storage mới.
+Kho file lưu JSON đầu vào/kết quả và đọc Parquet của lịch sử theo
+[kế hoạch kỹ thuật](../../plans/technical-plan.md). Dữ liệu nguồn giữ nguyên.
 
 
 Cập nhật: 25/09/2026. Contract dữ liệu này không tự quyết định strategy.
@@ -96,9 +97,9 @@ dụng phải được rule được duyệt quyết định; data layer không 
   phải ghi rõ cách xử lý rollover và vị thế qua ngày.
 - Chưa coi volume unit, timestamp label semantics hoặc record 14:45 đã được nguồn
   xác nhận. Không tự suy diễn hoặc sửa payload.
-- Pickle chỉ persist validated snapshot/result; không thay raw immutable artifact.
+- Kho file giữ đầu vào/kết quả JSON và Parquet lịch sử; không thay dữ liệu nguồn đã ghim.
 
-## 4. Run/result contract
+## 4. Metadata normalized lịch sử
 
 Theo xác nhận 17/09, run giữ mô hình tiền normalized trong
 [CANSLIM Rule](../../strategies/canslim-rules.md). Run config tối thiểu gồm dataset
@@ -119,8 +120,8 @@ bằng chứng runtime đã hỗ trợ VN30F1M.
 - Giữ VN-Index cho R1. Snapshot VN30F1M không chứa VN-Index; chọn market series
   như cũ chưa xác nhận snapshot VN-Index nào có đủ thời gian phủ và warm-up.
 - Nguồn, strategy và execution chính là 5 phút. C01–C03 đã xác nhận window
-  200/65/50 nến 5 phút. Alignment với VN-Index và available_at còn thiếu C04;
-  không tự ghép dữ liệu để tạo đủ history. Các phương án daily dưới đây là
+  200/65/50 nến 5 phút. Ghép theo available_at; quy ước mô phỏng Close và
+  available_at là Open + 5 phút. Không tự ghép dữ liệu để tạo đủ history. Các phương án daily dưới đây là
   giải thích lịch sử, không phải mapping đã chọn hiện tại.
 - Nếu R1 dùng 1D, cần ít nhất 200 VN-Index daily closes đã available. VN30F1M
   1D không thay VN-Index; dữ liệu cùng range 126 phiên không đủ SMA200 daily.
@@ -147,20 +148,16 @@ chốt timeframe, session boundary, timestamp labels, record 14:45, volume và
 phiên thiếu. Nếu được duyệt, dữ liệu daily dẫn xuất phải có provenance/version
 riêng liên kết với raw snapshot; không sửa raw hoặc tự bù missing bars.
 
-## 5. Chart snapshot triển khai 17/09
+## 5. Dữ liệu chart của lượt chạy
 
-Snapshot VN30F1M không còn được phục vụ qua trang/API độc lập. Dữ liệu thị trường
-được truyền trong payload backtest (`market_data`) và chỉ hiển thị cùng kết quả run;
-không gắn một snapshot viewer riêng.
-và không trả fills/equity giả. `start`/`end` là ngày ISO optional, lọc inclusive
-theo UTC+7; ngược range/sai ngày trả 422. Khoảng không có bar trả bars rỗng.
-Mỗi bar gồm `time` (Unix seconds nguyên), `open/high/low/close/volume`, giữ nguyên
-timestamp và giá nguồn. Không loại record 14:45 hoặc tự thêm phiên thiếu.
+Chart được đọc qua `GET /api/backtests/{run_id}/chart` và thuộc cùng kết quả
+đã lưu. Phiên bản 2 dựng từ JSON đầu vào đã ghim; phiên bản 1 đọc nến Parquet
+qua manifest lịch sử. Không tải snapshot ngoài hoặc chạy lại chiến lược khi
+xem chart. Trường, HTTP status và lỗi theo
+[đặc tả API](../../design/backtest-api-specification.md).
 
-Mỗi lần đọc kiểm tra hash raw, arrays/status/order/OHLCV và 6.174 records/range
-đã chốt. Thiếu hoặc không đọc được file trả 503; integrity lỗi trả 409, không lộ
-local path. Raw local vẫn Git ignored, path cấu hình qua VN30F1M_SNAPSHOT_PATH.
-Version chart dùng chính content hash; metadata có total/selected bars và mode
-market_snapshot. Extraction time chưa có evidence xác nhận nên giữ null; volume
-unit và timestamp semantics tiếp tục unknown/unconfirmed. Đây là bằng chứng
-chart snapshot, chưa phải acceptance provenance/run đầy đủ hoặc pickle migration.
+Dữ liệu giao dịch nằm trong trade_data, tham chiếu trong market_data khi rule
+cần. Các hạn chế về volume/provenance nguồn ở trên vẫn phải được lưu rõ;
+không suy ra đủ kỳ báo cáo hoặc dữ liệu thật đủ điều kiện chỉ từ tên snapshot.
+JSON mới theo [hợp đồng v1](data-contract-v1.md) và
+[hướng dẫn payload](../../design/strategy-payload-guide.md).

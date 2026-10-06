@@ -1,11 +1,9 @@
 # Cấu trúc repository
 
-Kho dữ liệu dùng [Parquet + JSON](../plans/technical-plan.md#6-persistence-parquet-json).
+Kho dữ liệu dùng [Parquet + JSON](../plans/technical-plan.md).
 Đầu vào và kết quả chạy được lưu trong kho file; dữ liệu nguồn giữ nguyên.
 Kho lưu phiên và trạng thái agent còn chờ thiết kế khi triển khai agent.
 
-
-Cập nhật: 15/09/2026.
 
 ## 1. Cây thư mục
 
@@ -23,32 +21,43 @@ back-testing/
 ├── notebooks/
 │   └── backtest-results.ipynb     # Trình bày result từ HTTP API
 ├── src/
-│   └── backtest_hpg/
+│   └── backtesting_api/
 │       ├── main.py                # Composition root của FastAPI
-│       ├── config.py              # Nhóm API/backtest/result/strategy settings
+│       ├── config.py              # Cấu hình API, phiên bản engine và kho file
 │       ├── api/
 │       │   ├── app.py             # Tạo FastAPI app
 │       │   ├── backtest_routes.py # HTTP endpoints
-│       │   └── backtest_schemas.py # Pydantic request model
+│       │   └── inline_schemas.py  # Kiểm tra yêu cầu JSON bằng Pydantic
 │       ├── application/
-│       │   ├── contracts.py       # RunConfig
-│       │   ├── ports.py           # RunRepository protocol
-│       │   ├── result_mapper.py   # Domain result → response/storage DTO
-│       │   └── run_backtest.py    # BacktestService use case
+│       │   ├── ports.py           # Giao diện kho lưu đầu vào và kết quả
+│       │   ├── inline_data.py     # Kiểm tra và ánh xạ dữ liệu JSON
+│       │   ├── inline_strategy.py # Thực thi chỉ báo và điều kiện chiến lược JSON
+│       │   ├── inline_results.py  # Chuyển kết quả engine thành JSON
+│       │   └── run_backtest.py    # Điều phối kiểm tra, chạy và lưu kết quả
 │       ├── domain/
-│       │   ├── market.py          # Bar, StrategyBar, DatasetSnapshot
+│       │   ├── market.py          # Bar, StrategyBar và thời điểm nến
 │       │   ├── trading.py         # Signal, order, fill và trade models
 │       │   ├── results.py         # Equity, summary và BacktestResult
 │       │   ├── engine.py          # Event loop và next-open execution
 │       │   ├── portfolio.py       # Cash, position và P/L ledger
-│       │   ├── indicators.py      # Indicator calculation
-│       │   └── strategies/
-│       │       ├── __init__.py    # Strategy registry
-│       │       └── canslim_breakout_v0.py
+│       │   ├── indicators.py      # Tính chỉ báo
+│       │   ├── expressions.py     # Kiểm tra và đánh giá cây biểu thức
+│       │   ├── execution.py       # Khớp lệnh
+│       │   └── contract_accounting.py # Tính tiền hợp đồng
 │       ├── infrastructure/
-│       │   └── file_repository.py # FileRunRepository adapter (JSON + Parquet)
+│       │   ├── file_repository.py # Kho JSON và đọc dataset lịch sử Parquet
+│       │   └── market_snapshot.py # Kiểm tra, chuẩn hóa OHLCV nguồn
 │       └── web/
-│           └── index.html
+│           ├── index.html
+│           ├── backtest-app.mjs
+│           ├── backtest-data.mjs
+│           ├── backtest-chart.mjs
+│           ├── theme.css
+│           ├── theme.mjs
+│           ├── preview.css
+│           ├── preview-theme.mjs
+│           ├── canslim-v1-example.json # Mẫu yêu cầu JSON
+│           └── vendor/           # Lightweight Charts và giấy phép
 └── tests/
     ├── fixtures/                  # JSON nhỏ, cố định và offline
     └── test_*.py
@@ -60,16 +69,18 @@ trong `application/run_backtest.py`.
 
 ## 2. Nhóm cấu hình
 
-`backtest_hpg/config.py` là nơi duy nhất khai báo các static settings của backend:
+`backtesting_api/config.py` khai báo cấu hình dùng chung của backend:
 
 | Nhóm                   | Nội dung                                                       |
 | ----------------------- | --------------------------------------------------------------- |
 | `API`                 | API title, version và backtest route prefix                    |
-| `BACKTEST`            | Engine version, symbol hỗ trợ và result label                |
-| `RESULT`              | Precision/rounding quantum                                      |
-| `CANSLIM_BREAKOUT_V0` | Strategy ID, indicator windows, threshold, exit và risk sizing |
+| `BACKTEST`            | Phiên bản engine |
+| `INTRADAY`            | Đường dẫn kho file, lấy từ `BACKTEST_STORE_PATH` hoặc `data/backtest-store` |
 
-Strategy settings là giá trị cố định theo [CANSLIM Rule](../strategies/canslim-rules.md), không phải tham số tự tối ưu.
+Chỉ báo, điều kiện chiến lược, cách tính tiền và kỳ báo cáo được cung cấp trong
+yêu cầu JSON, theo [hướng dẫn payload](strategy-payload-guide.md).
+`main.py` đọc `INLINE_POLICY_PATH` và `AUTO_FETCH_POLICY_PATH` để nối đường dẫn
+chính sách vào `BacktestService`.
 
 ## 3. Ownership và dependency
 
@@ -100,26 +111,28 @@ Domain không import từ `api`, `application`, `infrastructure` hoặc `web`.
 Khi đọc source của `POST /api/backtests`, đi theo thứ tự:
 
 ```text
-backtest_hpg.main:app
+backtesting_api.main:app
   -> api/backtest_routes.py
   -> application/run_backtest.py
-  -> domain/strategies/__init__.py
-  -> domain/strategies/<strategy_id>.py
+  -> application/inline_data.py
+  -> application/inline_strategy.py
   -> domain/engine.py
+  -> application/inline_results.py
   -> infrastructure/file_repository.py
 ```
 
 `main.py` là nơi duy nhất nối config, file repository, application service và
-FastAPI app. Strategy registry là mapping nhỏ từ `strategy_id` tới hàm chạy; không
-cần factory hoặc class hierarchy.
+FastAPI app. `BacktestService` kiểm tra đầu vào, gọi `run_inline_strategy()` và
+lưu kết quả qua giao diện `RunRepository`. Kho file ghim đầu vào cùng chính sách
+bằng mã băm; đọc chart không chạy lại chiến lược.
 
 ## 5. Mở rộng strategy và agent
 
-Thêm strategy mới bằng một module mới dưới `domain/strategies/`, rồi đăng ký trong
-`domain/strategies/__init__.py`. Strategy mới dùng cùng `domain/engine.py`; không tạo
-engine hoặc accounting riêng.
+Chiến lược được mô tả bằng chỉ báo và cây điều kiện trong JSON. Các yêu cầu
+dùng chung `inline_strategy.py` và `domain/engine.py`; không tạo engine hoặc
+sổ tiền riêng cho từng tên chiến lược.
 
-Khi bắt đầu Phase agent, production code dùng `src/backtest_hpg/strategy_agent/`:
+Khi bắt đầu Phase agent, production code dùng `src/backtesting_api/strategy_agent/`:
 
 ```text
 strategy_agent/
@@ -132,15 +145,12 @@ gọi application use case; agent không tính indicator, signal, fill hoặc P/
 Folder `.agents/` ở project root vẫn chỉ là helper/artifact local của coding agent,
 không phải production agent.
 
-### Frontend dự kiến cho đợt chart
+### Giao diện hiện tại
 
-Tách CSS/JavaScript đang inline thành `web/styles.css`, `web/app.js` và
-`web/chart.js`, giữ `web/index.html`. Vendor Lightweight Charts nằm `web/vendor/`;
-`web/package.json` chỉ khai báo ES module cho Node tests. Serve assets qua /static
-cùng FastAPI và khai báo package-data để Docker có đủ file.
-Cây đầy đủ, ownership và test files dự kiến nằm ở
-[plan chart mục 3.7](../plans/candlestick-ui-plan.md#37-cây-frontend-và-các-file-liên-quan-khi-build).
-Đây là cấu trúc sẽ tạo khi build, không phải các file đã tồn tại.
+`web/index.html` nạp các module `.mjs`; `backtest-app.mjs` điều phối giao diện,
+`backtest-data.mjs` ánh xạ kết quả và `backtest-chart.mjs` dựng biểu đồ.
+Lightweight Charts nằm trong `web/vendor/`. FastAPI phục vụ tài nguyên qua
+`/static`; `pyproject.toml` khai báo tài nguyên đóng gói để Docker có đủ file.
 
 ## 6. Cây local-only
 
@@ -171,7 +181,7 @@ Editable install qua `requirements.txt` nên không cần đặt `PYTHONPATH`:
 ```cmd
 python -m pip install -r requirements.txt
 python -m unittest discover -s tests -p "test_*.py" -v
-python -m uvicorn backtest_hpg.main:app --reload
+python -m uvicorn backtesting_api.main:app --reload
 ```
 
 ## 8. Cơ sở lựa chọn

@@ -11,6 +11,6 @@ Pinned standalone production ESM; no CDN request at runtime.
 
 The standalone asset includes fancy-canvas; bundled license comments are retained.
 The page displays the TradingView attribution link and chart attribution logo.
-This release is used for candles/volume and exact-price markers in the HPG run
+This release is used for candles/volume and exact-price markers in the backtest run
 chart (atPriceMiddle + fill_price). The separate VN30F1M market-snapshot page
 does not have executed fills or equity yet.

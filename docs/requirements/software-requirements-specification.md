@@ -1,100 +1,46 @@
-# Software Requirements Specification — Backtest HPG v0 (legacy baseline)
+# Đặc tả yêu cầu — Backtesting API
 
-## Phạm vi nâng cấp đã chốt 28/09/2026 — U01
+## 1. Mục tiêu và phạm vi
 
-API mới nhận dữ liệu và cây quy tắc JSON trực tiếp, không yêu cầu mẫu/ID phiên
-bản đã lưu. Giữ kết quả v0 trên HPG daily và VN30F1M 5 phút. V1 giao dịch một
-hợp đồng thực mỗi thời điểm, long/short, tối đa 5 hợp đồng, đóng một phần,
-không khớp một phần lệnh và không qua đêm. Chỉ báo entry dùng VNINDEX;
-TP1/TP2 cách giá khớp vào 6/12 điểm, không cần dữ liệu daily.
-Nhóm accounting cấu hình tiền, vốn ban đầu nằm ngoài. Báo cáo v1 giữ sáu tháng.
-Phạm vi và trạng thái từng tổ hợp tại [U01–U02](../plans/engine-upgrade-u01-u02.md).
-Các mốc và phạm vi cũ bên dưới chỉ mô tả v0, không thay quyết định v1 này.
+Hệ thống chạy chiến lược được cung cấp bằng JSON, từ dữ liệu → chỉ báo →
+điều kiện chiến lược → tín hiệu → khớp lệnh → tài khoản → kết quả. Độ đúng
+được đánh giá theo dữ liệu, quy tắc, thời điểm và số học, không theo lợi nhuận.
 
-> **Scope hiện hành 17/09/2026:** VN30F1M 5 phút thay dữ liệu HPG; giữ CANSLIM,
-> VN-Index cho R1 và accounting normalized như baseline theo xác nhận user.
-> **18/09:** strategy/execution chính dùng 5 phút; 1D chỉ hỗ trợ. Mapping indicator,
-> market/warm-up và session chờ C01–C06 trong [checklist](../../.agents/checklists/vn30f1m-backtest-checklist.md).
-> Ưu tiên source → API → notebook chạy được trước, chưa cần agent. Các mục daily
-> và loại trừ intraday bên dưới là baseline cũ, không giới hạn scope 5 phút mới.
-> Storage target 18/09 là [Parquet + JSON](../plans/technical-plan.md#6-persistence-parquet-json); metadata/session agent còn chờ chốt, source chưa migrate. Xem [CANSLIM Rule](../strategies/canslim-rules.md),
-> [Backtest Plan](../plans/backtest-plan-v0.md) và
-> [VN30F1M Data Contract](../data/vn30f1m/data-contract.md); nội dung dưới giữ để truy vết.
+Symbol hiện hành là VN30F1M, dữ liệu chính 5 phút; 1D là khả năng hỗ trợ theo
+cấu hình JSON. Chiến lược và cách tính tiền thuộc nội dung đầu vào được kiểm
+tra, không được suy ra từ tên symbol hoặc tên CANSLIM. Quy tắc v1 đã chốt tại
+[CANSLIM v1](../strategies/canslim-v1-rules.md); công thức nền normalized tại
+[CANSLIM nền](../strategies/canslim-rules.md). Không thay quy tắc khi dọn source.
 
-Cập nhật: 15/09/2026.
+API nhận JSON trực tiếp; giao diện web và notebook dùng cùng API. Đầu vào,
+chính sách và kết quả được lưu tại kho file. Hệ thống đọc lại kết quả lịch sử
+phiên bản 1 và kết quả JSON phiên bản 2 theo định dạng đã lưu.
 
-Điều chỉnh ưu tiên: chart nến + BUY/SELL marker từ executed fills được đưa vào đợt
-push Docker/notebook/chart trước Phase 2. Đây là phần P3.1/P3.3 làm sớm, chưa phải
-toàn bộ Phase 3. Acceptance tối thiểu và phần để sau nằm trong
-[Web UI Specification](../design/web-ui-specification.md); lịch/effort trong
-[kế hoạch chart](../plans/candlestick-ui-plan.md).
+## 2. Yêu cầu chức năng
 
-## 1. Mục tiêu
-
-**Điều chỉnh thiết kế 28/09/2026:** yêu cầu chạy mới nhận dữ liệu JSON và định
-nghĩa chiến lược trực tiếp, không bắt nhập ID/phiên bản dữ liệu hoặc chiến lược.
-Kiểm tra nội dung và khả năng thực thi, không yêu cầu đã lưu mẫu. Source ngày
-26/09 bên dưới chưa đáp ứng luồng này; xem [đặc tả API](../design/backtest-api-specification.md).
-
-**Bổ sung 26/09/2026:** API nhận bộ tham số riêng theo chiến lược, kiểm tra bằng
-mẫu của chiến lược và truyền vào lần chạy; công bố cấu trúc tham số qua
-`GET /api/strategies`. Bộ mặc định v0 giữ nguyên. Phạm vi triển khai và phần v1
-còn lại nằm trong [đặc tả API](../design/backtest-api-specification.md).
-Giới hạn không mở tham số của đợt R0–R2 bên dưới là phạm vi lịch sử.
-
-**Bổ sung R0–R2, 21/09/2026:** chuẩn bị core cho nhiều strategy trong cùng
-single-long/full-exit/normalized profile. Tách indicator, sizing và state riêng
-CANSLIM mà giữ response/numerical result baseline. Fixed-signal fixture không
-pivot/stop/VNINDEX phải chạy được qua core; chưa công bố strategy production thứ
-hai, chưa mở params/rule tùy biến qua API. R3–R5 và P2 ngoài lượt này. Kế hoạch
-và gate tại [Technical Plan](../plans/technical-plan.md#refactor-engine-r0r2--duyệt-21092026).
-
-Xây một backtest có thể tái lập và giải thích được cho
-`canslim_breakout_v0` trên HPG daily: từ dữ liệu, signal, simulated execution đến
-cash, position, P/L, equity, API và Web UI hiển thị kết quả.
-
-Correctness được đánh giá bằng việc khớp rule, timing, accounting và dữ liệu đầu
-vào; không đánh giá bằng việc strategy có lợi nhuận hay không.
-
-## 2. Phạm vi sản phẩm và Phase 1
-
-Deliverable cuối có Web UI. Trước khi xây chart nến ở Phase 3, UI tối thiểu cần
-hiển thị summary P/L, equity, fills, open position, lịch sử giao dịch và thông tin
-run/dataset/config.
-
-- HPG và VN-Index daily.
-- Long-only, tối đa một vị thế, không leverage hoặc pyramiding.
-- Entry/exit theo [canslim-rules.md](../strategies/canslim-rules.md).
-- Market execution mô phỏng ở Open phiên kế tiếp.
-- Fixed fractional risk sizing 2%.
-- Core xử lý một run trong memory; application persist dataset/version và toàn bộ
-  result history vào PostgreSQL để Web UI có thể mở lại sau khi restart.
-- Chưa yêu cầu authentication nhiều user, realtime hoặc UI đầy đủ.
-
-## 3. Functional requirements
-
-| ID     | Requirement                                                                                                             |
-| ------ | ----------------------------------------------------------------------------------------------------------------------- |
-| FR-001 | Hệ thống nhận dataset snapshot và run config có version/provenance.                                                |
-| FR-002 | Hệ thống từ chối input sai schema, thiếu required column/metadata, duplicate/out-of-order date hoặc invalid OHLC. |
-| FR-003 | Indicator chỉ sử dụng completed bars đến thời điểm decision và trả trạng thái warm-up rõ ràng.            |
-| FR-004 | Strategy tạo BUY/SELL signal và reason đúng CANSLIM rule; signal không tự trở thành fill.                       |
-| FR-005 | Pending signal chỉ được execution xử lý tại Open phiên kế tiếp.                                               |
-| FR-006 | BUY quantity được tính theo fixed fractional risk 2% và bị giới hạn bởi cash gồm entry fee.                   |
-| FR-007 | Hệ thống ghi rejected, pending và filled order riêng biệt.                                                         |
-| FR-008 | Portfolio ghi cash, position, fees, realized/unrealized P/L và equity tại mỗi Close.                                 |
-| FR-009 | Open position cuối kỳ được giữ và mark-to-market; final-session signal không tạo fill giả.                    |
-| FR-010 | Kết quả gồm metadata/config, signals, orders/fills, closed trades, open position, equity history và summary.       |
-| FR-011 | Cùng dataset version và config phải cho cùng kết quả.                                                             |
-| FR-012 | API tối thiểu chỉ được thêm sau khi domain core chạy đúng các fixture.                                       |
-| FR-013 | Web UI render result của backend; không tự tính signal, fill, P/L hoặc equity.                                    |
-| FR-014 | UI hiển thị summary P/L, equity history, fills, open position và trade history của cùng run ID.                  |
-| FR-015 | Candlestick chart và BUY/SELL marker thuộc Phase 3, được ưu tiên cho đợt push Docker/notebook/chart theo quyết định 15/09; mỗi marker phải đúng ngày/giá của fill thực tế. |
-| FR-016 | Mỗi run thành công phải persist metadata, signals, orders, fills, trades, open position và equity history.     |
-| FR-017 | Web UI/API có thể liệt kê và mở lại run đã lưu theo `run_id`; restart service không làm mất history.             |
-| FR-018 | Dataset dùng cho run phải tham chiếu immutable dataset version/content hash để kết quả có thể tái lập.          |
+| ID | Yêu cầu |
+| --- | --- |
+| FR-001 | Nhận dữ liệu, chiến lược, execution, accounting, vốn và kỳ báo cáo bằng JSON theo đặc tả API. |
+| FR-002 | Từ chối schema, kiểu, OHLC, thời gian, thứ tự nến và tham chiếu sai; không tự sửa dữ liệu. |
+| FR-003 | Chỉ báo chỉ dùng dữ liệu đã khả dụng; thiếu lịch sử phải ghi trạng thái chưa đánh giá được. |
+| FR-004 | Đánh giá cây điều kiện và tạo tín hiệu/reason; tín hiệu không tự trở thành giao dịch. |
+| FR-005 | Tín hiệu sau Close chỉ được khớp tại Open hợp lệ kế tiếp theo cấu hình; stop/target trong nến theo quy tắc đã chốt. |
+| FR-006 | Tính quantity tại lúc thực thi theo sizing và accounting trong JSON; lệnh không đủ điều kiện phải bị từ chối. |
+| FR-007 | Ghi riêng tín hiệu, order, trạng thái bị từ chối/chưa khớp và fill thực tế. |
+| FR-008 | Ghi cash, vị thế, phí, lãi/lỗ đã chốt/chưa chốt, equity và ký quỹ khi áp dụng. |
+| FR-009 | Xử lý cuối kỳ theo execution/exit đã khai báo; không tạo giá hoặc giao dịch giả để đóng vị thế. |
+| FR-010 | Kết quả có metadata, signals, orders, fills, trades, open_position, equity_history, summary và evaluations. |
+| FR-011 | Cùng đầu vào và chính sách cho cùng kết quả nghiệp vụ; UUID không thuộc phép so số học. |
+| FR-012 | Kiểm tra JSON bằng cùng quy tắc dữ liệu và khả năng thực thi trước khi chạy. |
+| FR-013 | Giao diện chỉ trình bày kết quả máy chủ, không tính lại quy tắc hoặc tiền. |
+| FR-014 | Summary, bảng, equity và chart phải thuộc cùng run_id và nguồn dữ liệu. |
+| FR-015 | Nến, khối lượng và marker dùng dữ liệu chart của run; marker theo fill, không theo signal. |
+| FR-016 | Chỉ công bố lượt chạy thành công khi kết quả đầy đủ đã được lưu. |
+| FR-017 | Liệt kê và mở lại run theo run_id sau khi khởi động lại ứng dụng. |
+| FR-018 | Ghim đầu vào/chính sách bằng hash và kiểm tra tính toàn vẹn khi đọc lại. |
 
 ## Các trường hợp ngoại lệ và tiêu chí chấp nhận
+
 
 Bảng này gom các tình huống người dùng hoặc hệ thống có thể gặp ở cấp yêu cầu.
 Mã `SRS-EX-*` được dùng để nối sang test case; rule chi tiết thuộc tài liệu
@@ -107,79 +53,42 @@ strategy, còn status HTTP thuộc đặc tả API.
 | `SRS-EX-03` | Signal ở Close `t` không có Open thực thi kế tiếp hoặc là signal cuối kỳ | Giữ pending/unfilled hoặc ghi trạng thái cuối kỳ; không tạo fill giả | State-machine test xác nhận không có fill ngoài dữ liệu |
 | `SRS-EX-04` | Quantity dưới 1, không đủ cash hoặc lệnh bị từ chối | Giữ signal, ghi rejected order/reason, không thay đổi vị thế | Accounting/execution test đối chiếu signal, order và position |
 | `SRS-EX-05` | Core invariant, persistence hoặc ghi kết quả thất bại | Run ở trạng thái failed với lỗi có cấu trúc; không công bố partial result là thành công | Atomicity test xác nhận không đọc được run như succeeded |
-| `SRS-EX-06` | Service restart hoặc result/input không còn hợp lệ khi đọc lại | Run thành công hợp lệ phải đọc lại được; artifact sai hash/schema phải bị từ chối | Reload/integrity test đối chiếu cùng business result hoặc lỗi rõ ràng |
-| `SRS-EX-07` | Có dữ liệu sau thời điểm quyết định hoặc chạy lại cùng input/config | Không dùng dữ liệu tương lai; kết quả đến `t` phải giữ nguyên và chạy lại phải deterministic | Causality và determinism test so sánh event đến cutoff |
+| `SRS-EX-06` | Service restart hoặc result/input không còn hợp lệ khi đọc lại | Run thành công hợp lệ phải đọc lại được; tệp sai hash/schema phải bị từ chối | Reload/integrity test đối chiếu cùng kết quả nghiệp vụ hoặc lỗi rõ ràng |
+| `SRS-EX-07` | Có dữ liệu sau thời điểm quyết định hoặc chạy lại cùng input/config | Không dùng dữ liệu tương lai; kết quả đến `t` phải giữ nguyên và chạy lại phải cho cùng kết quả | Causality và determinism test so sánh event đến cutoff |
 | `SRS-EX-08` | UI/API nhận run no-trade, rejected, loading hoặc error | Phân biệt đúng trạng thái; không hiển thị lỗi/partial result như kết quả giao dịch thành công | Acceptance UI/API kiểm tra mapping theo cùng `run_id` |
 
-## 4. Non-functional requirements
+## 3. Yêu cầu chất lượng
 
-- **Causality:** kết quả đến `t` không đổi nếu bỏ toàn bộ dữ liệu sau `t`.
-- **Auditability:** mỗi signal/order/fill có time, reason, status và dữ liệu tham
-  chiếu đủ để đối chiếu.
-- **Determinism:** không đọc live API, current time hoặc random state trong core.
-- **Separation of concerns:** giữ riêng data, indicator, strategy, signal,
-  execution, portfolio và metrics.
-- **Fail explicitly:** missing/invalid data không được coi là strategy pass.
-- **Reproducibility:** lưu dataset hash/version, strategy parameters, fee/slippage
-  và engine version trong result.
-- **Presentation consistency:** mọi component Web UI phải dùng cùng một response và
-  `run_id`; frontend không được tính lại số liệu nghiệp vụ.
-- **Durability:** run đã báo thành công phải còn truy cập được sau process restart.
-- **Atomicity:** không được để một run thành công chỉ lưu một phần signals/fills/
-  trades/equity; failure phải có status/error riêng.
-- **Storage isolation:** domain core không import PostgreSQL driver hoặc ORM.
+- Không sử dụng dữ liệu tương lai; thay dữ liệu sau thời điểm t không làm đổi
+  kết quả trước t. Dữ liệu đầy đủ và dữ liệu cắt tại t phải khớp phần chung.
+- Giữ riêng các lớp dữ liệu, chỉ báo, chiến lược, tín hiệu, thực thi, tài khoản
+  và kết quả. Domain không phụ thuộc HTTP hoặc kho lưu trữ.
+- Tính tiền bằng Decimal; số thập phân được giữ qua lưu/đọc JSON.
+- Lưu engine_version, input_hash, policy_hash, accounting và thông tin nguồn.
+- Lượt chạy failed/running không xuất hiện trong danh sách thành công.
+- Chạy một tiến trình ghi kho file; chưa yêu cầu xử lý ghi phân tán.
 
-## 5. Acceptance Phase 1
+## 4. Nghiệm thu tích hợp
 
-- Boundary tests cho SMA/pivot/volume/depth/buy-zone/stop/target pass.
-- ACC-01–03 khớp cash, fees, P/L và equity.
-- Signal dùng Close `t` không fill trước Open phiên kế tiếp.
-- Insufficient cash, quantity dưới 1, missing next bar và final signal không tạo
-  fill giả.
-- Full-vs-truncated causality test pass.
-- Cùng fixture/config chạy lặp lại cho output giống nhau.
-- Một application call chạy core, persist thành công và trả đủ response contract
-  mà không cần Web UI tham gia tính toán.
-- Run thành công được reload từ PostgreSQL và cho cùng business result DTO.
+- Kiểm tra timing, sizing, accounting, dữ liệu thiếu, tham chiếu và cây điều kiện.
+- Chạy cùng fixture/JSON cho cùng summary, signals, orders, fills, trades,
+  equity, evaluations và hash, sau khi tách UUID.
+- Kiểm tra, chạy, liệt kê, đọc kết quả/input/chart qua API; đọc lại sau restart.
+- Đọc được lịch sử phiên bản 1 còn giữ mà không chạy lại chiến lược.
+- Tài nguyên web được đóng gói, các module .mjs có MIME phù hợp trình duyệt.
+- Kiểm thử tổng hợp không thay nghiệm thu dữ liệu thật toàn kỳ.
 
-### Acceptance Web UI trước chart nến
+## 5. Ngoài phạm vi hiện tại
 
-- Hiển thị initial cash, final equity, realized P/L, unrealized P/L và total return
-  từ backend.
-- Equity history, fills và trade history khớp response của cùng `run_id`.
-- Open position, no-trade, rejected-order, loading và error state được phân biệt rõ.
-- Chưa yêu cầu candlestick chart ở bước này.
+Live trading, dữ liệu thời gian thực, nhiều vị thế đồng thời, mô hình thanh khoản,
+khớp một phần lệnh, xác thực nhiều người dùng và agent/MCP chưa thuộc hệ thống
+hiện tại. Đóng một phần vị thế theo rule là khả năng riêng với khớp một phần lệnh.
+Không tối ưu ngưỡng hoặc bổ sung chiến lược trong đợt dọn source.
 
-### Acceptance Web UI Phase 3
+## 6. Tài liệu sở hữu
 
-- Render daily candlestick và volume của dataset trong run.
-- BUY/SELL marker dùng `fill_time` và `fill_price`, không dùng `signal_time` làm vị
-  trí giao dịch đã khớp.
-- Chart, summary và trade table khớp cùng backend response.
-
-## 6. Ngoài phạm vi Phase 1
-
-- C/A/L/I đầy đủ khi chưa có data/rule tương ứng.
-- Multi-symbol portfolio, short selling, leverage và nhiều vị thế đồng thời.
-- Intraday execution, stop order trong phiên, partial fill và liquidity model.
-- Thuế, settlement T+, board lot và price-limit nếu chưa có specification.
-- Optimization để chọn threshold theo kết quả HPG.
-- Production authentication và distributed/background job infrastructure.
-- Realtime price, live trading và portfolio dashboard nhiều user.
-
-## 7. Quyết định dữ liệu/config và open requirements
-
-Đã chốt cho MVP:
-
-- Working dataset là snapshot VNDIRECT dchart daily: tải `[2019-01-01,
-  2024-01-01)`, dùng năm 2019 làm warm-up và báo cáo `[2020-01-01, 2023-12-31]`.
-- Timestamp Unix 00:00 UTC được map thành `trading_date`.
-- Config báo cáo: `initial_cash = 10000000`, `fee_rate = 0.001`,
-  `slippage_rate = 0.002`.
-
-Còn mở:
-
-- Đơn vị giá chính thức, volume adjustment và corporate-action treatment của
-  VNDIRECT; trong lúc chưa xác nhận, output phải mang nhãn normalized simulation.
-- API/ORM/migration framework và phiên bản dependency.
-- Retention, backup và artifact-storage production policy.
+- [Đặc tả API](../design/backtest-api-specification.md): trường, endpoint và lỗi HTTP.
+- [Thiết kế hệ thống](../design/system-design.md): lớp xử lý, trạng thái và kho file.
+- [Hợp đồng dữ liệu](../data/vn30f1m/data-contract-v1.md): thời gian, lịch và map hợp đồng.
+- [Đặc tả giao diện](../design/web-ui-specification.md): trình bày dữ liệu của một run.
+- [Checklist tích hợp](../plans/legacy-cleanup-checklist.md): công việc và bằng chứng nghiệm thu.

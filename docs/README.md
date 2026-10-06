@@ -1,45 +1,35 @@
-# Project documentation
+# Tài liệu project
 
-Tài liệu được phân theo loại nội dung; các tài liệu gắn với một dataset nằm
-trong `data/<dataset>/`.
+Tài liệu theo loại nội dung; hợp đồng dữ liệu phân theo dataset. Tài liệu yêu
+cầu/quy tắc sở hữu behavior; kế hoạch và checklist ghi công việc/bằng chứng.
 
-## Requirements
+## Yêu cầu và thiết kế
 
-- [Software Requirements Specification](requirements/software-requirements-specification.md)
+- [Đặc tả yêu cầu](requirements/software-requirements-specification.md)
+- [Thiết kế hệ thống](design/system-design.md)
+- [Đặc tả API JSON](design/backtest-api-specification.md)
+- [Hướng dẫn payload chiến lược](design/strategy-payload-guide.md)
+- [Thực thi và tính tiền hợp đồng v1](design/canslim-v1-execution-accounting.md)
+- [Cấu trúc project](design/project-structure.md)
+- [Đặc tả giao diện](design/web-ui-specification.md)
+- [Style giao diện](design/DESIGN.md)
 
-## Design
+## Quy tắc và dữ liệu
 
-- [Đặc tả API backtest — tham số v0/v1](design/backtest-api-specification.md)
-- [System Design](design/system-design.md)
-- [CANSLIM v1 execution/accounting — đặc tả một phần](design/canslim-v1-execution-accounting.md)
-- [Database Schema](design/database-schema.md)
-- [Project Structure](design/project-structure.md)
-- [Web UI Specification](design/web-ui-specification.md)
+- [CANSLIM v1](strategies/canslim-v1-rules.md)
+- [Công thức nền CANSLIM normalized](strategies/canslim-rules.md)
+- [Hợp đồng dữ liệu VN30F1M](data/vn30f1m/data-contract.md)
+- [Hợp đồng dữ liệu v1](data/vn30f1m/data-contract-v1.md)
+- [Map chuyển hợp đồng tham khảo](data/vn30f1m/vn30f1m-rollover-map.md)
+- [Hợp đồng dữ liệu HPG lịch sử](data/hpg/data-contract.md)
 
-## Strategy
+## Kiểm thử và thực hiện
 
-- [CANSLIM Rules](strategies/canslim-rules.md)
-- [CANSLIM v1 — rule đã chốt và mục còn trống](strategies/canslim-v1-rules.md)
-
-## Data contracts
-
-- [HPG data contract](data/hpg/data-contract.md)
-- [VN30F1M data contract](data/vn30f1m/data-contract.md)
-- [VN30 futures data contract v1](data/vn30f1m/data-contract-v1.md)
-
-## Testing
-
-- [HPG accounting test cases](testing/hpg/accounting-test-cases.md)
-- [CANSLIM v1 test cases — khung S10 chưa điền](testing/vn30f1m/canslim-v1-test-cases.md)
-
-## Plans and status
-
-- [Chạy backtest VN30F1M 5 phút qua API/notebook](plans/vn30f1m-backtest-runbook.md)
-
-- [VN30F1M 5 phút: đầu việc và field xác nhận](../.agents/checklists/vn30f1m-backtest-checklist.md)
-
-- [Backtest Plan v0](plans/backtest-plan-v0.md)
-- [Technical Plan](plans/technical-plan.md)
-- [Candlestick UI Plan](plans/candlestick-ui-plan.md)
-- [Progress](plans/progress.md)
-- [Agent Research Plan](plans/agent-research-plan.md)
+- [Ví dụ số học normalized](testing/hpg/accounting-test-cases.md)
+- [Các trường hợp kiểm tra CANSLIM v1](testing/vn30f1m/canslim-v1-test-cases.md)
+- [Chạy API và notebook](plans/vn30f1m-backtest-runbook.md)
+- [Kế hoạch backtest](plans/backtest-plan-v0.md)
+- [Kế hoạch kỹ thuật](plans/technical-plan.md)
+- [Kiểm chứng chart và giao diện](plans/candlestick-ui-plan.md)
+- [Checklist dọn luồng và đổi package](plans/legacy-cleanup-checklist.md)
+- [Kế hoạch agent](plans/agent-research-plan.md)

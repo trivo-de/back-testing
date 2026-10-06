@@ -2,7 +2,6 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException
 from ..application.run_backtest import BacktestService
 from ..config import API
-from ..domain.strategies import describe_strategy, strategies
 from .inline_schemas import InlineRunRequest
 
 def create_backtest_router(service: BacktestService) -> APIRouter:
@@ -77,21 +76,3 @@ def create_backtest_router(service: BacktestService) -> APIRouter:
 
     return router
 
-
-def create_strategy_router() -> APIRouter:
-    router = APIRouter(prefix="/api/strategies", tags=["strategies"])
-
-    @router.get("")
-    def list_strategies():
-        return [{"strategy_id": key, "strategy_version": value.version,
-                 "required_capabilities": sorted(value.required_capabilities)}
-                for key, value in strategies.items()]
-
-    @router.get("/{strategy_id}")
-    def get_strategy_schema(strategy_id: str, version: str | None = None):
-        try:
-            return describe_strategy(strategy_id, version)
-        except ValueError as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
-
-    return router

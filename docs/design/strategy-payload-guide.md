@@ -1,7 +1,7 @@
 # Hướng dẫn điền cây công thức và payload chiến lược
 
 Cập nhật: 28/09/2026. Đọc cùng [đặc tả API](backtest-api-specification.md)
-và [payload minh họa](../../data/payload.json).
+và [payload minh họa](../../src/backtesting_api/web/canslim-v1-example.json).
 U03 đã triển khai kiểm tra cấu trúc tại `POST /api/backtests/validate`.
 U05/U06 đã nối payload mới vào tiếp nhận dữ liệu/lưu kết quả. Bộ thực thi
 strategy JSON đã nối ở U08 (29/09); trạng thái `STRUCTURE_VALID` không có nghĩa
@@ -167,10 +167,8 @@ bộ keyword này; không tự hiểu chúng như phép toán đã hỗ trợ.
 
 ## 4. Params ngoài cùng của payload
 
-**Bổ sung 02/10/2026:** `auto_fetch_data` là boolean, mặc định `false`.
-Khi `true`, phải bỏ `trade_data`/`market_data`; máy chủ tải VN30F1M và VNINDEX
-5 phút từ endpoint cố định. Các yêu cầu nhập thủ công dưới đây vẫn áp dụng khi
-tắt. Xem [luồng tự tải dữ liệu](auto-fetch-data.md).
+Dữ liệu phải nằm trong JSON. Trường ngoài schema như `auto_fetch_data`
+bị từ chối; không có bước tự lấy dữ liệu trong API công khai hiện tại.
 
 **Params bắt buộc:**
 

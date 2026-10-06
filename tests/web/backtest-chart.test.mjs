@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {backtestData, relatedRows} from '../../src/backtest_hpg/web/backtest-data.mjs';
+import {backtestData, relatedRows} from '../../src/backtesting_api/web/backtest-data.mjs';
 
 test('contract partial exits retain candle time, Close equity and optional market', () => {
     const time = 1774404300;

@@ -11,7 +11,7 @@ test('theme toggle persists and storage changes synchronize the page', async () 
     globalThis.matchMedia = () => ({matches: true});
     globalThis.localStorage = {value: null, getItem() { return this.value; }, setItem(key, value) { this.value = value; }};
 
-    await import(`../../src/backtest_hpg/web/theme.mjs?test=${Date.now()}`);
+    await import(`../../src/backtesting_api/web/theme.mjs?test=${Date.now()}`);
     assert.equal(document.documentElement.dataset.theme, 'dark');
     assert.equal(button.textContent, '☾');
     button.dispatchEvent(new Event('click'));
@@ -24,7 +24,7 @@ test('theme toggle persists and storage changes synchronize the page', async () 
     window.dispatchEvent(event);
     assert.equal(document.documentElement.dataset.theme, 'dark');
 
-    await import(`../../src/backtest_hpg/web/theme.mjs?duplicate=${Date.now()}`);
+    await import(`../../src/backtesting_api/web/theme.mjs?duplicate=${Date.now()}`);
     button.dispatchEvent(new Event('click'));
     assert.equal(document.documentElement.dataset.theme, 'dark');
 });
