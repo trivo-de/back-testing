@@ -1,8 +1,27 @@
 from uuid import UUID
-from fastapi import APIRouter, HTTPException
+from decimal import Decimal, InvalidOperation
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 from ..application.run_backtest import BacktestService
 from ..config import API
 from .inline_schemas import InlineRunRequest
+
+
+class HistoryItem(BaseModel):
+    run_id: UUID
+    symbol: str | None = None
+    resolution: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    money_unit: str | None = None
+    total_return: str
+    final_equity: str
+
+
+class HistoryPage(BaseModel):
+    items: list[HistoryItem]
+    next_cursor: UUID | None = None
+
 
 def create_backtest_router(service: BacktestService) -> APIRouter:
 
@@ -40,6 +59,22 @@ def create_backtest_router(service: BacktestService) -> APIRouter:
             return service.list()
         except (ValueError, OSError, KeyError, TypeError):
             raise HTTPException(status_code=409, detail={"code": "RESULT_STORAGE_INVALID"}) from None
+
+    @router.get('/history', response_model=HistoryPage)
+    def history(min_total_return_pct: Decimal | None = Query(None, allow_inf_nan=False),
+                max_total_return_pct: Decimal | None = Query(None, allow_inf_nan=False),
+                min_equity: Decimal | None = Query(None, allow_inf_nan=False),
+                max_equity: Decimal | None = Query(None, allow_inf_nan=False),
+                limit: int = Query(20, ge=1, le=100), after: UUID | None = None):
+        for low, high in ((min_total_return_pct, max_total_return_pct), (min_equity, max_equity)):
+            if low is not None and high is not None and low > high:
+                raise HTTPException(422, detail='Giá trị từ phải nhỏ hơn hoặc bằng giá trị đến.')
+        try:
+            return service.history(min_total_return=min_total_return_pct / 100 if min_total_return_pct is not None else None,
+                                   max_total_return=max_total_return_pct / 100 if max_total_return_pct is not None else None,
+                                   min_equity=min_equity, max_equity=max_equity, limit=limit, after=after)
+        except (ValueError, InvalidOperation, OSError, KeyError, TypeError):
+            raise HTTPException(409, detail={'code': 'RESULT_STORAGE_INVALID'}) from None
 
     @router.get("/{run_id}")
     def get_backtest(run_id: UUID):

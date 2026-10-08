@@ -1,6 +1,6 @@
 # Application layer ports for managing backtest runs.
 from __future__ import annotations
-from typing import Any, Protocol, Sequence
+from typing import Any, Iterator, Protocol, Sequence
 from uuid import UUID
 
 class RunRepository(Protocol):
@@ -32,5 +32,9 @@ class RunRepository(Protocol):
 
     def list_runs(self) -> Sequence[dict[str, Any]]:
         """List successful runs in repository-defined order."""
+        ...
+
+    def iter_run_summaries(self, after: UUID | None = None) -> Iterator[dict[str, Any]]:
+        """Read compact summaries one run at a time, after the pagination cursor."""
         ...
 

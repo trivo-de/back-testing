@@ -10,6 +10,9 @@ Tài liệu dành cho người chuẩn bị request, tích hợp API và kiểm 
 Luồng sử dụng: chuẩn bị dữ liệu → kiểm tra request → chạy → đọc kết quả.
 Hai endpoint POST dùng cùng cấu trúc request.
 
+Chuỗi gọi hàm từ HTTP đến engine và kho file, cùng thứ tự xử lý từng nến,
+được mô tả bằng [sơ đồ tuần tự trong thiết kế hệ thống](system-design.md#11-một-yêu-cầu-post-apibacktests-đi-qua-hàm-nào).
+
 - Chỉ dùng dữ liệu đã khả dụng tại thời điểm quyết định.
 - Tín hiệu sau Close chỉ khớp tại Open kế tiếp theo quy tắc thực thi.
 - Tín hiệu, lệnh, lần khớp và giao dịch đã đóng là các đối tượng khác nhau.
@@ -60,15 +63,46 @@ Lưu ý:
 
 ### 2.3. Đọc kết quả đã lưu
 
-| Endpoint                              | Nội dung khi thành công                                          |
-| ------------------------------------- | ------------------------------------------------------------------- |
-| `GET /api/backtests`                | Danh sách các lần chạy thành công theo thứ tự kho lưu trữ |
-| `GET /api/backtests/{run_id}`       | Kết quả một lần chạy                                           |
-| `GET /api/backtests/{run_id}/input` | Đầu vào đầy đủ và thông tin chính sách đã lưu         |
-| `GET /api/backtests/{run_id}/chart` | Dữ liệu biểu đồ của lần chạy                                |
+| Endpoint                              | Nội dung khi thành công                                                                    |
+| ------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `GET /api/backtests`                | Danh sách các lần chạy thành công theo thứ tự kho lưu trữ                           |
+| `GET /api/backtests/history`        | Tóm tắt lịch sử có bộ lọc và phân trang; không trả bảng kết quả hoặc chỉ báo |
+| `GET /api/backtests/{run_id}`       | Kết quả một lần chạy                                                                     |
+| `GET /api/backtests/{run_id}/input` | Đầu vào đầy đủ và thông tin chính sách đã lưu                                   |
+| `GET /api/backtests/{run_id}/chart` | Dữ liệu biểu đồ của lần chạy                                                          |
 
 `run_id` là UUID. Các endpoint đọc không chạy lại chiến lược. Lần chạy thất
 bại hoặc đang chạy không có trong danh sách thành công: đọc chi tiết trả 404.
+
+### 2.4. Lọc lịch sử để hiển thị trên web
+
+`GET /api/backtests/history` lọc tại máy chủ và trả một trang tóm tắt. Các
+điều kiện kết hợp bằng AND; khoảng từ/đến tính cả hai đầu. Không truyền giới
+hạn nào thì lấy các lần chạy thành công theo thứ tự kho lưu trữ, không phải
+thứ tự thời gian tạo vì UUID không mang ý nghĩa thời gian trong kho này.
+
+| Tham số query           | Bắt buộc | Ý nghĩa                                                                       |
+| ------------------------ | ---------- | ------------------------------------------------------------------------------- |
+| `min_total_return_pct` | Không     | Tỷ suất sinh lời tối thiểu theo %, nhập`10` nghĩa là 10%              |
+| `max_total_return_pct` | Không     | Tỷ suất sinh lời tối đa theo %                                             |
+| `min_equity`           | Không     | Vốn cuối kỳ tối thiểu, so với`summary.final_equity`                     |
+| `max_equity`           | Không     | Vốn cuối kỳ tối đa, giữ nguyên đơn vị của kết quả                  |
+| `limit`                | Không     | Số tóm tắt tối đa; mặc định 20, hợp lệ từ 1 đến 100                |
+| `after`                | Không     | UUID trong`next_cursor` của trang trước; giữ các bộ lọc khi sang trang |
+
+Ví dụ: `/api/backtests/history?min_total_return_pct=0&max_total_return_pct=20&limit=20`.
+Thành công trả `200` với `items` và `next_cursor`. Mỗi item chỉ có `run_id`,
+`symbol`, `resolution`, `start_date`, `end_date`, `money_unit`, `total_return`,
+`final_equity`; các trường mô tả có thể là null với lịch sử cũ.
+Hai giá trị kết quả được trả dưới dạng chuỗi số; `total_return` vẫn là tỷ lệ
+gốc, ví dụ `"0.1"` nghĩa là 10%. `money_unit` phân biệt VND với đơn vị giá,
+không tự quy đổi giữa các mô hình. `next_cursor: null` nghĩa là hết kết quả.
+
+Giá trị không phải số hữu hạn, giới hạn từ lớn hơn đến, limit ngoài khoảng
+hoặc after không phải UUID trả `422`. Lỗi đọc/kiểm tra kho trả `409` với
+`detail.code: RESULT_STORAGE_INVALID`. Endpoint vẫn kiểm tra tính toàn vẹn
+của từng kết quả đã đọc. API danh sách đầy đủ hiện có vẫn giữ hợp đồng cũ;
+web dùng endpoint lịch sử này để tránh tải toàn bộ bảng kết quả.
 
 ## 3. Cấu trúc request
 
@@ -99,15 +133,29 @@ Chuỗi OHLCV của mã giao dịch. Các trường cũng áp dụng cho market_
 | `price_unit`     | string/null | Không     | null                   | Nhãn đơn vị, không tự nhân/chia giá                                        |
 | `contract_map`   | array       | Không     | `[]`                 | Bảng mã và ngày đáo hạn khi dữ liệu thuộc dạng chứng khoán phái sinh |
 
-**Mỗi phần tử bars:**
+**Cấu trúc dữ liệu trong mỗi bar nến**
 
-| Trường                               | Kiểu                       | Bắt buộc            | Ý nghĩa/ràng buộc                                             |
-| -------------------------------------- | --------------------------- | --------------------- | ----------------------------------------------------------------- |
-| `time`                               | integer                     | Có                   | Unix tại lúc mở nến, theo timestamp_unit                      |
-| `open`, `high`, `low`, `close` | số/chuỗi thập phân      | Có                   | Mỗi giá hữu hạn, lớn hơn 0                                  |
-| `volume`                             | số/chuỗi thập phân/null | Khi được sử dụng | Không âm; bắt buộc cho MFI hoặc tham chiếu volume           |
-| `close_time`                         | integer/null                | Với nến ngày       | Thời điểm đóng; nến 5 phút bỏ thì bằng time + 300 giây |
-| `available_at`                       | integer/null                | Với nến ngày       | Thời điểm khả dụng; nến 5 phút bỏ thì bằng close_time   |
+Kiểu 1: Mảng các JSON Object
+
+| Trường                               | Kiểu                       | Bắt buộc            | Ý nghĩa/ràng buộc                                                            |
+| -------------------------------------- | --------------------------- | --------------------- | -------------------------------------------------------------------------------- |
+| `time`                               | số nguyên                 | Có                   | Unix tại lúc mở nến, theo timestamp_unit                                     |
+| `open`, `high`, `low`, `close` | số/chuỗi thập phân      | Có                   | Mỗi giá hữu hạn, lớn hơn 0                                                 |
+| `volume`                             | số/chuỗi thập phân/null | Khi được sử dụng | Không âm; bắt buộc cho MFI hoặc tham chiếu volume                          |
+| `close_time`                         | integer/null                | Với nến ngày       | Thời điểm đóng                                                              |
+| `available_at`                       | integer/null                | Với nến ngày       | Thời điểm khả dụng; tương đương giá trị close_time với nến 5 phút |
+
+Kiểu 2: JSON Object chứa các mảng (cấu trúc dữ liệu gốc khi lấy từ API)
+
+| Trường | Kiểu           | Bắt buộc | Ý nghĩa/ràng buộc                                              |
+| -------- | --------------- | ---------- | ------------------------------------------------------------------ |
+| `t`    | số nguyên     | Có        | Unix tại lúc mở nến, theo timestamp_unit                       |
+| `c`    | số thập phân | Có        | Close                                                              |
+| `o`    | số thập phân | Có        | Open                                                               |
+| `h`    | số thập phân | Có        | High                                                               |
+| `l`    | số thập phân | Có        | Low                                                                |
+| `v`    | số nguyên     | Có        | Volume                                                             |
+| `s`    | chuỗi          | Có        | Trạng thái API khi lấy data từ VNDIRECT. Chứa cố định "ok" |
 
 Dữ liệu OHLC được xem là hợp lệ khi thỏa các điều kiện sau:
 
@@ -118,17 +166,13 @@ Dữ liệu OHLC được xem là hợp lệ khi thỏa các điều kiện sau:
 
 **Mỗi phần tử contract_map:**
 
-| Trường | Kiểu | Bắt buộc | Ý nghĩa |
-| --- | --- | --- | --- |
-| `contract_code` | string | Có | Mã xác định hợp đồng tương lai theo kỳ đáo hạn. Ví dụ `VN30F2603` là hợp đồng tương lai VN30 đáo hạn tháng 03/2026. |
-| `expiry_date` | string ngày | Có | Ngày đáo hạn của hợp đồng, tức ngày giao dịch cuối cùng của hợp đồng đó. Định dạng `YYYY-MM-DD`. |
-| `expiry_unix` | integer | Có | Mốc thời gian Unix tính bằng giây biểu diễn ngày đáo hạn, giúp hệ thống đối chiếu với thời gian của các nến để xác định hợp đồng tương ứng. |
+| Trường          | Kiểu        | Bắt buộc | Ý nghĩa                                                                                                                                                                    |
+| ----------------- | ------------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `contract_code` | string       | Có        | Mã xác định hợp đồng tương lai theo kỳ đáo hạn. Ví dụ`VN30F2603` là hợp đồng tương lai VN30 đáo hạn tháng 03/2026.                                |
+| `expiry_date`   | string ngày | Có        | Ngày đáo hạn của hợp đồng, tức ngày giao dịch cuối cùng của hợp đồng đó. Định dạng`YYYY-MM-DD`.                                                      |
+| `expiry_unix`   | integer      | Có        | Mốc thời gian Unix tính bằng giây biểu diễn ngày đáo hạn, giúp hệ thống đối chiếu với thời gian của các nến để xác định hợp đồng tương ứng. |
 
 Khi có bảng, API đối chiếu lịch phiên máy chủ, nến thiếu lưu vào field `data_gaps`. Chi tiết theo hợp đồng dữ liệu v1.
-
-Ngoài bars dạng mảng nến, API nhận mảng cột `t/o/h/l/c/v` tại nhóm dữ liệu,
-trong `raw`, hoặc trong `bars` dạng object. Các mảng phải không rỗng, bằng độ
-dài, thời gian tăng dần; `s` nếu có phải là `"ok"`.  
 
 Ví dụ **riêng nhóm dữ liệu**:
 
@@ -136,10 +180,10 @@ Ví dụ **riêng nhóm dữ liệu**:
 {"trade_data":{"resolution":"5","t":[1773800100],"o":[1300],"h":[1302],"l":[1299],"c":[1301],"v":[1000]}}
 ```
 
-### 3.2. market_data  
+### 3.2. market_data
 
-`market_data` chứa dữ liệu giá và khối lượng của chỉ số thị trường, chẳng hạn VNINDEX, để chiến lược đánh giá xu hướng thị trường chung trước khi mở vị thế trên mã giao dịch trong `trade_data`.  
-`market_data` và `trade_data` có thể được nhận vào với khoảng thời gian và số nến khác nhau, do `market_data` phụ thuộc vào các chỉ báo mà yêu cầu về dữ liệu. Do đó, `market_data` được khuyến nghị  phải được đảm bảo để có đủ dữ liệu khởi tạo chỉ báo.
+`market_data` chứa dữ liệu giá và khối lượng của chỉ số thị trường, chẳng hạn VNINDEX, để chiến lược đánh giá xu hướng thị trường chung trước khi mở vị thế trên mã giao dịch trong `trade_data`.
+`market_data` và `trade_data` có thể được nhận vào với khoảng thời gian và số nến khác nhau, do `market_data` phụ thuộc vào các chỉ báo mà yêu cầu về dữ liệu. Do đó, `market_data` được khuyến nghị phải đảm bảo để có đủ dữ liệu khởi tạo chỉ báo.
 Tại quyết định t, chỉ lấy nến thị trường có available_at <= t.
 
 ### 3.3. strategy
@@ -151,50 +195,38 @@ Tại quyết định t, chỉ lấy nến thị trường có available_at <= t
 | `daily_limits`                | object/null          | Không              | Không áp giới hạn ngày từ trường này |
 | `warmup_bars`                 | integer dương/null | Không              | Không áp ngưỡng lịch sử bổ sung        |
 
-warmup_bars đếm mẫu tối thiểu, gồm mẫu hiện tại đã đóng; không phải chu kỳ
-chỉ báo. Chỉ báo vẫn cần đủ mẫu theo công thức. Ngưỡng xét trên chuỗi chỉ báo
-sử dụng; nếu không có chỉ báo thì xét chuỗi được tham chiếu.
-Khoảng thiếu dữ liệu hoặc đổi mã hợp đồng làm khởi tạo lại lịch sử của chính
-chuỗi đó; đổi hợp đồng giao dịch không tự khởi tạo lại chỉ báo VNINDEX.
 Cấu trúc chi tiết ở mục 5.
 
 ### 3.4. execution
 
-| Trường              | Kiểu                  | Bắt buộc | Giá trị hỗ trợ                                |
-| --------------------- | ---------------------- | ---------- | ------------------------------------------------- |
-| `entry_fill_policy` | string                 | Có        | Chỉ`"next_open"`                               |
-| `slippage_rate`     | số/chuỗi thập phân | Có        | Từ 0 đến dưới 1; contract hiện chỉ nhận 0 |
+| Trường              | Kiểu                  | Bắt buộc | Giá trị hỗ trợ   | Ý nghĩa                                                                                                                                                                                     |
+| --------------------- | ---------------------- | ---------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `entry_fill_policy` | string                 | Có        | `"next_open"`      | Quy định thời điểm khớp lệnh vào vị thế: tín hiệu hình thành sau giá đóng cửa nến hiện tại được khớp tại giá mở cửa hợp lệ kế tiếp                           |
+| `slippage_rate`     | số/chuỗi thập phân | Có        | Từ 0 đến dưới 1 | Tỷ lệ trượt giá mô phỏng mức bất lợi giữa giá tham chiếu và giá khớp. Với normalized, giá mua = giá mở cửa × (1 + tỷ lệ), giá bán = giá mở cửa × (1 − tỷ lệ) |
 
-next_open chờ Open kế tiếp sau Close tạo tín hiệu. Với nến liền nhau, hai
-mốc có thể cùng timestamp nhưng là hai sự kiện theo thứ tự; không khớp bằng
-Open của nến đã dùng quyết định. Normalized điều chỉnh mua lên/bán xuống
-theo tỷ lệ trượt giá. Stop/target trong nến có quy tắc tại mục 5.3.
+Stop/target trong nến có quy tắc tại mục 5.3.
 
 ### 3.5. accounting
 
-model bắt buộc: `"normalized"` hoặc `"contract"`. Chỉ truyền trường của mô
-hình chọn, không trộn hai nhóm phí.
-
-| Trường normalized | Kiểu                  | Bắt buộc | Ý nghĩa                                          |
-| ------------------- | ---------------------- | ---------- | -------------------------------------------------- |
-| `model`           | string                 | Có        | `"normalized"`                                   |
-| `fee_rate`        | số/chuỗi thập phân | Có        | Không âm, phí trên giá trị mỗi lượt khớp |
+| Trường normalized | Kiểu                  | Bắt buộc | Ý nghĩa                                                                                                                                                                                                                         |
+| ------------------- | ---------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`           | string                 | Có        | `"normalized"`: chọn mô hình mua/bán theo đơn vị giá mô phỏng. Hiện hỗ trợ `"normalized"` (Mô phỏng mua/bán theo đơn vị giá đầu vào) và `"contract"` (Mô phỏng giao dịch hợp đồng phái sinh) |
+| `fee_rate`        | số/chuỗi thập phân | Có        | Không âm, phí trên giá trị mỗi lượt khớp                                                                                                                                                                                |
 
 Normalized dùng BUY, sizing fixed_fractional và thoát toàn bộ bằng SELL tại
 Open sau điều kiện Close. Không hỗ trợ intrabar. Tiền theo đơn vị giá mô phỏng.
 
-| Trường contract             | Kiểu                  | Bắt buộc | Mặc định  | Ý nghĩa/ràng buộc                         |
-| ----------------------------- | ---------------------- | ---------- | ------------ | --------------------------------------------- |
-| `model`                     | string                 | Có        | —           | `"contract"`                                |
-| `contract_multiplier`       | số/chuỗi thập phân | Không     | `"100000"` | Hệ số điểm sang tiền, > 0                |
-| `margin_rate`               | số/chuỗi thập phân | Có        | —           | Tỷ lệ ký quỹ, > 0 và <= 1                |
-| `pit_rate`                  | số/chuỗi thập phân | Có        | —           | Thuế suất từ 0 đến 1                     |
-| `exchange_fee_per_contract` | số/chuỗi thập phân | Có        | —           | Phí sàn mỗi hợp đồng/lượt, >= 0       |
-| `clearing_fee_per_contract` | số/chuỗi thập phân | Có        | —           | Phí bù trừ mỗi hợp đồng/lượt, >= 0   |
-| `broker_fee_per_contract`   | số/chuỗi thập phân | Có        | —           | Phí môi giới mỗi hợp đồng/lượt, >= 0 |
+| Trường contract             | Kiểu                  | Bắt buộc | Mặc định  | Ý nghĩa/ràng buộc                                              |
+| ----------------------------- | ---------------------- | ---------- | ------------ | ------------------------------------------------------------------ |
+| `model`                     | string                 | Có        | —           | `"contract"`: chọn mô hình tính tiền hợp đồng phái sinh |
+| `contract_multiplier`       | số/chuỗi thập phân | Không     | `"100000"` | Hệ số điểm sang tiền, > 0                                     |
+| `margin_rate`               | số/chuỗi thập phân | Có        | —           | Tỷ lệ ký quỹ, > 0 và <= 1                                     |
+| `pit_rate`                  | số/chuỗi thập phân | Có        | —           | Thuế suất từ 0 đến 1                                          |
+| `exchange_fee_per_contract` | số/chuỗi thập phân | Có        | —           | Phí sàn mỗi hợp đồng/lượt, >= 0                            |
+| `clearing_fee_per_contract` | số/chuỗi thập phân | Có        | —           | Phí bù trừ mỗi hợp đồng/lượt, >= 0                        |
+| `broker_fee_per_contract`   | số/chuỗi thập phân | Có        | —           | Phí môi giới mỗi hợp đồng/lượt, >= 0                      |
 
-Contract mở LONG/SHORT, đóng CLOSE, dùng risk_and_margin; trade_data hiện
-chỉ hỗ trợ resolution 5. Hệ số dùng tính tiền/rủi ro/ký quỹ, không nhân OHLC.
+Contract mở LONG/SHORT, đóng CLOSE, dùng risk_and_margin. Hệ số dùng tính tiền/rủi ro/ký quỹ.
 Cơ sở thuế mỗi lượt = giá khớp × hệ số × số hợp đồng × margin_rate / 2;
 thuế bằng cơ sở nhân pit_rate. Phí mỗi hợp đồng nhân số lượng khớp của lượt.
 Chi tiết làm tròn/phân bổ ở [đặc tả tính tiền](canslim-v1-execution-accounting.md).
@@ -212,22 +244,13 @@ Contract dùng VND; normalized dùng đơn vị giá mô phỏng.
 | `end_date`   | string ngày | Có                       | YYYY-MM-DD kết thúc |
 
 Khoảng gồm hai đầu theo ngày địa phương trade_data và nằm trong phạm vi
-chuỗi này. Bỏ/null lấy ngày đầu đến cuối trade_data, không tự dời đến lúc
-đủ chỉ báo. Nến trước kỳ chỉ khởi tạo, không tạo giao dịch/P/L trước kỳ;
-nến sau kỳ không dùng quyết định/khớp. Thay đầu kỳ là thay backtest và
-khởi tạo tài khoản cho khoảng mới, không đơn thuần lọc dòng kết quả.
+chuỗi này.
 
 ## 4. Payload minh họa
 
 Ví dụ giữ cấu hình CANSLIM v1: chỉ báo/điều kiện thị trường dùng VNINDEX,
 giá thực thi dùng VN30F1M, tiền theo hợp đồng. Giá nến minh họa không phải
 bộ dữ liệu nghiệm thu hoặc kết quả đầu tư.
-
-**Hai chuỗi chỉ có hai nến để dễ đọc cấu trúc**, không đủ warmup_bars 150
-hoặc lịch sử chỉ báo. Khi chạy bản rút gọn này không kỳ vọng tín hiệu vào
-lệnh. Để đánh giá, thay dữ liệu đầy đủ theo hợp đồng dữ liệu, giữ lịch sử
-khởi tạo và gửi report cho kỳ cần báo cáo. Ví dụ bỏ report nên lấy ngày
-có trong trade_data. Không phải mọi trường tùy chọn đều nằm trong ví dụ.
 
 ```json
 {
@@ -462,15 +485,6 @@ Ví dụ một khai báo trong indicators:
 {"sma20":{"type":"SMA","source":"market_data.close","period":20}}
 ```
 
-source truyền chuỗi cho công thức; ref đọc giá trị kết quả. EMA khởi tạo bằng
-SMA N mẫu đầu; BB dùng phương sai chia N. MACD.histogram hiện bằng line theo
-cấu hình hỗ trợ, không phải line trừ signal.
-
-MFI dùng giá điển hình `(high + low + close) / 3` và volume; cần N+1 mẫu để
-có N lần so sánh. Giá điển hình không đổi không cộng dòng tiền; hai dòng bằng
-0 trả 50, chỉ dòng âm bằng 0 trả 100, chỉ dòng dương bằng 0 trả 0.
-Trong contract, chỉ báo 5 phút dùng nến phiên liên tục, không dùng ATO/ATC.
-
 ### 5.2. entry
 
 Điều kiện mở được xét sau Close khi không giữ vị thế và không có lệnh chờ
@@ -481,8 +495,8 @@ Trong contract, chỉ báo 5 phút dùng nến phiên liên tục, không dùng 
 | `conditions`         | object            | Có                    | Nhánh BUY cho normalized; LONG/SHORT cho contract; mỗi nhánh là expression boolean |
 | `any`                | array string      | Có                    | Đúng các nhánh conditions, không rỗng/trùng                                     |
 | `details`            | object            | Không; mặc định {} | Tên → expression số, lưu giá trị lúc tín hiệu mở                             |
-| `require_flat`       | boolean/null      | Không                 | Nếu truyền chỉ nhận true                                                           |
-| `require_no_pending` | boolean/null      | Không                 | Nếu truyền chỉ nhận true                                                           |
+| `require_flat`       | boolean/null      | Không                 | Chỉ xét mở lệnh khi không giữ vị thế (flat)                                    |
+| `require_no_pending` | boolean/null      | Không                 | Chỉ xét mở lệnh khi không có lệnh chờ khớp (pending)                          |
 | `signal_windows`     | array cặp string | Không                 | Khoảng HH:MM gồm hai đầu, tăng dần, không chồng nhau                           |
 | `on_conflict`        | string/null       | Khi có nhiều nhánh  | Chỉ SIGNAL_CONFLICT; nhiều hướng cùng đạt thì không mở                       |
 | `reentry`            | string/null       | Không                 | Chỉ next_bar_close_after_exit; ngăn vào lại tại Close nến vừa thoát            |
@@ -668,8 +682,7 @@ số nến giữ để quyết định mở mới. Targets chỉ cho ref positio
 | `lt`  | <         | `{"lt":[{"ref":"account.equity"},{"ref":"account.required_margin"}]}` |
 | `lte` | <=        | `{"lte":[{"ref":"mfi14"},45]}`                                        |
 
-Giờ dùng chuỗi HH:MM, ví dụ `{"gte":[{"ref":"clock.local_time"},"14:20"]}`;
-không so giờ với số.
+Giờ dùng chuỗi HH:MM, ví dụ `{"gte":[{"ref":"clock.local_time"},"14:20"]}`.
 
 ### 6.3. add / sub / mul / div
 
@@ -697,14 +710,8 @@ Floor làm tròn về phía âm vô cùng: -2,5 thành -3.
 
 ### 6.5. all / any
 
-Trong expression, nhận mảng **không rỗng** các expression boolean. All yêu
-cầu tất cả đúng; any yêu cầu ít nhất một đúng. Có thể dùng tên điều kiện dạng
-chuỗi khi có trong conditions của cùng nhóm; không tra sang nhóm khác hoặc
-tham chiếu vòng. Mọi toán hạng được đánh giá, không dựa vào nhánh trước để
-bỏ qua nhánh thiếu dữ liệu.
-
-Any của nhóm entry/exit là danh sách tên; any trong expression là phép kết
-hợp boolean. Priority của exit xác định thứ tự hành động, không là toán tử.
+- `all`: Tương đương với cú pháp **AND**.
+- `any`: Tương đương với cú pháp **OR**.
 
 ### 6.6. Ví dụ lồng expression
 
@@ -812,6 +819,7 @@ trong hàm xử lý có detail dạng chuỗi; một số lỗi lưu trữ có d
 | Chart                      | 409         | detail.code: CHART_DATA_INCONSISTENT | Nến/lần khớp không khớp dữ liệu lần chạy                           |
 | Chart                      | 500         | detail.code: CHART_STORAGE_ERROR     | Lỗi đọc khác; không lộ chi tiết nội bộ                             |
 | Endpoint có run_id        | 422         | Mảng detail lỗi                    | run_id không phải UUID                                                    |
+| Lịch sử có bộ lọc     | 422         | detail lỗi                          | Query không hợp lệ hoặc khoảng từ lớn hơn đến                     |
 
 ## 8. Response
 

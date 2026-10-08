@@ -6,10 +6,12 @@
   <title>Backtest</title>
   <!-- Minimal responsive styling; all calculations remain in the backend. -->
   <style>
-    #price-chart-wrap{height:520px;position:relative}#price-chart{height:100%}#market-chart,#equity-chart{height:240px}#history{display:flex;flex-wrap:wrap;gap:8px}#run-title,pre{overflow-wrap:anywhere;white-space:pre-wrap}#fill-tooltip{position:absolute;z-index:2;max-width:300px;padding:9px 11px;background:#16324f;color:#fff;border-radius:6px;box-shadow:0 2px 12px #0006;font-size:12px;line-height:1.35;pointer-events:none}#fill-tooltip strong{display:block;margin-bottom:4px}#fill-tooltip dl{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;margin:0}#fill-tooltip dt{color:#d7e7f7}#fill-tooltip dd{margin:0;overflow-wrap:anywhere}button:focus-visible{outline:2px solid #245ea8}#chart-panel{overflow:hidden}@media(max-width:600px){body{padding:12px!important}#price-chart-wrap{height:430px}#fill-tooltip{max-width:240px}}
+    #price-chart-wrap{height:520px;position:relative}#price-chart{height:100%}#market-chart,#equity-chart{height:240px}#history{overflow:auto}#history table{min-width:560px}#history tbody tr{cursor:pointer}#history button{min-height:32px;padding:6px 10px;white-space:nowrap}#run-title,pre{overflow-wrap:anywhere;white-space:pre-wrap}#fill-tooltip{position:absolute;z-index:2;max-width:300px;padding:9px 11px;background:#16324f;color:#fff;border-radius:6px;box-shadow:0 2px 12px #0006;font-size:12px;line-height:1.35;pointer-events:none}#fill-tooltip strong{display:block;margin-bottom:4px}#fill-tooltip dl{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;margin:0}#fill-tooltip dt{color:#d7e7f7}#fill-tooltip dd{margin:0;overflow-wrap:anywhere}button:focus-visible{outline:2px solid #245ea8}#chart-panel{overflow:hidden}@media(max-width:600px){body{padding:12px!important}#price-chart-wrap{height:430px}#fill-tooltip{max-width:240px}}
     body{font:14px;font-family:Roboto,sans-serif;max-width:1200px;margin:auto;padding:24px;color:#182230}form,.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}label{display:grid;gap:4px}input,button{padding:8px}button{cursor:pointer}.cards div{background:#eef1f4;padding:12px;border-radius:6px}table{width:100%;border-collapse:collapse;margin:8px 0 24px}th,td{padding:7px;border:1px solid #c7cdd4;text-align:left}th{background:#16324f;color:white}.error{color:#a00}.muted{color:#667085}section{overflow:auto}
   </style>
   <link rel="stylesheet" href="/static/theme.css">
+  <link rel="stylesheet" href="/static/backtest-input.css?v=20261008">
+  <link rel="stylesheet" href="/static/backtest-navigation.css?v=20261008-3">
   <style>
     .cards div{background:var(--control)}th,td{border-color:var(--border)}th{background:var(--heading)}.muted{color:var(--muted)}.error{color:var(--error)}button:focus-visible{outline-color:var(--accent)}
     #fill-tooltip{background:var(--tooltip);color:var(--tooltip-text)}#fill-tooltip dt{color:var(--tooltip-muted)}
@@ -17,24 +19,74 @@
   </style>
 </head>
 <body>
+  <aside id="page-navigation" data-expanded="false">
+    <button id="navigation-toggle" type="button" aria-controls="navigation-links" aria-expanded="false">☰ Mục lục</button>
+    <nav id="navigation-links" aria-label="Mục lục trang">
+      <h2>Nhập liệu</h2>
+      <ul>
+        <li><a href="#input-payload">Tải JSON / điền mẫu</a></li>
+        <li><a href="#input-general">Tham số lần chạy</a></li>
+        <li><a href="#input-trade">Dữ liệu giao dịch</a></li>
+        <li><a href="#input-market">Dữ liệu thị trường</a></li>
+        <li><a href="#input-accounting">Tiền và khối lượng</a></li>
+        <li><a href="#input-indicators">Chỉ báo</a></li>
+        <li><a href="#input-rules">Điều kiện chiến lược</a></li>
+        <li><a href="#input-actions">Kiểm tra / chạy</a></li>
+      </ul>
+      <a href="#history-panel">Tìm lịch sử</a>
+      <div id="navigation-results" hidden>
+        <h2>Kết quả</h2>
+        <ul>
+          <li><a href="#result-summary">Summary</a></li>
+          <li><a href="#chart-panel">Charts</a></li>
+          <li><a href="#fills-panel">Fills</a></li>
+          <li><a href="#trades-panel">Closed Trades</a></li>
+          <li><a href="#position-panel">Open Position</a></li>
+          <li><a href="#audit-panel">Signal / Orders</a></li>
+          <li><a href="#equity-panel">Equity History</a></li>
+        </ul>
+      </div>
+    </nav>
+  </aside>
   <div class="theme-bar"><h1>Backtest</h1><button type="button" data-theme-toggle aria-label="Chuyển giao diện">☾</button></div>
   <!-- Backtest request inputs -->
-  <form id="run-form">
-    <div id="json-input" style="grid-column:1/-1">
-      <label>Toàn bộ payload<textarea id="payload-json" rows="16" spellcheck="false" required style="width:100%;box-sizing:border-box;font-family:monospace"></textarea></label>
-      <label>Mở file JSON<input id="payload-file" type="file" accept=".json,application/json"></label>
+  <form id="run-form" novalidate>
+    <div id="input-payload" tabindex="-1" class="input-wide input-toolbar">
+      <label>Tải payload JSON để tự điền form<input id="payload-file" type="file" accept=".json,application/json"></label>
       <button type="button" id="load-example">Điền mẫu CANSLIM v1</button>
-      <button type="button" id="validate-payload">Kiểm tra payload</button>
-      <p class="muted">Mẫu chỉ có 2 nến minh họa, chưa đủ 150 nến để phát tín hiệu. Thay bằng dữ liệu của bạn; kỳ báo cáo v1 vẫn là sáu tháng.</p>
     </div>
-    <button type="submit">Chạy backtest</button>
+    <p id="input-status" class="muted input-wide" role="status" aria-live="polite">Chọn mẫu hoặc tải payload JSON, sau đó chỉnh tham số và nạp dữ liệu.</p>
+    <fieldset id="input-general" tabindex="-1" class="input-wide"><legend>Tham số lần chạy</legend><div id="general-fields" class="input-grid"></div></fieldset>
+    <fieldset id="input-trade" tabindex="-1" class="input-wide"><legend>Dữ liệu giao dịch</legend>
+      <div class="input-toolbar"><label>Tải JSON dữ liệu giao dịch<input id="trade_data-file" type="file" accept=".json,application/json"></label>
+        <button id="trade_data-preset" type="button">Nạp VN30F1M có sẵn</button><button id="trade_data-clear" type="button">Bỏ dữ liệu giao dịch</button></div>
+      <p id="trade_data-summary" class="muted" role="status" aria-live="polite"></p>
+      <details><summary>Thông tin nguồn giao dịch</summary><div id="trade_data-fields" class="input-grid"></div></details>
+    </fieldset>
+    <fieldset id="input-market" tabindex="-1" class="input-wide"><legend>Dữ liệu thị trường</legend>
+      <div class="input-toolbar"><label>Tải JSON dữ liệu thị trường<input id="market_data-file" type="file" accept=".json,application/json"></label>
+        <button id="market_data-preset" type="button">Nạp VNINDEX có sẵn</button><button id="market_data-clear" type="button">Bỏ dữ liệu thị trường</button></div>
+      <p id="market_data-summary" class="muted" role="status" aria-live="polite"></p>
+      <details><summary>Thông tin nguồn thị trường</summary><div id="market_data-fields" class="input-grid"></div></details>
+    </fieldset>
+    <fieldset id="input-accounting" tabindex="-1" class="input-wide"><legend>Tính tiền và khối lượng</legend>
+      <div class="input-grid"><div id="accounting-fields" class="input-group"></div><div id="sizing-fields" class="input-group"></div></div>
+    </fieldset>
+    <fieldset id="input-indicators" tabindex="-1" class="input-wide"><legend>Chỉ báo</legend><div id="indicator-fields"></div><button id="add-indicator" type="button">Thêm chỉ báo</button></fieldset>
+    <details id="input-rules" tabindex="-1" class="input-wide"><summary>Điều kiện chiến lược — JSON</summary>
+      <p class="muted">Chỉ chứa điều kiện vào/ra lệnh và giới hạn trong ngày. Dữ liệu nến được nạp riêng ở trên.</p>
+      <div id="rule-fields" class="input-grid"></div>
+    </details>
+    <div id="input-actions" tabindex="-1" class="input-wide input-actions"><button type="button" id="validate-payload">Kiểm tra payload</button><button type="submit">Chạy backtest</button></div>
   </form>
   <p id="state" class="muted">Sẵn sàng.</p>
   <button type="button" id="retry-run" hidden>Thử tải lại run và chart</button>
   <!-- One backend-produced result; the UI does not recalculate P/L. -->
   <main id="result" hidden>
+    <div id="result-summary" tabindex="-1">
     <h2 id="run-title"></h2><div id="summary" class="cards"></div>
-    <section id="chart-panel">
+    </div>
+    <section id="chart-panel" tabindex="-1">
       <h2>Giá giao dịch và lệnh đã khớp</h2>
       <p id="chart-status" role="status" aria-live="polite"></p>
       <button type="button" id="fit-run">Vừa khung</button>
@@ -46,15 +98,27 @@
       <p>Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">TradingView Lightweight Charts™</a></p>
     </section>
     <p id="table-filter" class="muted" role="status" aria-live="polite" hidden></p>
-    <section><h2>Fills</h2><div id="fills"></div></section>
-    <section><h2>Closed trades</h2><div id="trades"></div></section>
-    <section><h2>Open position</h2><div id="position"></div></section>
-    <section><h2>Signals / orders</h2><div id="audit"></div><div id="orders"></div></section>
-    <section><h2>Equity history <button type="button" id="toggle-equity" aria-controls="equity" aria-expanded="true">Thu gọn</button></h2><div id="equity"></div></section>
+    <section id="fills-panel" tabindex="-1"><h2>Fills</h2><div id="fills"></div></section>
+    <section id="trades-panel" tabindex="-1"><h2>Closed Trades</h2><div id="trades"></div></section>
+    <section id="position-panel" tabindex="-1"><h2>Open Position</h2><div id="position"></div></section>
+    <section id="audit-panel" tabindex="-1"><h2>Signals / Orders</h2><div id="audit"></div><div id="orders"></div></section>
+    <section id="equity-panel" tabindex="-1"><h2>Equity History <button type="button" id="toggle-equity" aria-controls="equity" aria-expanded="true">Thu gọn</button></h2><div id="equity"></div></section>
   </main>
   <!-- Reloadable persisted run history -->
-  <section><h2>Run history</h2><div id="history"></div></section>
+  <section id="history-panel" tabindex="-1" aria-labelledby="history-title">
+    <h2 id="history-title">Lịch sử chạy</h2>
+    <form id="history-form">
+      <label>Tỷ suất sinh lời từ (%)<input name="min_total_return_pct" type="number" step="any" placeholder="Ví dụ: 0"></label>
+      <label>Tỷ suất sinh lời đến (%)<input name="max_total_return_pct" type="number" step="any" placeholder="Ví dụ: 20"></label>
+      <label>Vốn cuối kỳ từ<input name="min_equity" type="number" step="any"></label>
+      <label>Vốn cuối kỳ đến<input name="max_equity" type="number" step="any"></label>
+      <button type="submit">Tìm lịch sử</button>
+    </form>
+    <p id="history-status" class="muted" role="status" aria-live="polite"></p>
+    <div id="history" aria-busy="false"></div>
+    <button type="button" id="history-next" hidden>Trang tiếp</button>
+  </section>
   <script type="module" src="/static/theme.mjs?v=20260918"></script>
-  <script type="module" src="/static/backtest-app.mjs?v=20260930"></script>
+  <script type="module" src="/static/backtest-app.mjs?v=20261008-2"></script>
 </body>
 </html>

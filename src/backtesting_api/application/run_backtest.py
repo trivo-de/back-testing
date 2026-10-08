@@ -1,4 +1,5 @@
 from dataclasses import replace
+from decimal import Decimal
 from typing import Any, Sequence
 from uuid import UUID
 import json
@@ -77,6 +78,24 @@ class BacktestService:
     def list(self) -> Sequence[dict[str, Any]]:
         """Return successful persisted runs."""
         return self.repository.list_runs()
+
+    def history(self, *, min_total_return=None, max_total_return=None,
+                min_equity=None, max_equity=None, limit=20, after=None):
+        """Filter stored summary values without retaining full results."""
+        items = []
+        for item in self.repository.iter_run_summaries(after):
+            total_return, equity = Decimal(item['total_return']), Decimal(item['final_equity'])
+            if not total_return.is_finite() or not equity.is_finite():
+                raise ValueError('RESULT_SUMMARY_INVALID')
+            if ((min_total_return is not None and total_return < min_total_return)
+                    or (max_total_return is not None and total_return > max_total_return)
+                    or (min_equity is not None and equity < min_equity)
+                    or (max_equity is not None and equity > max_equity)):
+                continue
+            if len(items) == limit:
+                return {'items': items, 'next_cursor': items[-1]['run_id']}
+            items.append(item)
+        return {'items': items, 'next_cursor': None}
 
     def get_chart(self, run_id: UUID) -> dict[str, Any] | None:
         """Read chart data without executing the strategy again."""

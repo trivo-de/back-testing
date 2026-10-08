@@ -1,11 +1,14 @@
 import {backtestData, relatedRows} from './backtest-data.mjs?v=20260929';
 import {clearCharts, renderCharts} from './backtest-chart.mjs?v=20260930';
+import {mountInputForm} from './backtest-input.mjs?v=20261008';
 
 const $ = selector => document.querySelector(selector);
 const percent = new Intl.NumberFormat('vi-VN', {style: 'percent', maximumFractionDigits: 2});
 let sequence = 0;
 let activeRunId;
 let posting = false;
+let historySequence = 0, historyRequest, historyQuery, nextHistoryCursor;
+const number = new Intl.NumberFormat('vi-VN', {maximumFractionDigits: 6});
 const table = (selector, rows, columns) => {
     const container = $(selector); container.replaceChildren();
     if (!rows.length) {container.textContent = 'Không có dữ liệu.'; return;}
@@ -24,14 +27,27 @@ const getJSON = async (url, options) => {
     if (!response.ok) throw Error(typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail || 'Lỗi API'));
     return body;
 };
+const inputForm = mountInputForm($('#run-form'), getJSON);
+$('#navigation-toggle').onclick = event => {
+    const expanded = event.currentTarget.getAttribute('aria-expanded') !== 'true';
+    event.currentTarget.setAttribute('aria-expanded', String(expanded));
+    $('#page-navigation').setAttribute('data-expanded', String(expanded));
+};
+$('#navigation-links').onclick = event => {
+    if (!event.target.closest('a')) return;
+    $('#navigation-toggle').setAttribute('aria-expanded', 'false');
+    $('#page-navigation').setAttribute('data-expanded', 'false');
+};
 function reset() {
     sequence += 1; clearCharts(); $('#result').hidden = true;
+    $('#navigation-results').hidden = true;
     $('#state').textContent = 'Đang tải…'; $('#state').className = 'muted'; $('#retry-run').hidden = true;
     return sequence;
 }
 async function show(run, current) {
     if (current !== sequence) return;
     $('#result').hidden = false;
+    $('#navigation-results').hidden = false;
     const contract = run.metadata.accounting_profile === 'contract_v1';
     $('#run-title').textContent = `${run.metadata.symbol || run.metadata.config?.symbol || 'Backtest'} · ${run.metadata.run_id}`;
     $('#summary').replaceChildren();
@@ -70,6 +86,7 @@ async function show(run, current) {
 function errorState(error, current) {
     if (current !== sequence) return;
     clearCharts(); $('#result').hidden = true;
+    $('#navigation-results').hidden = true;
     $('#state').className = 'error'; $('#state').textContent = error.message;
     $('#retry-run').hidden = !activeRunId;
 }
@@ -78,19 +95,56 @@ async function load(id) {
     const current = reset(); activeRunId = id;
     try {await show(await getJSON(`/api/backtests/${id}`), current);} catch (error) {errorState(error, current);}
 }
-async function history(openLatest = false) {
+async function history(after) {
+    const current = ++historySequence;
+    historyRequest?.abort(); historyRequest = new AbortController();
+    const query = new URLSearchParams(historyQuery);
+    query.set('limit', '20');
+    if (after) query.set('after', after);
+    $('#history').replaceChildren(); $('#history').setAttribute('aria-busy', 'true');
+    $('#history-status').className = 'muted'; $('#history-status').textContent = 'Đang tìm lịch sử…';
+    $('#history-next').hidden = true;
     try {
-        const runs = await getJSON('/api/backtests');
-        $('#history').replaceChildren();
-        for (const run of runs) {
-            const button = document.createElement('button'); button.type = 'button';
-            button.textContent = `${run.metadata.run_id} · Equity ${run.summary.final_equity}`;
-            button.addEventListener('click', () => load(run.metadata.run_id)); $('#history').append(button);
-        }
-        if (!runs.length) $('#history').textContent = 'Chưa có run.';
-        if (openLatest && sequence === 0 && runs.length) await load(runs[0].metadata.run_id);
-    } catch (error) {$('#history').textContent = `Không tải được history: ${error.message}`;}
+        const page = await getJSON(`/api/backtests/history?${query}`, {signal: historyRequest.signal});
+        if (current !== historySequence) return;
+        const rows = page.items.map(item => ({'Chi tiết': '', 'Mã': item.symbol || 'Backtest',
+            'Ngày bắt đầu': item.start_date || '?', 'Ngày kết thúc': item.end_date || '?',
+            'Sinh lời': percent.format(item.total_return), 'Vốn cuối kỳ': number.format(item.final_equity)}));
+        if (rows.length) table('#history', rows, ['Chi tiết', 'Mã', 'Ngày bắt đầu', 'Ngày kết thúc', 'Sinh lời', 'Vốn cuối kỳ']);
+        $('#history').querySelectorAll('tbody tr').forEach((row, index) => {
+            const id = page.items[index].run_id;
+            const open = event => {event.stopPropagation(); return load(id);};
+            const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Xem';
+            button.setAttribute('aria-label', `Xem kết quả ${rows[index]['Mã']}, từ ${rows[index]['Ngày bắt đầu']} đến ${rows[index]['Ngày kết thúc']}, ${id.slice(0, 8)}`);
+            button.addEventListener('click', open);
+            row.title = id; row.addEventListener('click', open);
+            row.cells[0].append(button);
+        });
+        nextHistoryCursor = page.next_cursor;
+        $('#history-next').hidden = !nextHistoryCursor;
+        $('#history-status').textContent = page.items.length ? `Đang hiển thị ${page.items.length} kết quả.` : 'Không có kết quả phù hợp.';
+    } catch (error) {
+        if (current !== historySequence || error.name === 'AbortError') return;
+        $('#history-status').className = 'error'; $('#history-status').textContent = `Không tải được lịch sử: ${error.message}`;
+    } finally {
+        if (current === historySequence) $('#history').setAttribute('aria-busy', 'false');
+    }
 }
+$('#history-form').onsubmit = event => {
+    event.preventDefault();
+    const fields = [...event.target.querySelectorAll('input')];
+    for (const input of fields) input.setCustomValidity('');
+    for (const [low, high] of [[fields[0], fields[1]], [fields[2], fields[3]]]) {
+        if (low.value && high.value && Number(low.value) > Number(high.value)) high.setCustomValidity('Giá trị đến phải lớn hơn hoặc bằng giá trị từ.');
+    }
+    if (!event.target.reportValidity()) return;
+    historyQuery = new URLSearchParams(fields.filter(input => input.value !== '').map(input => [input.name, input.value]));
+    history();
+};
+$('#history-form').oninput = () => {
+    for (const input of $('#history-form').querySelectorAll('input')) input.setCustomValidity('');
+};
+$('#history-next').onclick = () => history(nextHistoryCursor);
 $('#retry-run').onclick = () => load(activeRunId);
 $('#toggle-equity').onclick = event => {
     const expanded = $('#equity').hidden;
@@ -103,24 +157,18 @@ $('#run-form').onsubmit = async event => {
     posting = true; const submit = event.target.querySelector('[type=submit]'); submit.disabled = true;
     const current = reset(); activeRunId = undefined;
     try {
-        const payload = JSON.parse($('#payload-json').value);
+        const payload = inputForm.read();
         const run = await getJSON('/api/backtests', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(payload)});
-        activeRunId = run.metadata.run_id; await show(run, current); await history();
+        activeRunId = run.metadata.run_id; await show(run, current);
+        historySequence += 1; historyRequest?.abort();
+        $('#history').replaceChildren(); $('#history').setAttribute('aria-busy', 'false'); $('#history-next').hidden = true;
+        $('#history-status').className = 'muted'; $('#history-status').textContent = 'Đã lưu lần chạy mới. Bấm Tìm lịch sử để cập nhật danh sách.';
     } catch (error) {errorState(error, current);} finally {posting = false; submit.disabled = false;}
-};
-$('#payload-file').onchange = async event => {
-    const file = event.target.files[0];
-    if (file) $('#payload-json').value = await file.text();
-};
-$('#load-example').onclick = async () => {
-    try {$('#payload-json').value = JSON.stringify(await getJSON('/static/canslim-v1-example.json'), null, 2);}
-    catch (error) {$('#state').textContent = error.message;}
 };
 $('#validate-payload').onclick = async () => {
     try {
-        const body = await getJSON('/api/backtests/validate', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(JSON.parse($('#payload-json').value))});
+        const body = await getJSON('/api/backtests/validate', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(inputForm.read())});
         $('#state').className = 'muted';
         $('#state').textContent = `${body.status}. ${body.runnable ? 'Có thể chạy; từng nến vẫn cần đủ dữ liệu chỉ báo.' : 'Chưa có bộ thực thi.'}`;
     } catch (error) {$('#state').className = 'error'; $('#state').textContent = error.message;}
 };
-history(true);

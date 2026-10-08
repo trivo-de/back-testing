@@ -200,6 +200,28 @@ class FileRunRepository:
         return [result for path in sorted((self.store / "runs").glob("*.json"), reverse=True)
                 if (result := self.get_run(UUID(path.stem))) is not None]
 
+    def iter_run_summaries(self, after: UUID | None = None):
+        # ponytail: reads one full file at a time; add a summary index if disk scans become slow.
+        for path in sorted((self.store / 'runs').glob('*.json'), reverse=True):
+            if after is not None and path.stem >= str(after):
+                continue
+            run = self.get_run(UUID(path.stem))
+            if run is None:
+                continue
+            metadata, summary = run['metadata'], run['summary']
+            config = metadata.get('config', {})
+            report = metadata.get('report_range', {})
+            item = {'run_id': metadata['run_id'],
+                    'symbol': metadata.get('symbol', config.get('symbol')),
+                    'resolution': metadata.get('resolution', metadata.get('timeframe')),
+                    'start_date': report.get('start', metadata.get('start_date', config.get('start_date'))),
+                    'end_date': report.get('end', metadata.get('end_date', config.get('end_date'))),
+                    'money_unit': metadata.get('money_unit'),
+                    'total_return': str(summary['total_return']),
+                    'final_equity': str(summary['final_equity'])}
+            del run
+            yield item
+
     def get_chart(self, run_id: UUID) -> dict | None:
         response = self.get_run(run_id)
         if response is None:
