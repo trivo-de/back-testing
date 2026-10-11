@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Sequence
 from uuid import UUID
@@ -28,16 +29,20 @@ class BacktestService:
         """Resolve supplied or automatically fetched data without creating a run."""
         fetch_metadata = None
         if payload.get('auto_fetch_data'):
-            policy = json.loads(self.auto_fetch_policy_path.read_bytes())
-            supplied_report = payload.get('report')
-            resolved, fetch_metadata = self.data_fetcher.fetch(policy)
+            if self.data_fetcher is None:
+                from ..infrastructure.auto_fetch_data import AutoFetchError
+                raise AutoFetchError('AUTO_FETCH_UNAVAILABLE')
+            resolved, fetch_metadata = self.data_fetcher.fetch()
+            if payload['accounting']['model'] == 'contract':
+                mapping_policy = json.loads(self.auto_fetch_policy_path.read_bytes())
+                resolved['trade_data']['contract_map'] = [
+                    {'contract_code': row['contract'], 'expiry_date': row['expiry'],
+                     'expiry_unix': row['expiry_unix']} for row in mapping_policy['rollover']]
+                fetch_metadata['rollover_source'] = mapping_policy['rollover_source']
             payload.update(resolved)
-            if supplied_report is not None:
-                payload['report'] = supplied_report
             payload['auto_fetch_data'] = False
-        else:
-            policy = (json.loads(self.inline_policy_path.read_bytes())
-                      if payload['trade_data'].get('contract_map') else None)
+        policy = (json.loads(self.inline_policy_path.read_bytes())
+                  if payload['trade_data'].get('contract_map') else None)
         data = resolve_inline(payload, policy)
         if fetch_metadata is not None:
             data = replace(data, metadata={**data.metadata, 'input_origin': 'auto_fetch',
@@ -58,6 +63,7 @@ class BacktestService:
         data, policy = self.validate_inline(payload)
         if self.inline_runner is None:
             raise ValueError('INLINE_STRATEGY_RUNTIME_NOT_IMPLEMENTED: U08')
+        run_at = datetime.now(timezone.utc).isoformat()
         run_id, input_hash, policy_hash = self.repository.start_inline(payload, policy, data)
         try:
             result = self.inline_runner(data, payload)
@@ -65,6 +71,7 @@ class BacktestService:
                 raise ValueError('FILL_OUTSIDE_REPORT_RANGE')
             response = inline_result_to_dict(run_id, data, result, input_hash=input_hash,
                                              policy_hash=policy_hash, accounting=payload['accounting'])
+            response['metadata']['run_at'] = run_at
             self.repository.complete_run(run_id, result, response)
             return response
         except Exception as error:

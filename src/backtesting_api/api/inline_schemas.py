@@ -349,6 +349,8 @@ class ReportInput(StrictModel):
 
 
 class InlineRunRequest(StrictModel):
+    auto_fetch_data: StrictBool = Field(
+        False, description='Tự lấy VN30F1M và VNINDEX 5 phút trong sáu tháng gần nhất; ưu tiên và bỏ qua dữ liệu nhập tay.')
     trade_data: DataInput | None = None
     market_data: DataInput | None = None
     strategy: StrategyInput
@@ -357,9 +359,16 @@ class InlineRunRequest(StrictModel):
     initial_cash: Positive
     report: ReportInput | None = None
 
+    @model_validator(mode='before')
+    @classmethod
+    def prefer_auto_data(cls, value):
+        if isinstance(value, dict) and value.get('auto_fetch_data') is True:
+            return {key: item for key, item in value.items() if key not in ('trade_data', 'market_data')}
+        return value
+
     @model_validator(mode='after')
     def requirements(self):
-        if self.trade_data is None:
+        if not self.auto_fetch_data and self.trade_data is None:
             raise ValueError('MISSING_REQUIRED_DATA: trade_data')
         needed = set()
         volumes = set()
@@ -378,6 +387,7 @@ class InlineRunRequest(StrictModel):
                 for child in value: visit(child)
         visit(self.strategy.model_dump(by_alias=True))
         for name in needed:
+            if self.auto_fetch_data: continue
             source = getattr(self, name)
             if source is None: raise ValueError('MISSING_REQUIRED_DATA: ' + name)
             if name in volumes and any(b.volume is None for b in source.bars):

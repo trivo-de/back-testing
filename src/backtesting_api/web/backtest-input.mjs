@@ -92,6 +92,13 @@ function put(value, path, item) {
 
 export function mountInputForm(form, getJSON) {
     const $ = selector => form.querySelector(selector);
+    const autoFetch = $('#auto-fetch-data');
+    const manualSource = path => path.startsWith('trade_data.') || path.startsWith('market_data.');
+    function syncDataMode() {
+        $('#input-trade').disabled = autoFetch.checked;
+        $('#input-market').disabled = autoFetch.checked;
+    }
+    autoFetch.onchange = syncDataMode;
     let state = {config: {}, data: {}}, bindings = [], ruleBindings = [], indicatorRows = [];
     let operation = 0, pending = false;
     const notice = (text, error = false) => {$('#input-status').textContent = text; $('#input-status').className = `${error ? 'error' : 'muted'} input-wide`;};
@@ -181,6 +188,8 @@ export function mountInputForm(form, getJSON) {
         row.append(remove); $('#indicator-fields').append(row); indicatorRows.push(entry);
     }
     function render() {
+        autoFetch.checked = state.config.auto_fetch_data === true;
+        syncDataMode();
         bindings = []; ruleBindings = []; indicatorRows = [];
         for (const selector of ['#general-fields', '#accounting-fields', '#sizing-fields', '#indicator-fields', '#rule-fields']) $(selector).replaceChildren();
         for (const spec of general) field($('#general-fields'), ...spec);
@@ -230,7 +239,9 @@ export function mountInputForm(form, getJSON) {
             if (!form.reportValidity()) throw Error('Vui lòng điền các trường bắt buộc và kiểm tra giá trị đã nhập.');
         }
         const config = clone(state.config);
+        if (autoFetch.checked || Object.hasOwn(config, 'auto_fetch_data')) config.auto_fetch_data = autoFetch.checked;
         for (const binding of bindings) {
+            if (autoFetch.checked && manualSource(binding.path)) continue;
             const value = readControl(binding);
             if (value !== undefined || get(config, binding.path) !== undefined) put(config, binding.path, value);
         }
@@ -243,6 +254,7 @@ export function mountInputForm(form, getJSON) {
         });
         if (indicators.length || config.strategy?.indicators) put(config, 'strategy.indicators', Object.fromEntries(indicators));
         for (const {path, input, label} of ruleBindings) {
+            if (autoFetch.checked && manualSource(path)) continue;
             if (input.value.length > RULE_LIMIT) throw Error(`${label} vượt 65.536 ký tự.`);
             if (!input.value.trim()) {if (get(config, path) !== undefined) put(config, path, undefined); continue;}
             let value;
@@ -252,7 +264,9 @@ export function mountInputForm(form, getJSON) {
         if (config.report && !Object.keys(config.report).length) delete config.report;
         if (config.report && (!config.report.start_date || !config.report.end_date)) throw Error('Kỳ báo cáo cần cả ngày bắt đầu và ngày kết thúc.');
         for (const key of ['trade_data', 'market_data']) if (config[key] && !Object.keys(config[key]).length && !state.data[key]) delete config[key];
-        return assemblePayload(config, state.data);
+        const payload = assemblePayload(config, state.data);
+        if (check && autoFetch.checked) {delete payload.trade_data; delete payload.market_data;}
+        return payload;
     }
     async function perform(button, action) {
         if (pending) return;
@@ -278,6 +292,7 @@ export function mountInputForm(form, getJSON) {
         if (current !== operation) return;
         const existing = assemblePayload(state.config, state.data);
         const sampleConfig = splitPayload(sample).config;
+        if (autoFetch.checked || Object.hasOwn(state.config, 'auto_fetch_data')) sample.auto_fetch_data = autoFetch.checked;
         for (const key of ['trade_data', 'market_data']) if (state.data[key]) sample[key] = {...sampleConfig[key], ...existing[key]};
         setPayload(sample); notice('Đã điền mẫu CANSLIM v1. Dữ liệu đã nạp được giữ lại; mẫu chỉ có 2 nến nếu chưa nạp dữ liệu.');
     });

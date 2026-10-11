@@ -1,4 +1,6 @@
 import json
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
 import unittest
@@ -59,6 +61,23 @@ class RunHistoryTest(unittest.TestCase):
         self.assertIsNone(second['next_cursor'])
         self.assertEqual(self.client.get('/api/backtests/history?min_equity=999').json(),
                          {'items': [], 'next_cursor': None})
+
+    def test_run_time_uses_old_file_creation_and_preserves_recorded_time(self):
+        run_id = UUID(int=5)
+        path = self.repository.store / 'runs' / f'{run_id}.json'
+        original = path.read_bytes()
+        stat = path.stat()
+        expected = getattr(stat, 'st_birthtime', stat.st_mtime)
+        item = self.client.get('/api/backtests/history?limit=1').json()['items'][0]
+        self.assertAlmostEqual(datetime.fromisoformat(item['run_at']).timestamp(), expected, places=5)
+        self.assertEqual(path.read_bytes(), original, 'reading old history must not rewrite its files')
+
+        run = self.repository.get_run(run_id)
+        run['metadata']['run_at'] = '2026-10-08T17:30:00+00:00'
+        self.repository.complete_run(run_id, None, run)
+        os.utime(path, (stat.st_mtime + 86400, stat.st_mtime + 86400))
+        item = self.client.get('/api/backtests/history?limit=1').json()['items'][0]
+        self.assertEqual(datetime.fromisoformat(item['run_at']), datetime(2026, 10, 8, 17, 30, tzinfo=timezone.utc))
 
     def test_invalid_filters_and_corrupt_result_are_rejected(self):
         for query in ('min_equity=2&max_equity=1', 'min_total_return_pct=2&max_total_return_pct=1',

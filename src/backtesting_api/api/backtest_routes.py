@@ -1,14 +1,17 @@
 from uuid import UUID
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from ..application.run_backtest import BacktestService
 from ..config import API
 from .inline_schemas import InlineRunRequest
+from ..infrastructure.auto_fetch_data import AutoFetchError
 
 
 class HistoryItem(BaseModel):
     run_id: UUID
+    run_at: datetime | None = None
     symbol: str | None = None
     resolution: str | None = None
     start_date: str | None = None
@@ -34,6 +37,8 @@ def create_backtest_router(service: BacktestService) -> APIRouter:
             data, _ = service.validate_inline(payload)
         except ValueError as error:
             raise HTTPException(422, detail=str(error)) from error
+        except AutoFetchError as error:
+            raise HTTPException(503, detail=str(error)) from error
         except OSError:
             raise HTTPException(503, detail='INLINE_POLICY_UNAVAILABLE') from None
         return {'status': 'STRUCTURE_VALID', 'runnable': service.inline_runner is not None,
@@ -48,6 +53,8 @@ def create_backtest_router(service: BacktestService) -> APIRouter:
             return service.run_inline(request.model_dump(mode='json', by_alias=True, exclude_none=True))
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+        except AutoFetchError as error:
+            raise HTTPException(503, detail=str(error)) from error
         except (OSError, KeyError, TypeError):
             raise HTTPException(status_code=503, detail={"code": "BACKTEST_STORAGE_UNAVAILABLE"}) from None
 

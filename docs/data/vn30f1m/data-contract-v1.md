@@ -31,6 +31,15 @@ Primary: OHLCV 5 phút của hợp đồng F1M thực tế tại ngày giao dị
 
 ## 3. Lịch giao dịch
 
+Cập nhật 09/10/2026: `runtime-policy-v1.json` và lịch gốc trong
+`runtime-policy.json` bao phủ 01/03–31/12/2026, tổng cộng 213 ngày giao dịch.
+Giữ nguyên lịch đã có đến 17/09, bổ sung các ngày thứ Hai đến thứ Sáu đến
+hết năm theo [thông báo HNX về lịch nghỉ năm 2026](https://www.gov.hnx.vn/vi-vn/chi-tiet-lich-nghi-gd-60021971.html?_page=1).
+Các ngày nghỉ trong phạm vi này là 27/04, 30/04, 01/05 và 31/08–02/09;
+ngày làm bù thứ Bảy 22/08 không giao dịch. Không suy lịch từ những ngày
+có nến trong nguồn; nến thiếu trong ngày giao dịch vẫn được báo là khoảng thiếu.
+Kiểm tra ngoài lịch, phiên trong ngày và ánh xạ đáo hạn vẫn được giữ nguyên.
+
 - Giờ giao dịch: lịch Việt Nam, múi giờ Asia/Ho_Chi_Minh.
 - Hợp đồng: ATO 08:45–09:00; liên tục
   09:00–11:30 và 13:00–14:30; ATC 14:30–14:45; nghỉ cuối tuần/ngày nghỉ của sở.

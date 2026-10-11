@@ -1,9 +1,11 @@
 import {backtestData, relatedRows} from './backtest-data.mjs?v=20260929';
 import {clearCharts, renderCharts} from './backtest-chart.mjs?v=20260930';
-import {mountInputForm} from './backtest-input.mjs?v=20261008';
+import {mountInputForm} from './backtest-input.mjs?v=20261009';
 
 const $ = selector => document.querySelector(selector);
 const percent = new Intl.NumberFormat('vi-VN', {style: 'percent', maximumFractionDigits: 2});
+const runTime = new Intl.DateTimeFormat('vi-VN', {timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'});
 let sequence = 0;
 let activeRunId;
 let posting = false;
@@ -109,8 +111,9 @@ async function history(after) {
         if (current !== historySequence) return;
         const rows = page.items.map(item => ({'Chi tiết': '', 'Mã': item.symbol || 'Backtest',
             'Ngày bắt đầu': item.start_date || '?', 'Ngày kết thúc': item.end_date || '?',
-            'Sinh lời': percent.format(item.total_return), 'Vốn cuối kỳ': number.format(item.final_equity)}));
-        if (rows.length) table('#history', rows, ['Chi tiết', 'Mã', 'Ngày bắt đầu', 'Ngày kết thúc', 'Sinh lời', 'Vốn cuối kỳ']);
+            'Sinh lời': percent.format(item.total_return), 'Vốn cuối kỳ': number.format(item.final_equity),
+            'Thời điểm chạy': item.run_at ? runTime.format(new Date(item.run_at)) : '?'}));
+        if (rows.length) table('#history', rows, ['Chi tiết', 'Mã', 'Ngày bắt đầu', 'Ngày kết thúc', 'Sinh lời', 'Vốn cuối kỳ', 'Thời điểm chạy']);
         $('#history').querySelectorAll('tbody tr').forEach((row, index) => {
             const id = page.items[index].run_id;
             const open = event => {event.stopPropagation(); return load(id);};

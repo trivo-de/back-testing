@@ -167,12 +167,16 @@ bộ keyword này; không tự hiểu chúng như phép toán đã hỗ trợ.
 
 ## 4. Params ngoài cùng của payload
 
-Dữ liệu phải nằm trong JSON. Trường ngoài schema như `auto_fetch_data`
-bị từ chối; không có bước tự lấy dữ liệu trong API công khai hiện tại.
+Dữ liệu có thể nhập trong JSON hoặc để API tự lấy bằng `auto_fetch_data: true`.
+Khi `auto_fetch_data: true`, API ưu tiên tự lấy và bỏ qua toàn bộ `trade_data`
+và `market_data` nhập tay, kể cả dữ liệu nhập tay chưa hợp lệ. Khi `false`
+hoặc bỏ trường này, API dùng và kiểm tra dữ liệu nhập tay như trước.
+Tải lỗi thì dừng; không tự chuyển sang dùng dữ liệu nhập tay.
+Xem khoảng sáu tháng, nến đã đóng và giới hạn lịch hợp đồng trong
+[đặc tả API](backtest-api-specification.md#3-cấu-trúc-request).
 
 **Params bắt buộc:**
 
-- `trade_data`: Lịch sử giá và khối lượng của mã đem giao dịch, dùng tính chỉ báo, xét tín hiệu và mô phỏng khớp lệnh.
 - `strategy`: Quy tắc giao dịch: dùng chỉ báo nào, khi nào mở/đóng vị thế, vào bao nhiêu hợp đồng và giới hạn rủi ro.
 - `execution`: Cách mô phỏng khớp lệnh, gồm thời điểm khớp và mức trượt giá (chi tiết mục 9).
 - `initial_cash`: Số vốn ban đầu của tài khoản backtest. Ví dụ v1: 100.000.000 đồng.
@@ -183,8 +187,10 @@ initial_cash là chuỗi số thập phân, ví dụ `"100000000"`.
 
 **Params tùy chọn:**
 
+- `auto_fetch_data`: Boolean, mặc định `false`. Đặt `true` để tự tải cả VN30F1M và VNINDEX 5 phút từ VNDIRECT; dữ liệu tự tải luôn được ưu tiên hơn cả hai nguồn nhập tay.
+- `trade_data`: Lịch sử giá và khối lượng giao dịch; bắt buộc khi không bật tự lấy.
 - `report`: report trên start_date/end_date dạng`YYYY-MM-DD `;
-- `market_data`: Lịch sử VNINDEX để đánh giá thị trường chung nếu chiến lược có điều kiện tham chiếu chỉ số này. Khi có source/ref trỏ tới market_data thì phải gửi; nếu không dùng thì bỏ hoặc null.
+- `market_data`: Lịch sử VNINDEX để đánh giá thị trường chung. Khi nhập tay và có source/ref trỏ tới nguồn này thì phải gửi; nếu tự lấy thì máy chủ cung cấp.
 
 **Chỉ báo v1 lấy dữ liệu ở đâu?** Theo quyết định cập nhật, SMA20, EMA5,
 BB và MACD lấy `market_data.close`; MFI14 lấy HLCV trong `market_data`.

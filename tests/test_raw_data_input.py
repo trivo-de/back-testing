@@ -30,11 +30,14 @@ def make_raw(times, base=1000):
 
 
 class RawDataInputTest(unittest.TestCase):
-    def test_auto_fetch_data_is_rejected_as_extra_field(self):
+    def test_auto_fetch_data_ignores_supplied_sources_without_mutating_input(self):
         base = sample()
         base['auto_fetch_data'] = True
-        with self.assertRaises(ValidationError):
-            InlineRunRequest.model_validate(base)
+        original = deepcopy(base)
+        validated = InlineRunRequest.model_validate(base)
+        self.assertIsNone(validated.trade_data)
+        self.assertIsNone(validated.market_data)
+        self.assertEqual(base, original)
 
     def test_raw_trade_data_and_market_data_are_parsed_into_bars(self):
         base = sample()

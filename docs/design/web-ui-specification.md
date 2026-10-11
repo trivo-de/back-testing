@@ -24,7 +24,8 @@ Giao diện không tính lại chiến lược, chỉ báo hoặc tiền; dữ l
    sang đơn vị giá của mô hình normalized.
 7. Danh sách chỉ tải 20 tóm tắt mỗi trang trong bảng, hiển thị symbol,
    ngày bắt đầu và ngày kết thúc ở hai cột riêng, tỷ suất
-   sinh lời và vốn cuối kỳ; UUID chỉ hiện khi rê chuột lên dòng, không làm tên kết quả.
+   sinh lời, vốn cuối kỳ và **Thời điểm chạy** (ngày, giờ/phút/giây theo UTC+7);
+   UUID chỉ hiện khi rê chuột lên dòng, không làm tên kết quả.
    Vốn cuối kỳ chỉ hiển thị số, không thêm hậu tố đơn vị.
    Trang tiếp giữ bộ lọc và thay trang hiện tại; bấm Tìm lịch sử để về trang đầu.
 8. Bấm dòng trong bảng hoặc nút Xem mới tải kết quả và chart bằng GET, không
@@ -39,6 +40,17 @@ Giao diện không tính lại chiến lược, chỉ báo hoặc tiền; dữ l
 
 - Form có vốn ban đầu, ngày bắt đầu/kết thúc báo cáo, số nến khởi tạo chỉ báo,
   thời điểm khớp lệnh và trượt giá. Hai ngày báo cáo cùng bỏ trống hoặc cùng có giá trị.
+- Checkbox **Lấy dữ liệu tự động** mặc định bỏ tick, tương ứng `auto_fetch_data=false`
+  (payload cũ có thể không có flag). Tick chọn thì khóa hai vùng nhập dữ liệu và
+  giữ lại nội dung trên form; bỏ tick sẽ mở lại, không mất dữ liệu hoặc tham số đã chỉnh.
+  Tải payload có `auto_fetch_data=true` sẽ tự tick; điền mẫu giữ lựa chọn hiện tại.
+- Khi tick, bấm **Kiểm tra payload** hoặc **Chạy backtest** gửi cùng endpoint đang có
+  với `auto_fetch_data=true`, bỏ `trade_data`/`market_data` khỏi request. API lấy cả
+  VN30F1M và VNINDEX từ VNDIRECT, ưu tiên dữ liệu tự lấy dù request bên ngoài có
+  gửi kèm dữ liệu nhập tay. Không gọi nguồn khi chỉ tick checkbox; không tách bước
+  lấy dữ liệu trên trình duyệt. Nguồn lỗi thì báo lỗi, không dùng lại dữ liệu nhập tay.
+  Nguồn luôn lấy 6 tháng đến hiện tại; `report` chỉ giới hạn kỳ báo cáo theo
+  [quy tắc API](backtest-api-specification.md). Các phần cấu hình còn lại vẫn được kiểm tra.
 - Chọn mô hình normalized/contract và cách tính khối lượng để hiện các tham số
   tương ứng. Khi đổi mô hình hoặc loại chỉ báo, nhập các tham số của lựa chọn mới;
   giao diện không tự đổi điều kiện BUY/LONG/SHORT hoặc ngưỡng chiến lược.

@@ -34,6 +34,12 @@ Mẫu v1 trên form có hai nến minh họa; thay bằng dữ liệu và chiế
 - `GET /api/backtests/{run_id}/input`: đọc đầu vào.
 - `GET /api/backtests/{run_id}/chart`: đọc dữ liệu biểu đồ.
 
+Hai endpoint POST nhận dữ liệu nhập tay hoặc `"auto_fetch_data": true`.
+Khi bật tự lấy, API ưu tiên tải VN30F1M và VNINDEX 5 phút từ VNDIRECT trong
+sáu tháng gần nhất, chỉ dùng nến đã đóng. Tải lỗi thì dừng, không dùng dữ liệu nhập tay.
+Chi tiết lựa chọn nguồn và giới hạn lịch hợp đồng tại
+[đặc tả API](docs/design/backtest-api-specification.md#3-cấu-trúc-request).
+
 ## Kiểm thử
 
 ```powershell

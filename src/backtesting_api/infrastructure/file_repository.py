@@ -2,7 +2,7 @@ import copy
 import hashlib
 import json
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -105,7 +105,7 @@ class FileRunRepository:
         self.store = store
         self.policy_path = policy_path
 
-    # ============================== V1: payload JSON trực tiếp ==============================
+    # ============================== V1: inline JSON ==============================
 
     def start_inline(self, payload, policy, data):
         """Pin the complete request and policy without requiring a registered dataset."""
@@ -139,7 +139,7 @@ class FileRunRepository:
         if response.get('schema_version') != 2: raise ValueError('INLINE_INPUT_NOT_AVAILABLE_FOR_LEGACY_RUN')
         return self._inline_input(response['metadata']['input_hash'])
 
-    # ============================== Dùng chung: trạng thái và kết quả ==============================
+    # ============================== State and results ==============================
 
 
     def complete_run(self, run_id: UUID, result, response: dict) -> None:
@@ -211,7 +211,12 @@ class FileRunRepository:
             metadata, summary = run['metadata'], run['summary']
             config = metadata.get('config', {})
             report = metadata.get('report_range', {})
+            run_at = metadata.get('run_at')
+            if run_at is None:
+                stat = path.stat()
+                run_at = datetime.fromtimestamp(getattr(stat, 'st_birthtime', stat.st_mtime), timezone.utc).isoformat()
             item = {'run_id': metadata['run_id'],
+                    'run_at': run_at,
                     'symbol': metadata.get('symbol', config.get('symbol')),
                     'resolution': metadata.get('resolution', metadata.get('timeframe')),
                     'start_date': report.get('start', metadata.get('start_date', config.get('start_date'))),

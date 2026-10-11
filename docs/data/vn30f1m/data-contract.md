@@ -1,5 +1,35 @@
 # Data Contract — VN30F1M 5 phút
 
+## Bổ sung 09/10/2026 — tự lấy dữ liệu qua API
+
+Ngoài snapshot nhập tay, API cho phép `auto_fetch_data: true`: lấy VN30F1M
+và VNINDEX 5 phút từ VNDIRECT trong sáu tháng theo lịch đến thời điểm gọi.
+Hai nguồn dùng cùng `from/to` Unix giây; chỉ dùng nến có Open + 300 giây
+không muộn hơn `to`. OHLCV được kiểm tra trước khi chạy, không điền nến thiếu
+hoặc đổi khung thời gian. Không tự cộng lịch sử trước khoảng yêu cầu.
+
+Khi `auto_fetch_data` là boolean `true`, cả hai nguồn tự tải thay thế toàn bộ
+`trade_data` và `market_data` nhập tay, kể cả bảng hợp đồng người dùng gửi.
+Hai nguồn nhập tay bị bỏ qua trước kiểm tra; dữ liệu tự tải vẫn được kiểm tra
+đầy đủ. Nếu tải lỗi thì dừng, không ghép với hoặc dùng lại dữ liệu nhập tay.
+
+Đầu vào đã tải được ghim trong kho file cùng URL, mã băm phản hồi gốc,
+khoảng lấy, số nến đã đóng và số nến chưa đóng bị loại. Lần chạy lại phải dùng
+đầu vào đã lưu nếu cần đúng snapshot; một yêu cầu tự lấy mới có thể khác.
+Mặc định báo cáo theo ngày đầu/cuối thực có dữ liệu giao dịch đã đóng.
+Thiếu mẫu khởi tạo chỉ báo vẫn là chưa đánh giá được.
+
+Không tự mở rộng lịch phiên hoặc suy mã hợp đồng từ giá. Mô hình tiền
+`normalized` giữ cách chạy hiện có; mô hình `contract` tự lấy dùng bảng đáo hạn
+đã có và chịu giới hạn lịch phiên 01/03–31/12/2026 (mở rộng ngày 09/10 theo
+[thông báo HNX](https://www.gov.hnx.vn/vi-vn/chi-tiet-lich-nghi-gd-60021971.html?_page=1)).
+Hai cấu hình `runtime-policy.json` và `runtime-policy-v1.json` giữ nguyên
+138 ngày đã có, bổ sung 75 ngày giao dịch đến hết năm; không thêm cuối tuần
+hoặc thay ngày nghỉ. Ngoài lịch vẫn bị từ chối; bảng đáo hạn hiện đến 17/12/2026.
+Chi tiết trường và lỗi tại [đặc tả API](../../design/backtest-api-specification.md#3-cấu-trúc-request).
+
+## Snapshot và quyết định đã có
+
 Kho file lưu JSON đầu vào/kết quả và đọc Parquet của lịch sử theo
 [kế hoạch kỹ thuật](../../plans/technical-plan.md). Dữ liệu nguồn giữ nguyên.
 

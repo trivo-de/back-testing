@@ -45,7 +45,7 @@ function app(respond) {
     return {$, fields, requests, search};
 }
 const item = (id = 'run-one') => ({run_id: id, symbol: 'VN30F1M', start_date: '2026-03-15',
-    end_date: '2026-09-15', money_unit: 'VND', total_return: '0.1', final_equity: '110000000'});
+    end_date: '2026-09-15', money_unit: 'VND', total_return: '0.1', final_equity: '110000000', run_at: '2026-10-08T17:30:00Z'});
 
 test('history stays unloaded until search, pages contain summaries and only selection loads detail', async () => {
     const run = {metadata: {run_id: 'run-two', symbol: 'VN30F1M'}, summary: {}};
@@ -66,6 +66,8 @@ test('history stays unloaded until search, pages contain summaries and only sele
     assert.match(first.cells[2].textContent, /2026-03-15/);
     assert.equal(first.cells[3].textContent, '2026-09-15');
     assert.equal(first.cells[5].textContent, '110.000.000');
+    assert.match(first.cells[6].textContent, /00:30:00/);
+    assert.match(first.cells[6].textContent, /09\/10\/2026/);
     await ui.$('#history-next').onclick();
     assert.match(ui.requests[1].url, /after=run-one/);
     const rows = ui.$('#history').querySelectorAll('tbody tr');

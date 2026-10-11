@@ -10,7 +10,7 @@
     body{font:14px;font-family:Roboto,sans-serif;max-width:1200px;margin:auto;padding:24px;color:#182230}form,.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}label{display:grid;gap:4px}input,button{padding:8px}button{cursor:pointer}.cards div{background:#eef1f4;padding:12px;border-radius:6px}table{width:100%;border-collapse:collapse;margin:8px 0 24px}th,td{padding:7px;border:1px solid #c7cdd4;text-align:left}th{background:#16324f;color:white}.error{color:#a00}.muted{color:#667085}section{overflow:auto}
   </style>
   <link rel="stylesheet" href="/static/theme.css">
-  <link rel="stylesheet" href="/static/backtest-input.css?v=20261008">
+  <link rel="stylesheet" href="/static/backtest-input.css?v=20261009">
   <link rel="stylesheet" href="/static/backtest-navigation.css?v=20261008-3">
   <style>
     .cards div{background:var(--control)}th,td{border-color:var(--border)}th{background:var(--heading)}.muted{color:var(--muted)}.error{color:var(--error)}button:focus-visible{outline-color:var(--accent)}
@@ -56,6 +56,9 @@
       <button type="button" id="load-example">Điền mẫu CANSLIM v1</button>
     </div>
     <p id="input-status" class="muted input-wide" role="status" aria-live="polite">Chọn mẫu hoặc tải payload JSON, sau đó chỉnh tham số và nạp dữ liệu.</p>
+    <div class="input-wide">
+      <label class="input-checkbox"><input id="auto-fetch-data" type="checkbox" aria-describedby="auto-fetch-help">Lấy dữ liệu tự động (trade: VN30F1M, market: VNINDEX, timeframe: 5m, timestamp: 6 tháng đến hiện tại)</label>
+    </div>
     <fieldset id="input-general" tabindex="-1" class="input-wide"><legend>Tham số lần chạy</legend><div id="general-fields" class="input-grid"></div></fieldset>
     <fieldset id="input-trade" tabindex="-1" class="input-wide"><legend>Dữ liệu giao dịch</legend>
       <div class="input-toolbar"><label>Tải JSON dữ liệu giao dịch<input id="trade_data-file" type="file" accept=".json,application/json"></label>
@@ -119,6 +122,6 @@
     <button type="button" id="history-next" hidden>Trang tiếp</button>
   </section>
   <script type="module" src="/static/theme.mjs?v=20260918"></script>
-  <script type="module" src="/static/backtest-app.mjs?v=20261008-2"></script>
+  <script type="module" src="/static/backtest-app.mjs?v=20261009-2"></script>
 </body>
 </html>

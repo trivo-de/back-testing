@@ -16,7 +16,7 @@ Chuỗi gọi hàm từ HTTP đến engine và kho file, cùng thứ tự xử l
 - Chỉ dùng dữ liệu đã khả dụng tại thời điểm quyết định.
 - Tín hiệu sau Close chỉ khớp tại Open kế tiếp theo quy tắc thực thi.
 - Tín hiệu, lệnh, lần khớp và giao dịch đã đóng là các đối tượng khác nhau.
-- Không tự tải hoặc điền dữ liệu giá bị thiếu.
+- Chỉ tự tải khi bật `auto_fetch_data`; không điền dữ liệu giá bị thiếu.
 - `accounting.model` chọn mô hình tính tiền; symbol không chọn chiến lược.
 
 Quy tắc CANSLIM thuộc [quy tắc v1](../strategies/canslim-v1-rules.md) và
@@ -93,7 +93,11 @@ thứ tự thời gian tạo vì UUID không mang ý nghĩa thời gian trong kh
 Ví dụ: `/api/backtests/history?min_total_return_pct=0&max_total_return_pct=20&limit=20`.
 Thành công trả `200` với `items` và `next_cursor`. Mỗi item chỉ có `run_id`,
 `symbol`, `resolution`, `start_date`, `end_date`, `money_unit`, `total_return`,
-`final_equity`; các trường mô tả có thể là null với lịch sử cũ.
+`final_equity`, `run_at`; các trường mô tả có thể là null với lịch sử cũ.
+`run_at` là thời điểm bắt đầu chạy, trả dưới dạng ISO 8601 có múi giờ và lưu trong
+`metadata.run_at` của kết quả mới. Với run cũ chưa lưu trường này, lịch sử dùng
+ngày tạo file JSON của run; nếu hệ thống không cung cấp ngày tạo file thì dùng
+thời điểm sửa file cuối. Không sửa lại file cũ hoặc đổi mã băm kết quả.
 Hai giá trị kết quả được trả dưới dạng chuỗi số; `total_return` vẫn là tỷ lệ
 gốc, ví dụ `"0.1"` nghĩa là 10%. `money_unit` phân biệt VND với đơn vị giá,
 không tự quy đổi giữa các mô hình. `next_cursor: null` nghĩa là hết kết quả.
@@ -111,13 +115,77 @@ Tên trường và từ khóa phân biệt hoa/thường. Trường ngoài cấu
 
 | Nhóm            | Kiểu JSON        | Bắt buộc                                  | Nội dung                                                      |
 | ---------------- | ----------------- | ------------------------------------------- | -------------------------------------------------------------- |
-| `trade_data`   | object            | Có                                         | Chuỗi giá dùng giao dịch                                   |
-| `market_data`  | object hoặc null | Khi được chỉ báo/biểu thức sử dụng | Chuỗi thị trường tham chiếu                               |
+| `auto_fetch_data` | boolean | Không; mặc định `false` | `true` để ưu tiên tự lấy cả hai nguồn và bỏ qua dữ liệu nhập tay |
+| `trade_data`   | object hoặc null | Khi không bật tự lấy | Chuỗi giá dùng giao dịch |
+| `market_data`  | object hoặc null | Khi nhập tay và được chỉ báo/biểu thức sử dụng | Chuỗi thị trường tham chiếu |
 | `strategy`     | object            | Có                                         | Chỉ báo, vào/thoát lệnh, số lượng và giới hạn ngày |
 | `execution`    | object            | Có                                         | Cách khớp và trượt giá                                   |
 | `accounting`   | object            | Có                                         | Mô hình tính tiền và phí                                 |
 | `initial_cash` | số thập phân   | Có                                         | Vốn ban đầu, lớn hơn 0                                    |
 | `report`       | object hoặc null | Không                                      | Khoảng ngày báo cáo                                        |
+
+Quy tắc chọn nguồn cho cả `/api/backtests/validate` và `/api/backtests`
+(cập nhật 09/10/2026):
+
+- **Nhập tay:** bỏ `auto_fetch_data` hoặc đặt `false`, gửi `trade_data`;
+  gửi thêm `market_data` nếu chiến lược sử dụng nguồn này. Cách gửi cũ vẫn hợp lệ.
+- **Tự lấy:** đặt `auto_fetch_data: true`. Có thể bỏ hai nguồn nhập tay hoặc
+  vẫn gửi; API luôn bỏ qua toàn bộ `trade_data` và `market_data` nhập tay
+  trước khi kiểm tra hai trường này, rồi dùng cả hai nguồn tự tải. Dữ liệu
+  nhập tay thiếu trường, sai kiểu, sai OHLCV, bảng hợp đồng hoặc khác khoảng
+  báo cáo đều không chặn yêu cầu tự lấy.
+
+| `auto_fetch_data` | Dữ liệu nhập tay | Xử lý |
+| --- | --- | --- |
+| `true` | Có hoặc không, hợp lệ hoặc chưa hợp lệ | Bỏ qua cả hai nguồn nhập tay, tự tải cả hai nguồn |
+| `false` hoặc bỏ trường | Đủ và hợp lệ theo chiến lược | Dùng dữ liệu nhập tay |
+| `false` hoặc bỏ trường | Thiếu hoặc chưa hợp lệ | Trả 422 như trước |
+
+Các nhóm chiến lược, khớp lệnh, tính tiền, vốn ban đầu và `report` nếu gửi
+vẫn được kiểm tra. `report` được đối chiếu với dữ liệu tự tải khi bật tự lấy.
+Tự tải lỗi hoặc dữ liệu tải không hợp lệ thì trả lỗi và dừng trước khi tạo
+lượt chạy; không dùng lại dữ liệu nhập tay, không ghép hai loại nguồn.
+Quy tắc ưu tiên này thay thế lỗi `AUTO_FETCH_DATA_CONFLICT` trước đây.
+`auto_fetch_data` chỉ nhận boolean JSON,
+không nhận chuỗi `"true"`, số `1` hoặc `null`.
+
+Máy chủ gọi VNDIRECT cho **VN30F1M và VNINDEX, độ phân giải 5 phút**;
+`to` là Unix giây lúc bắt đầu lấy, `from` lùi đúng sáu tháng theo lịch tại
+`Asia/Ho_Chi_Minh`, giữ giờ/phút/giây. Nếu tháng đầu không có ngày tương ứng,
+dùng ngày cuối tháng đó. Hai nguồn dùng chung khoảng thời gian. Không cộng
+thêm lịch sử trước sáu tháng; thiếu mẫu khởi tạo vẫn được báo chưa đánh giá được.
+Header tải là `Accept: */*`, `User-Agent: backtest-hpg/0.1`; mỗi nguồn có
+thời gian chờ tối đa 60 giây. Không tự thử lại hoặc chuyển nguồn khi tải lỗi.
+
+Chỉ giữ nến có `time + 300 <= to`; không loại riêng nến ATC đã đóng,
+không điền nến thiếu, không đổi độ phân giải. Dữ liệu sai trạng thái, OHLCV,
+thứ tự, mốc 5 phút hoặc vượt khoảng yêu cầu bị từ chối. `report` nếu gửi
+phải nằm trong khoảng ngày thực có nến VN30F1M đã đóng; nếu bỏ, báo cáo dùng
+ngày đầu/cuối của các nến đó, có thể ngắn hơn khoảng yêu cầu nếu nguồn thiếu.
+
+Với `accounting.model: "contract"`, máy chủ dùng bảng đáo hạn từ
+`AUTO_FETCH_POLICY_PATH` (mặc định `runtime-policy.json`) và kiểm tra phiên
+bằng `INLINE_POLICY_PATH` (mặc định `runtime-policy-v1.json`). **Lịch phiên
+bao phủ 01/03–31/12/2026**, gồm ngày làm việc trừ ngày nghỉ theo
+[thông báo HNX năm 2026](https://www.gov.hnx.vn/vi-vn/chi-tiet-lich-nghi-gd-60021971.html?_page=1).
+Dữ liệu ngoài lịch vẫn trả `REPORT_OUTSIDE_STATIC_CALENDAR`; bảng đáo hạn
+hiện bao phủ đến 17/12/2026, vượt bảng trả `CONTRACT_MAP_COVERAGE_MISSING`.
+Tự lấy với mô hình `normalized`
+giữ cách chạy hiện có, không tự thêm bảng hợp đồng hoặc đổi mô hình tiền.
+
+Tự lấy giữa phiên không tạo thêm nến đóng vị thế. Nếu chiến lược `contract`
+còn vị thế ở cuối dữ liệu mà chưa đến thời điểm đóng bắt buộc, lượt chạy có
+thể trả `END_OF_REPORT_POSITION_REQUIRES_EXIT`. Khi muốn chạy các phiên đã
+hoàn tất, gửi `report.end_date` là ngày giao dịch đã kết thúc; máy chủ vẫn
+tải đến hiện tại rồi cắt theo `report`, không tự đổi kỳ báo cáo.
+
+Kết quả tự lấy ghi `metadata.input_origin: "auto_fetch"` và
+`metadata.auto_fetch`: thời điểm/khoảng lấy, URL, mã băm phản hồi nguồn,
+số nến gốc, số nến đã đóng và số nến chưa đóng bị loại của từng nguồn.
+Kho file lưu đầy đủ payload đã chuyển thành dữ liệu cụ thể và metadata;
+không lưu riêng toàn bộ phản hồi HTTP gốc. `/validate` trả `payload` có
+`auto_fetch_data: false` cùng hai nguồn đã tải: gửi lại payload này để chạy
+đúng snapshot đã kiểm tra. Gửi lại `auto_fetch_data: true` sẽ lấy dữ liệu mới.
 
 ### 3.1. trade_data
 
@@ -784,11 +852,13 @@ Một số mã thêm thông tin sau dấu `:`.
 | `/api/backtests`          | 201 Created              | —                                  | Chạy và lưu xong; trả kết quả mục 8.2                                |
 | `/api/backtests`          | 422 Unprocessable Entity | Lỗi cấu trúc/nội dung/thực thi | Không công bố kết quả một phần là thành công                      |
 | `/api/backtests`          | 503 Service Unavailable  | BACKTEST_STORAGE_UNAVAILABLE        | Lỗi lưu trữ/ghi thuộc nhóm được xử lý; detail là object có code |
+| Cả hai POST | 422 Unprocessable Entity | AUTO_FETCH_INVALID_SOURCE, AUTO_FETCH_NO_CLOSED_BARS | Nguồn trả dữ liệu sai hoặc không có nến đã đóng; detail là chuỗi kèm tên nguồn |
+| Cả hai POST | 503 Service Unavailable | AUTO_FETCH_HTTP_ERROR, AUTO_FETCH_NETWORK_ERROR, AUTO_FETCH_UNAVAILABLE | VNDIRECT lỗi HTTP/mạng hoặc máy chủ chưa nối bộ tải; detail là chuỗi, lỗi HTTP kèm mã nguồn trả về |
 
 Ví dụ lỗi cấu trúc do trường thừa:
 
 ```json
-{"detail":[{"type":"extra_forbidden","loc":["body","auto_fetch_data"],"msg":"Extra inputs are not permitted","input":true}]}
+{"detail":[{"type":"extra_forbidden","loc":["body","unknown_field"],"msg":"Extra inputs are not permitted","input":true}]}
 ```
 
 Ví dụ lỗi nội dung trong hàm xử lý:
@@ -868,6 +938,7 @@ Metadata gồm thông tin dữ liệu từ validate và:
 | Trường                          | Kiểu                     | Ý nghĩa                                                        |
 | --------------------------------- | ------------------------- | ---------------------------------------------------------------- |
 | `run_id`                        | string UUID               | Định danh để đọc lại                                      |
+| `run_at`                        | string ISO 8601 có múi giờ | Thời điểm bắt đầu thực thi sau khi chuẩn bị dữ liệu; kết quả mới ghi thời gian UTC |
 | `engine_version`                | string                    | Phiên bản bộ thực thi                                        |
 | `accounting_profile`            | string                    | normalized_v0 hoặc contract_v1                                  |
 | `input_hash`, `policy_hash`   | string/null theo trường | Dấu kiểm tra đầu vào/chính sách                           |

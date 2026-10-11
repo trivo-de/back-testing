@@ -99,8 +99,22 @@ cũng không được bảo đảm.
 `POST /api/backtests/validate` đi qua route `validate_inline(request)` →
 `request.model_dump()` → `service.validate_inline(payload)` rồi trả kết quả
 kiểm tra. Nó không gọi `start_inline()`, `run_inline_strategy()` hoặc lưu run.
-Đầu vào HTTP hiện bắt buộc cung cấp `trade_data`; nhánh `auto_fetch_data`
-trong `prepare_inline()` không thuộc cấu trúc `InlineRunRequest` hiện tại.
+Đầu vào HTTP chọn dữ liệu nhập tay hoặc `auto_fetch_data: true`.
+Khi cờ này là boolean `true`, `InlineRunRequest.prefer_auto_data()` bỏ hai
+nguồn nhập tay trước khi kiểm tra trường, kể cả khi chúng chưa hợp lệ;
+các nhóm cấu hình khác vẫn được kiểm tra. Không sửa trực tiếp JSON đầu vào
+do bên gọi truyền vào.
+`prepare_inline()` gọi `AutoDataFetcher.fetch()` khi bật tự lấy, kiểm tra
+OHLCV và chỉ giữ nến đã đóng trong sáu tháng gần nhất. Hai nguồn dùng cùng
+mốc Unix. Với mô hình contract, bảng đáo hạn được lấy từ chính sách hiện có;
+kiểm tra lịch phiên vẫn dùng `runtime-policy-v1.json`, không tự mở rộng lịch.
+Sau khi lấy, payload chứa hai nguồn cụ thể và `auto_fetch_data: false`;
+metadata giữ nguồn, khoảng lấy, mã băm và số nến bị loại. `start_inline()`
+lưu snapshot này như đầu vào nhập tay để có thể chạy lại. Lỗi nguồn HTTP/mạng
+trả 503 riêng; dữ liệu nguồn sai trả 422 trước khi tạo lượt chạy.
+`prepare_inline()` cũng ưu tiên ghi đè cả hai nguồn cho lời gọi service trực
+tiếp. Tải lỗi thì dừng, không chuyển sang dữ liệu nhập tay. Không cần tách
+endpoint hoặc hai request để lấy dữ liệu rồi chạy backtest.
 
 ### 1.2. Trong mỗi nến, engine gọi gì và theo thứ tự nào?
 
@@ -308,6 +322,10 @@ Core chạy trong bộ nhớ; `complete_run()` kiểm tra run/input và công b�
 kết quả succeeded bằng thay tệp nguyên tử, kèm result_hash. Lỗi sau khi tạo run
 được lưu bằng `fail_run()`. Đây là công bố từng tệp, không phải giao dịch nhiều
 file; run chỉ thành công khi tệp kết quả đầy đủ đã được công bố.
+
+Kết quả mới lưu thời điểm bắt đầu thực thi trong `metadata.run_at` theo UTC.
+Lịch sử dùng trường này; run cũ dùng ngày tạo file JSON, hoặc ngày sửa cuối nếu
+hệ thống không có ngày tạo. Không ghi lại kết quả cũ để bổ sung thời gian.
 
 `get_run()` kiểm tra phiên bản, trạng thái, run_id, hash kết quả và đầu vào/chính
 sách của phiên bản 2. `list_runs()` chỉ trả succeeded, theo tên tệp giảm dần;

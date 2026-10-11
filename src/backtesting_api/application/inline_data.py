@@ -93,6 +93,8 @@ def resolve_inline(payload, policy=None):
     report = payload.get('report') or {'start_date': trade[0].trading_date.date().isoformat(),
                                      'end_date': trade[-1].trading_date.date().isoformat()}
     start, end = (date.fromisoformat(report[key]) for key in ('start_date', 'end_date'))
+    if not trade[0].trading_date.date() <= start <= end <= trade[-1].trading_date.date():
+        raise ValueError('INVALID_REPORT_RANGE')
     zone = ZoneInfo(payload['trade_data']['timezone'])
     end_exclusive = datetime.combine(end + timedelta(days=1), time.min, zone)
     trade = tuple(bar for bar in trade if bar.trading_date < end_exclusive)

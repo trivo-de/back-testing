@@ -45,6 +45,7 @@ back-testing/
 │       │   ├── execution.py       # Khớp lệnh
 │       │   └── contract_accounting.py # Tính tiền hợp đồng
 │       ├── infrastructure/
+│       │   ├── auto_fetch_data.py # Tải snapshot VNDIRECT sáu tháng, chỉ giữ nến đã đóng
 │       │   ├── file_repository.py # Kho JSON và đọc dataset lịch sử Parquet
 │       │   └── market_snapshot.py # Kiểm tra, chuẩn hóa OHLCV nguồn
 │       └── web/

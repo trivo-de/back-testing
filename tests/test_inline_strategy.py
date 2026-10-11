@@ -16,7 +16,8 @@ from test_application_api import MemoryRepository
 def sample():
     # Use the tracked example rather than the local data/payload.json file.
     doc = (Path(__file__).parents[1] / 'docs/design/backtest-api-specification.md').read_text(encoding='utf-8')
-    return json.loads(doc.split('```json\n', 1)[1].split('```', 1)[0])
+    example = doc.split('## 4. Payload minh họa', 1)[1]
+    return json.loads(example.split('```json\n', 1)[1].split('```', 1)[0])
 
 
 class InlineStrategyTest(unittest.TestCase):
