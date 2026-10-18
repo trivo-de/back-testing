@@ -3,6 +3,18 @@ import {existsSync, readFileSync} from 'node:fs';
 import test from 'node:test';
 import {assemblePayload, dataSource, mountInputForm, sourceInfo, splitPayload} from '../../src/backtesting_api/web/backtest-input.mjs';
 
+test('auction records and contract dates remain data when splitting and assembling payloads', () => {
+    const value = {execution: {matching_model: 'hnx_sessions_v1'}, trade_data: {
+        bars: [{time: 1774423500}], auctions: [{match_time: 1774424700, price: '1002'}],
+        contract_dates: [{date: '2026-03-25', contract_code: 'VN30F2604'}],
+        provenance: {provider: 'fixture', timestamp_convention: 'bar_open', note: 'synthetic'}}};
+    const {config, data} = splitPayload(value);
+    assert.equal(config.trade_data.auctions, undefined);
+    assert.equal(config.trade_data.contract_dates, undefined);
+    assert.deepEqual(assemblePayload(config, data), value);
+    assert.match(sourceInfo(value.trade_data), /1 bản ghi ATC/);
+});
+
 class Element {
     constructor(tag = 'div') {this.tagName = tag.toUpperCase(); this.children = []; this.value = ''; this.textContent = ''; this.validationMessage = '';}
     append(...items) {for (const item of items) {item.parentElement = this; this.children.push(item);}}
@@ -36,7 +48,7 @@ function editor(getJSON = () => {throw Error('Không được tự tải dữ li
         return {form, input, walk: () => walk(form), field: label => walk(form).find(element => element.tagName === 'LABEL' && element.textContent === label).children[0]};
     } finally {globalThis.document = previous;}
 }
-const files = ['payload-hpg-canslim-v0-daily.json', 'payload-vn30f1m-canslim-v0.json', 'payload.json', 'payload_raw.json'];
+const files = ['payload-hpg-canslim-v0-daily.json', 'payload-vn30f1m-canslim-v0.json', 'payload.json', 'payload_raw.json', 'payload_continuous_lo.json', 'payload_continuous_lo_auto.json', 'payload_ato_atc_partial_auto.json'];
 const payload = name => JSON.parse(readFileSync(new URL(`../../data/payload_examples/${name}`, import.meta.url), 'utf8'));
 const sample = () => JSON.parse(readFileSync(new URL('../../src/backtesting_api/web/canslim-v1-example.json', import.meta.url), 'utf8'));
 const raw = key => {
@@ -160,6 +172,22 @@ test('auto fetch skips manual data validation and preserves manual data and othe
     } finally {globalThis.document = previous;}
 });
 
+test('auto fetch submits report dates without loaded price data', () => {
+    const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
+    try {
+        const ui = editor();
+        const {trade_data, market_data, report, ...config} = sample();
+        ui.input.setPayload({...config, auto_fetch_data: true});
+        ui.field('Ngày bắt đầu báo cáo').value = '2026-04-01';
+        ui.field('Ngày kết thúc báo cáo').value = '2026-09-30';
+        const request = ui.input.read();
+        assert.deepEqual(request.report, {start_date: '2026-04-01', end_date: '2026-09-30'});
+        assert.equal(request.auto_fetch_data, true);
+        assert.equal(request.trade_data, undefined);
+        assert.equal(request.market_data, undefined);
+    } finally {globalThis.document = previous;}
+});
+
 test('payload import restores auto fetch and loading the example keeps the selected data mode', async () => {
     const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
     try {
@@ -178,5 +206,38 @@ test('payload import restores auto fetch and loading the example keeps the selec
         assert.deepEqual(ui.input.read(), {...config, auto_fetch_data: true});
         checkbox.checked = false; checkbox.onchange();
         assert.deepEqual(ui.input.read(), {...config, trade_data, market_data, auto_fetch_data: false});
+    } finally {globalThis.document = previous;}
+});
+
+test('HNX continuous matching supports automatic fetch and preserves cached manual sources', () => {
+    const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
+    try {
+        const ui = editor(), value = sample();
+        value.auto_fetch_data = false;
+        value.execution.matching_model = 'hnx_sessions_v1';
+        value.execution.entry_fill_policy = 'limit';
+        value.execution.auction_match_quantity = 0;
+        value.strategy.entry.limit_price = {ref: 'trade_data.close'};
+        value.trade_data.contract_dates = [{date: '2026-03-25', contract_code: 'VN30F2604'}];
+        value.trade_data.provenance = {provider: 'fixture', timestamp_convention: 'bar_open', note: 'synthetic'};
+        ui.input.setPayload(value);
+        const checkbox = ui.form.querySelector('#auto-fetch-data');
+        assert.notEqual(checkbox.disabled, true);
+        assert.equal(checkbox.checked, false);
+        assert.equal(ui.form.querySelector('#input-trade').disabled, false);
+        assert.equal(ui.field('Giới hạn khớp mỗi đợt đấu giá').value, '0');
+        assert.deepEqual(ui.input.read(), value);
+
+        checkbox.checked = true; checkbox.onchange();
+        const {trade_data, market_data, ...config} = value;
+        assert.deepEqual(ui.input.read(), {...config, auto_fetch_data: true});
+        assert.equal(ui.form.querySelector('#input-trade').disabled, true);
+        assert.equal(ui.form.querySelector('#input-market').disabled, true);
+        checkbox.checked = false; checkbox.onchange();
+        assert.deepEqual(ui.input.read(), value, 'manual data and contract provenance must survive auto mode');
+        ui.input.setPayload({...config, auto_fetch_data: true});
+        assert.equal(checkbox.checked, true);
+        assert.notEqual(checkbox.disabled, true);
+        assert.deepEqual(ui.input.read(), {...config, auto_fetch_data: true});
     } finally {globalThis.document = previous;}
 });

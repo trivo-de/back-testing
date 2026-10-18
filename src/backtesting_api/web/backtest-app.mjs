@@ -1,6 +1,6 @@
 import {backtestData, relatedRows} from './backtest-data.mjs?v=20260929';
 import {clearCharts, renderCharts} from './backtest-chart.mjs?v=20260930';
-import {mountInputForm} from './backtest-input.mjs?v=20261009';
+import {mountInputForm} from './backtest-input.mjs?v=20261013-1';
 
 const $ = selector => document.querySelector(selector);
 const percent = new Intl.NumberFormat('vi-VN', {style: 'percent', maximumFractionDigits: 2});
@@ -51,6 +51,7 @@ async function show(run, current) {
     $('#result').hidden = false;
     $('#navigation-results').hidden = false;
     const contract = run.metadata.accounting_profile === 'contract_v1';
+    const sessions = run.metadata.matching_model === 'hnx_sessions_v1';
     $('#run-title').textContent = `${run.metadata.symbol || run.metadata.config?.symbol || 'Backtest'} · ${run.metadata.run_id}`;
     $('#summary').replaceChildren();
     for (const [key, value] of Object.entries(run.summary)) {
@@ -60,11 +61,11 @@ async function show(run, current) {
     }
     const renderTables = fillId => {
         const rows = relatedRows(run, fillId);
-        table('#fills', rows.fills, ['fill_time', ...(contract ? ['direction', 'contract_code'] : []), 'side', 'fill_price', 'quantity', 'fee', ...(contract ? ['broker_fee', 'exchange_fee', 'clearing_fee', 'pit'] : [])]);
+        table('#fills', rows.fills, ['fill_time', ...(sessions ? ['order_type', 'phase', 'time_precision'] : []), ...(contract ? ['direction', 'contract_code'] : []), 'side', 'fill_price', 'quantity', 'fee', ...(contract ? ['broker_fee', 'exchange_fee', 'clearing_fee', 'pit'] : [])]);
         table('#trades', rows.trades, [...(contract ? ['direction', 'contract_code'] : []), 'entry_date', 'exit_date', 'entry_price', 'exit_price', 'quantity', 'fees', 'net_pnl', 'close_reason']);
         table('#position', rows.position, [...(contract ? ['direction', 'contract_code'] : []), 'quantity', 'entry_price', ...(contract ? ['remaining_entry_cost'] : ['market_value']), 'unrealized_pnl']);
         table('#audit', rows.signals, ['signal_time', 'side', 'reason', ...(contract ? [] : ['pivot'])]);
-        table('#orders', rows.orders, ['created_time', 'side', 'status', contract ? 'reason' : 'rejection_reason']);
+        table('#orders', rows.orders, ['created_time', ...(sessions ? ['order_type', 'limit_price', 'quantity', 'filled_quantity', 'expired_quantity', 'remaining_quantity', 'completed_time'] : []), 'side', 'status', contract ? 'reason' : 'rejection_reason']);
         table('#equity', rows.equity, ['trading_date', 'cash', 'quantity', ...(contract ? ['required_margin', 'available_cash'] : ['market_value']), 'equity', 'unrealized_pnl']);
         $('#table-filter').hidden = !rows.selected;
         $('#table-filter').textContent = rows.selected ? `Đang lọc theo ${rows.selected.side} lúc ${rows.selected.fill_time}. Bấm vùng trống trên chart để bỏ lọc.` : '';

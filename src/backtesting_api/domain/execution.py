@@ -166,7 +166,7 @@ class ContractExecution:
         self.portfolio = updated
         return fill, trade
 
-    def intrabar(self, bar):
+    def intrabar(self, bar, *, entry_intrabar=False):
         p = self.portfolio.position
         if p is None or self.bracket is None: return ()
         if not hasattr(bar, 'high') or not hasattr(bar, 'low'):
@@ -177,7 +177,7 @@ class ContractExecution:
         events = []
         stop_hit = low <= self.active_stop if p.sign == 1 else high >= self.active_stop
         if stop_hit:
-            gap = opened <= self.active_stop if p.sign == 1 else opened >= self.active_stop
+            gap = not entry_intrabar and (opened <= self.active_stop if p.sign == 1 else opened >= self.active_stop)
             price = opened if gap else self.active_stop
             initial_stop = self.level(p.entry_price - p.sign * self.bracket.stop_distance, p.sign == -1)
             reason = 'TRAILING_STOP' if self.active_stop != initial_stop else 'STOP_LOSS'
@@ -185,6 +185,8 @@ class ContractExecution:
             created = self.entry_fill.fill_date
             fill, trade = self.execute(signal, created, bar.trading_date if gap else bar.closed_at, price)
             return ((signal, replace(fill, bar_time=bar.trading_date), trade),)
+        if entry_intrabar:
+            return ()
         trailing_was_active = self.extreme is not None
         while self.target_index < len(self.bracket.targets) and self.portfolio.position is not None:
             distance, quantity = self.bracket.targets[self.target_index]

@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Sequence
 from uuid import UUID
@@ -8,6 +8,33 @@ from pathlib import Path
 from .inline_data import resolve_inline
 from .inline_results import inline_result_to_dict
 from .ports import RunRepository
+from ..infrastructure.auto_fetch_data import AutoFetchError
+from .inline_strategy import check_runtime
+
+def _warmup_bars(strategy):
+    periods = {}
+    for name, indicator in strategy.get('indicators', {}).items():
+        if indicator['type'] == 'MACD':
+            periods[name] = indicator['slow_period'] + indicator['signal_period'] - 1
+        else:
+            periods[name] = indicator['period'] + (indicator['type'] == 'MFI')
+    required = max(strategy.get('warmup_bars') or 0, max(periods.values(), default=0))
+
+    def collect(value):
+        nonlocal required
+        if isinstance(value, dict):
+            ref, shift = value.get('ref', ''), value.get('shift', 0)
+            name = ref.split('.')[0]
+            if name in periods:
+                required = max(required, periods[name] + shift)
+            elif name in ('trade_data', 'market_data') and shift:
+                required = max(required, shift + 1)
+            for child in value.values(): collect(child)
+        elif isinstance(value, list):
+            for child in value: collect(child)
+
+    collect(strategy)
+    return required
 
 
 class BacktestService:
@@ -28,22 +55,50 @@ class BacktestService:
     def prepare_inline(self, payload):
         """Resolve supplied or automatically fetched data without creating a run."""
         fetch_metadata = None
+        policy = None
         if payload.get('auto_fetch_data'):
             if self.data_fetcher is None:
-                from ..infrastructure.auto_fetch_data import AutoFetchError
                 raise AutoFetchError('AUTO_FETCH_UNAVAILABLE')
-            resolved, fetch_metadata = self.data_fetcher.fetch()
+            history_start = None
             if payload['accounting']['model'] == 'contract':
                 mapping_policy = json.loads(self.auto_fetch_policy_path.read_bytes())
+                if not mapping_policy['rollover']:
+                    raise ValueError('CONTRACT_MAP_COVERAGE_MISSING')
+                policy = json.loads(self.inline_policy_path.read_bytes())
+                history_start = max(
+                    policy['calendar_range']['start'],
+                    date.fromisoformat(mapping_policy['rollover'][0]['expiry']).replace(day=1).isoformat())
+            report = payload.get('report')
+            if report:
+                warmup = max(_warmup_bars(payload['strategy']), int(payload['execution']['entry_fill_policy'] == 'ato'))
+                calendar_policy = policy or (json.loads(self.inline_policy_path.read_bytes()) if warmup else None)
+                resolved, fetch_metadata = self.data_fetcher.fetch_by_range(
+                    report['start_date'], report['end_date'], warmup_bars=warmup,
+                    session_policy=calendar_policy, continuous_only=payload['accounting']['model'] == 'contract',
+                    history_start=history_start)
+            else:
+                resolved, fetch_metadata = self.data_fetcher.fetch()
+            if payload['accounting']['model'] == 'contract':
                 resolved['trade_data']['contract_map'] = [
                     {'contract_code': row['contract'], 'expiry_date': row['expiry'],
                      'expiry_unix': row['expiry_unix']} for row in mapping_policy['rollover']]
                 fetch_metadata['rollover_source'] = mapping_policy['rollover_source']
+                if payload['execution'].get('matching_model') == 'hnx_sessions_v1':
+                    fetch_metadata['contract_mapping_assumption'] = 'expiry_inclusive'
+                    resolved['trade_data']['provenance'] = {
+                        'provider': fetch_metadata['provider'], 'timestamp_convention': 'bar_open',
+                        'note': ('Tự lấy nến 5 phút; timestamp được diễn giải là đầu nến, '
+                                 'Close và available_at bằng Open + 5 phút theo quy ước mô phỏng. '
+                                 'Dùng bảng đáo hạn đã cung cấp để gắn mã theo giả định đã được người dùng đồng ý: '
+                                 'giữ mã cũ đến hết ngày đáo hạn, chuyển mã từ ngày sau đó. '
+                                 'Chưa đối chiếu lịch chuyển mã và timestamp với nhà cung cấp.')}
             payload.update(resolved)
             payload['auto_fetch_data'] = False
-        policy = (json.loads(self.inline_policy_path.read_bytes())
-                  if payload['trade_data'].get('contract_map') else None)
-        data = resolve_inline(payload, policy)
+        if policy is None and (payload['trade_data'].get('contract_map')
+                               or payload['execution'].get('matching_model') == 'hnx_sessions_v1'):
+            policy = json.loads(self.inline_policy_path.read_bytes())
+        data = resolve_inline(payload, policy, derive_contract_dates=(
+            fetch_metadata is not None and payload['execution'].get('matching_model') == 'hnx_sessions_v1'))
         if fetch_metadata is not None:
             data = replace(data, metadata={**data.metadata, 'input_origin': 'auto_fetch',
                                            'auto_fetch': fetch_metadata})
@@ -54,7 +109,6 @@ class BacktestService:
         data, policy = self.prepare_inline(payload)
         if any(bar.available_at != bar.closed_at for bar in data.bars):
             raise ValueError('PRIMARY_AVAILABILITY_DELAY_UNSUPPORTED')
-        from .inline_strategy import check_runtime
         check_runtime(payload)
         return data, policy
 
@@ -110,4 +164,3 @@ class BacktestService:
 
     def get_input(self, run_id: UUID):
         return self.repository.get_input(run_id)
-

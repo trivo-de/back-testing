@@ -26,7 +26,8 @@ def contract_result_to_dict(run_id, data, result, *, input_hash, policy_hash, ac
         raise ValueError('CONTRACT_RESULT_REQUIRED')
     if len(result.signals) != len(result.orders): raise ValueError('EVENT_COUNT_MISMATCH')
     signals, orders, fills, trades = [], [], [], []
-    fill_index = trade_index = position_index = 0
+    next_fill_index = trade_index = position_index = 0
+    seen_fills = set()
     position = entry = None
     contracts = {bar.trading_date.date(): bar.contract_code for bar in data.bars}
     for sequence, (signal, order) in enumerate(zip(result.signals, result.orders), 1):
@@ -38,47 +39,75 @@ def contract_result_to_dict(run_id, data, result, *, input_hash, policy_hash, ac
         if signal.details: signals[-1]['strategy_details'] = dict(signal.details)
         orders.append({'order_id': order_id, 'signal_id': signal_id, 'created_time': order.signal_date,
                        'side': order.side, 'status': order.status.lower(), 'reason': order.reason})
+        if order.order_type is not None:
+            orders[-1].update(order_type=order.order_type, quantity=order.quantity, limit_price=order.limit_price,
+                              filled_quantity=order.filled_quantity, expired_quantity=order.expired_quantity,
+                              remaining_quantity=order.remaining_quantity,
+                              events=order.events, submitted_time=order.signal_date,
+                              completed_time=order.events[-1]['time'] if order.events and order.status != 'PENDING' else None)
         if signal.side == 'CLOSE' and position is not None:
             orders[-1]['position_id'] = position['position_id']
-        if order.status != 'FILLED': continue
-        if fill_index >= len(result.fills): raise ValueError('MISSING_FILL')
-        fill = result.fills[fill_index]
-        fill_index += 1
-        if not isinstance(fill, ContractFill) or (fill.signal_date, fill.side) != (signal.signal_date, signal.side):
-            raise ValueError('ORDER_FILL_MISMATCH')
-        fill_id = uuid5(run_id, f'fill:{fill_index}')
-        contract = contracts.get(fill.fill_date.date())
-        if fill.side in ('LONG', 'SHORT'):
-            if position is not None: raise ValueError('OVERLAPPING_POSITIONS')
-            position_index += 1
-            position = {'position_id': uuid5(run_id, f'position:{position_index}'), 'direction': fill.direction,
-                        'contract_code': contract, 'entry_fill_id': fill_id, 'entry_time': fill.fill_date,
-                        'entry_price': fill.price, 'initial_quantity': fill.quantity, 'quantity': fill.quantity}
-            entry = fill
-        elif position is None or contract != position['contract_code']:
-            raise ValueError('EXIT_POSITION_OR_CONTRACT_MISMATCH')
-        orders[-1]['position_id'] = position['position_id']
-        fills.append({'fill_id': fill_id, 'order_id': order_id, 'position_id': position['position_id'],
-                      'contract_code': contract, 'direction': fill.direction, 'side': fill.side,
-                      'signal_time': fill.signal_date, 'fill_time': fill.fill_date, 'fill_price': fill.price,
-                      'bar_time': fill.bar_time or fill.fill_date,
-                      'quantity': fill.quantity, 'fee': fill.fee, **fill.costs.__dict__})
-        if fill.side == 'CLOSE':
-            if trade_index >= len(result.trades): raise ValueError('MISSING_EXIT_LEG')
-            trade = result.trades[trade_index]
-            trade_index += 1
-            if (not isinstance(trade, ContractTrade) or trade.quantity != fill.quantity
-                    or trade.exit_date != fill.fill_date or trade.entry_date != entry.fill_date
-                    or trade.direction != position['direction']):
-                raise ValueError('EXIT_LEG_MISMATCH')
-            trades.append({'trade_id': uuid5(run_id, f'trade:{trade_index}'),
-                           'position_id': position['position_id'], 'entry_fill_id': position['entry_fill_id'],
-                           'exit_fill_id': fill_id, 'contract_code': contract, 'close_reason': signal.reason,
-                           **trade.__dict__})
-            position['quantity'] -= fill.quantity
-            if position['quantity'] < 0: raise ValueError('NEGATIVE_OPEN_QUANTITY')
-            if position['quantity'] == 0: position = None
-    if fill_index != len(result.fills) or trade_index != len(result.trades):
+        linked = order.fill_indices or ((order.fill_index,) if order.fill_index is not None else ())
+        if not linked and order.status == 'FILLED':
+            while next_fill_index in seen_fills: next_fill_index += 1
+            linked = (next_fill_index,)
+        for actual_index in linked:
+            if actual_index in seen_fills or not 0 <= actual_index < len(result.fills):
+                raise ValueError('ORDER_FILL_LINK_INVALID')
+            seen_fills.add(actual_index)
+            next_fill_index = max(next_fill_index, actual_index + 1)
+            fill = result.fills[actual_index]
+            if not isinstance(fill, ContractFill) or (fill.signal_date, fill.side) != (signal.signal_date, signal.side):
+                raise ValueError('ORDER_FILL_MISMATCH')
+            fill_id = uuid5(run_id, f'fill:{actual_index + 1}')
+            contract = contracts.get(fill.fill_date.date())
+            if fill.side in ('LONG', 'SHORT'):
+                if position is not None: raise ValueError('OVERLAPPING_POSITIONS')
+                position_index += 1
+                position = {'position_id': uuid5(run_id, f'position:{position_index}'), 'direction': fill.direction,
+                            'contract_code': contract, 'entry_fill_id': fill_id, 'entry_time': fill.fill_date,
+                            'entry_price': fill.price, 'initial_quantity': fill.quantity, 'quantity': fill.quantity}
+                entry = fill
+            elif position is None or contract != position['contract_code']:
+                raise ValueError('EXIT_POSITION_OR_CONTRACT_MISMATCH')
+            orders[-1]['position_id'] = position['position_id']
+            fills.append({'fill_id': fill_id, 'order_id': order_id, 'position_id': position['position_id'],
+                          'contract_code': contract, 'direction': fill.direction, 'side': fill.side,
+                          'signal_time': fill.signal_date, 'fill_time': fill.fill_date, 'fill_price': fill.price,
+                          'bar_time': fill.bar_time or fill.fill_date,
+                          'quantity': fill.quantity, 'fee': fill.fee, **fill.costs.__dict__})
+            if order.order_type is not None:
+                auction_order = order.order_type in ('ATO', 'ATC')
+                fills[-1].update(order_type=order.order_type,
+                                 phase=order.order_type if auction_order else 'CONTINUOUS',
+                                 time_precision='auction' if auction_order else
+                                                'bar_close_convention' if fill.fill_date != fill.bar_time else 'bar_open')
+                if auction_order:
+                    auction = next((a for a in data.auction_events if a.match_time == fill.fill_date), None)
+                    bar = next((b for b in data.bars if b.trading_date == fill.bar_time), None)
+                    if auction is not None:
+                        fills[-1].update(available_at=auction.available_at, source=auction.source)
+                    elif bar is not None:
+                        fills[-1].update(available_at=fill.fill_date if order.order_type == 'ATO' else bar.available_at,
+                                         source=data.metadata['provenance']['provider'])
+                    else:
+                        raise ValueError('AUCTION_FILL_SOURCE_MISSING')
+            if fill.side == 'CLOSE':
+                if trade_index >= len(result.trades): raise ValueError('MISSING_EXIT_LEG')
+                trade = result.trades[trade_index]
+                trade_index += 1
+                if (not isinstance(trade, ContractTrade) or trade.quantity != fill.quantity
+                        or trade.exit_date != fill.fill_date or trade.entry_date != entry.fill_date
+                        or trade.direction != position['direction']):
+                    raise ValueError('EXIT_LEG_MISMATCH')
+                trades.append({'trade_id': uuid5(run_id, f'trade:{trade_index}'),
+                               'position_id': position['position_id'], 'entry_fill_id': position['entry_fill_id'],
+                               'exit_fill_id': fill_id, 'contract_code': contract, 'close_reason': signal.reason,
+                               **trade.__dict__})
+                position['quantity'] -= fill.quantity
+                if position['quantity'] < 0: raise ValueError('NEGATIVE_OPEN_QUANTITY')
+                if position['quantity'] == 0: position = None
+    if len(seen_fills) != len(result.fills) or trade_index != len(result.trades):
         raise ValueError('UNMATCHED_RESULT_EVENTS')
     ledger = result.portfolio.position
     if (ledger is None) != (position is None) or (ledger and ledger.quantity != position['quantity']):
@@ -95,7 +124,9 @@ def contract_result_to_dict(run_id, data, result, *, input_hash, policy_hash, ac
                              'accounting_profile': 'contract_v1', 'input_hash': input_hash, 'policy_hash': policy_hash,
                              'accounting': accounting, 'initial_cash': result.summary.initial_cash,
                              'money_unit': 'VND', 'quantity_unit': 'contracts',
-                             'fill_time_convention': 'Open for market/gap fills; bar Close for intrabar touches'},
+                              'fill_time_convention': ('Open for market/gap fills; bar Close for intrabar touches; 09:00 Open for ATO; 14:45 Close for ATC'
+                                                      if data.metadata.get('matching_model') else
+                                                      'Open for market/gap fills; bar Close for intrabar touches')},
                 'signals': signals, 'orders': orders, 'fills': fills, 'trades': trades,
                 'open_position': position, 'equity_history': history,
                 'summary': {**result.summary.__dict__, 'total_fees': result.portfolio.fees}}

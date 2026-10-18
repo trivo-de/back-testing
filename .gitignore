@@ -29,3 +29,5 @@ local_only_docs/
 AGENTS.md
 
 /.postman/
+
+/.codegraph/

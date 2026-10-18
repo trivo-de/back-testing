@@ -102,16 +102,29 @@ function intradayData(run, payload) {
             return {time, open, high, low, close};
         });
     };
+    const sourceBars = new Map(payload.bars.map(row => [timestamp(row.time), row]));
     const candles = rows(payload.bars);
     if (!candles.length) throw Error('Thiếu nến của lần chạy.');
     const dates = new Set(candles.map(b => b.time));
+    const auctions = new Map((payload.auctions ?? []).map(a => [timestamp(a.time), a]));
+    // A whitespace point reserves auction time without inventing an OHLC candle.
+    for (const time of auctions.keys()) if (!dates.has(time)) candles.push({time});
+    candles.sort((a, b) => a.time - b.time);
     const orders = new Map(run.orders.map(o => [o.order_id, o]));
     const signals = new Map(run.signals.map(s => [s.signal_id, s]));
     const ids = new Set();
     const fills = run.fills.map(fill => {
         const order = orders.get(fill.order_id), signal = signals.get(order?.signal_id);
         const chartTime = timestamp(fill.bar_time ?? fill.fill_time);
-        if (!dates.has(chartTime) || !signal || order.status !== 'filled' || ids.has(fill.fill_id)
+        const auction = auctions.get(chartTime);
+        const sourceBar = sourceBars.get(chartTime), auctionType = ['ATO', 'ATC'].includes(fill.order_type);
+        const auctionFill = auctionType && ((auction?.status === 'matched'
+            && auction.contract_code === fill.contract_code && numeric(auction.price) === numeric(fill.fill_price))
+            || (sourceBar?.contract_code === fill.contract_code
+                && numeric(sourceBar[fill.order_type === 'ATO' ? 'open' : 'close']) === numeric(fill.fill_price)));
+        const orderHasFill = order?.status === 'filled' || Number(order?.filled_quantity) > 0;
+        if ((!dates.has(chartTime) && !auctionFill) || (auctionType && !auctionFill)
+            || !signal || !orderHasFill || ids.has(fill.fill_id)
             || !['BUY', 'SELL', 'LONG', 'SHORT', 'CLOSE'].includes(fill.side) || numeric(fill.fill_price) <= 0) throw Error('Khớp lệnh không thuộc chart.');
         ids.add(fill.fill_id);
         return {...fill, chartTime, reason: signal.reason};

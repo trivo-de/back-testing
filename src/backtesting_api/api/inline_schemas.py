@@ -10,6 +10,7 @@ from ..infrastructure.market_snapshot import normalize_raw_source
 Positive = Annotated[Decimal, Field(gt=0, allow_inf_nan=False)]
 Nonnegative = Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
 Period = Annotated[StrictInt, Field(gt=0)]
+AuctionQuantity = Annotated[StrictInt, Field(ge=0)]
 
 
 class StrictModel(BaseModel):
@@ -68,6 +69,35 @@ class ContractMapInput(StrictModel):
     expiry_unix: StrictInt
 
 
+class ContractDateInput(StrictModel):
+    date: date
+    contract_code: str = Field(min_length=1)
+
+
+class ProvenanceInput(StrictModel):
+    provider: str = Field(min_length=1)
+    timestamp_convention: Literal['bar_open']
+    note: str = Field(min_length=1)
+
+
+class AuctionInput(StrictModel):
+    phase: Literal['ATC'] = 'ATC'
+    contract_code: str = Field(min_length=1)
+    match_time: StrictInt
+    available_at: StrictInt
+    status: Literal['matched', 'no_match']
+    price: Positive | None = None
+    source: str = Field(min_length=1)
+
+    @model_validator(mode='after')
+    def price_status(self):
+        if (self.status == 'matched') != (self.price is not None):
+            raise ValueError('AUCTION_PRICE_STATUS_MISMATCH')
+        if self.price is not None and self.price % Decimal('.1'):
+            raise ValueError('AUCTION_PRICE_OFF_TICK')
+        return self
+
+
 class DataInput(StrictModel):
     resolution: Literal['5', 'D'] = '5'
     bars: list[CandleInput] = Field(min_length=1)
@@ -76,6 +106,9 @@ class DataInput(StrictModel):
     timezone: str = 'Asia/Ho_Chi_Minh'
     price_unit: str | None = None
     contract_map: list[ContractMapInput] = Field(default_factory=list)
+    contract_dates: list[ContractDateInput] = Field(default_factory=list)
+    auctions: list[AuctionInput] = Field(default_factory=list)
+    provenance: ProvenanceInput | None = None
 
     @model_validator(mode='before')
     @classmethod
@@ -106,6 +139,21 @@ class DataInput(StrictModel):
                 raise ValueError('INVALID_UNIX_TIME') from None
             previous = (bar.time, close, available)
         codes = set()
+        dates = [item.date for item in self.contract_dates]
+        if dates != sorted(set(dates)):
+            raise ValueError('UNORDERED_CONTRACT_DATES')
+        previous_match = None
+        for auction in self.auctions:
+            try:
+                matched = datetime.fromtimestamp(auction.match_time / scale, zone)
+                available = datetime.fromtimestamp(auction.available_at / scale, zone)
+            except (ValueError, OverflowError, OSError):
+                raise ValueError('INVALID_AUCTION_TIME') from None
+            if (zone.key != 'Asia/Ho_Chi_Minh' or matched.time() != time(14, 45)
+                    or available < matched or available.date() != matched.date()
+                    or (previous_match is not None and matched <= previous_match)):
+                raise ValueError('INVALID_AUCTION_TIME')
+            previous_match = matched
         previous_date = None
         for item in self.contract_map:
             try:
@@ -154,7 +202,7 @@ def check_time(value):
 
 
 class PendingInput(StrictModel):
-    max_execution_bars: Annotated[StrictInt, Field(ge=1, le=1)]
+    max_execution_bars: Annotated[StrictInt, Field(ge=1)]
     cross_lunch: Literal[False]
     cross_cutoff: Literal[False]
     cross_session: Literal[False]
@@ -170,6 +218,7 @@ class EntryInput(StrictModel):
     on_conflict: Literal['SIGNAL_CONFLICT'] | None = None
     reentry: Literal['next_bar_close_after_exit'] | None = None
     pending: PendingInput | None = None
+    limit_price: dict | None = None
 
     @model_validator(mode='after')
     def directions(self):
@@ -228,7 +277,8 @@ class CloseInput(StrictModel):
     any: list[str] = Field(min_length=1)
     priority: list[str] = Field(min_length=1)
     quantity: Literal['remaining']
-    fill_policy: Literal['next_open']
+    fill_policy: Literal['next_open', 'limit', 'atc']
+    limit_price: dict | None = None
 
 
 class ExitInput(StrictModel):
@@ -285,6 +335,8 @@ class StrategyInput(StrictModel):
         entry_refs = refs - {r for r in STATE_REFS if r.startswith('position.')}
         for node in self.entry.conditions.values():
             validate_expression(node, entry_refs, self.entry.conditions, 'bool')
+        if self.entry.limit_price is not None:
+            validate_expression(self.entry.limit_price, entry_refs, expected='number')
         for name, node in self.entry.details.items():
             if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', name):
                 raise ValueError('INVALID_ENTRY_DETAIL_NAME')
@@ -309,6 +361,10 @@ class StrategyInput(StrictModel):
                     or len(group.any) != len(set(group.any)) or len(group.priority) != len(set(group.priority))):
                 raise ValueError('INVALID_EXIT_PRIORITY')
         if self.exit.bar_close:
+            if (self.exit.bar_close.fill_policy == 'limit') != (self.exit.bar_close.limit_price is not None):
+                raise ValueError('CLOSE_LIMIT_PRICE_REQUIRED_ONLY_FOR_LO')
+            if self.exit.bar_close.limit_price is not None:
+                validate_expression(self.exit.bar_close.limit_price, refs, expected='number')
             for node in self.exit.bar_close.conditions.values():
                 validate_expression(node, refs, self.exit.bar_close.conditions, 'bool')
         if self.exit.intrabar:
@@ -339,13 +395,21 @@ class StrategyInput(StrictModel):
 
 
 class ExecutionInput(StrictModel):
-    entry_fill_policy: Literal['next_open']
+    entry_fill_policy: Literal['next_open', 'limit', 'ato']
     slippage_rate: Annotated[Nonnegative, Field(lt=1)]
+    matching_model: Literal['hnx_sessions_v1'] | None = None
+    auction_match_quantity: AuctionQuantity | None = None
 
 
 class ReportInput(StrictModel):
     start_date: date
     end_date: date
+
+    @model_validator(mode='after')
+    def date_order(self):
+        if self.start_date > self.end_date:
+            raise ValueError('INVALID_REPORT_RANGE')
+        return self
 
 
 class InlineRunRequest(StrictModel):
@@ -392,15 +456,33 @@ class InlineRunRequest(StrictModel):
             if source is None: raise ValueError('MISSING_REQUIRED_DATA: ' + name)
             if name in volumes and any(b.volume is None for b in source.bars):
                 raise ValueError('MISSING_REQUIRED_VOLUME: ' + name)
-        if self.report and self.trade_data is not None:
-            r = self.report
-            scale = 1000 if self.trade_data.timestamp_unit == 'ms' else 1
-            zone = ZoneInfo(self.trade_data.timezone)
-            first, last = [datetime.fromtimestamp(b.time / scale, zone).date()
-                           for b in (self.trade_data.bars[0], self.trade_data.bars[-1])]
-            if not first <= r.start_date <= r.end_date <= last:
-                raise ValueError('INVALID_REPORT_RANGE')
         sides = set(self.strategy.entry.conditions)
+        session = self.execution.matching_model == 'hnx_sessions_v1'
+        close = self.strategy.exit.bar_close
+        if (self.execution.entry_fill_policy == 'limit') != (self.strategy.entry.limit_price is not None):
+            raise ValueError('ENTRY_LIMIT_PRICE_REQUIRED_ONLY_FOR_LO')
+        if session:
+            if (self.accounting.model != 'contract' or self.execution.slippage_rate != 0
+                    or (not self.auto_fetch_data and self.trade_data.resolution != '5')):
+                raise ValueError('SESSION_MATCHING_REQUIRES_CONTRACT_5M_ZERO_SLIPPAGE')
+            if not self.auto_fetch_data:
+                if self.trade_data.timezone != 'Asia/Ho_Chi_Minh':
+                    raise ValueError('CONTRACT_TIMEZONE_MISMATCH')
+                if not self.trade_data.contract_dates or self.trade_data.provenance is None:
+                    raise ValueError('SESSION_MATCHING_REQUIRES_CONTRACT_DATES_AND_PROVENANCE')
+            if close and close.fill_policy == 'atc' and self.strategy.exit.flat_by and self.strategy.exit.flat_by < '14:45':
+                raise ValueError('ATC_AFTER_FLAT_DEADLINE')
+            if (self.execution.auction_match_quantity is not None
+                    and self.execution.entry_fill_policy != 'ato'
+                    and (close is None or close.fill_policy != 'atc')):
+                raise ValueError('AUCTION_MATCH_QUANTITY_REQUIRES_AUCTION_ORDER')
+        elif (self.execution.entry_fill_policy != 'next_open' or (close and close.fill_policy != 'next_open')
+              or (self.strategy.entry.pending and self.strategy.entry.pending.max_execution_bars != 1)
+              or self.execution.auction_match_quantity is not None
+              or (self.trade_data and (self.trade_data.auctions or self.trade_data.contract_dates))):
+            raise ValueError('SESSION_MATCHING_REQUIRED')
+        if self.market_data and self.market_data.auctions:
+            raise ValueError('AUCTIONS_REQUIRE_TRADE_DATA')
         if self.accounting.model == 'normalized':
             if sides != {'BUY'} or self.strategy.sizing.type != 'fixed_fractional' or self.strategy.exit.intrabar:
                 raise ValueError('NORMALIZED_REQUIRES_BUY_FIXED_FRACTIONAL_AND_BAR_CLOSE_EXIT')

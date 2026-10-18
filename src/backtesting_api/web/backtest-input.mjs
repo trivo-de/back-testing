@@ -1,5 +1,5 @@
 // Nến ở trong dữ liệu, không được dựng thành ô nhập hoặc JSON trên trang.
-const PRICE_KEYS = ['bars', 'raw', 's', 't', 'o', 'h', 'l', 'c', 'v'];
+const PRICE_KEYS = ['bars', 'raw', 's', 't', 'o', 'h', 'l', 'c', 'v', 'auctions', 'contract_dates'];
 const RULE_LIMIT = 65536;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -50,7 +50,8 @@ export function sourceInfo(source) {
             }).format(value);
         } catch {return '?';} // Thông tin nguồn sai vẫn được API kiểm tra, không tự sửa.
     };
-    return count ? `${count.toLocaleString('vi-VN')} nến · ${date(rows ? rows[0]?.time : times[0])} → ${date(rows ? rows.at(-1)?.time : times.at(-1))}` : 'Chưa nạp dữ liệu.';
+    const auctionInfo = source?.auctions?.length ? ` · ${source.auctions.length} bản ghi ATC` : '';
+    return count ? `${count.toLocaleString('vi-VN')} nến · ${date(rows ? rows[0]?.time : times[0])} → ${date(rows ? rows.at(-1)?.time : times.at(-1))}${auctionInfo}` : 'Chưa nạp dữ liệu.';
 }
 
 const general = [
@@ -58,7 +59,9 @@ const general = [
     ['report.start_date', 'Ngày bắt đầu báo cáo', 'date'],
     ['report.end_date', 'Ngày kết thúc báo cáo', 'date'],
     ['strategy.warmup_bars', 'Số nến khởi tạo chỉ báo', 'integer'],
-    ['execution.entry_fill_policy', 'Thời điểm khớp lệnh', ['next_open'], true],
+    ['execution.matching_model', 'Chế độ khớp theo phiên', ['hnx_sessions_v1']],
+    ['execution.entry_fill_policy', 'Thời điểm khớp lệnh', ['next_open', 'limit', 'ato'], true],
+    ['execution.auction_match_quantity', 'Giới hạn khớp mỗi đợt đấu giá', 'nonnegative_integer'],
     ['execution.slippage_rate', 'Tỷ lệ trượt giá', 'decimal', true],
 ];
 const accountingFields = {
@@ -80,7 +83,8 @@ const choiceLabels = {
     '5': '5 phút', D: '1 ngày', s: 'Giây', ms: 'Mili giây',
     normalized: 'Mô phỏng theo giá (normalized)', contract: 'Hợp đồng phái sinh (contract)',
     fixed_fractional: 'Theo tỷ lệ vốn và dừng lỗ', risk_and_margin: 'Theo rủi ro và ký quỹ',
-    next_open: 'Giá mở cửa nến kế tiếp', false: 'Không', true: 'Có',
+    next_open: 'Giá mở cửa nến kế tiếp', false: 'Không', true: 'Có', ato: 'ATO lúc 09:00',
+    limit: 'Lệnh giới hạn (LO)', hnx_sessions_v1: 'Theo phiên HNX: ATO, LO và ATC',
 };
 const get = (value, path) => path.split('.').reduce((parent, key) => parent?.[key], value);
 function put(value, path, item) {
@@ -113,7 +117,7 @@ export function mountInputForm(form, getJSON) {
             }
         } else {
             input.type = kind === 'date' ? 'date' : 'text';
-            if (kind === 'integer' || kind === 'decimal') input.inputMode = 'decimal';
+            if (kind === 'integer' || kind === 'nonnegative_integer' || kind === 'decimal') input.inputMode = 'decimal';
         }
         input.value = value == null ? fallback : String(value);
         input.oninput = () => input.setCustomValidity('');
@@ -132,10 +136,13 @@ export function mountInputForm(form, getJSON) {
         if (kind === 'integer' && (!/^\d+$/.test(text) || !Number.isSafeInteger(Number(text)) || Number(text) <= 0)) {
             input.setCustomValidity(`${label} phải là số nguyên dương.`); throw Error(input.validationMessage);
         }
+        if (kind === 'nonnegative_integer' && (!/^\d+$/.test(text) || !Number.isSafeInteger(Number(text)))) {
+            input.setCustomValidity(`${label} phải là số nguyên không âm.`); throw Error(input.validationMessage);
+        }
         if (kind === 'decimal' && !Number.isFinite(Number(text))) {
             input.setCustomValidity(`${label} phải là số hữu hạn.`); throw Error(input.validationMessage);
         }
-        if (kind === 'integer') return Number(text);
+        if (kind === 'integer' || kind === 'nonnegative_integer') return Number(text);
         if (Array.isArray(kind) && ['true', 'false'].includes(text)) return text === 'true';
         return text;
     }

@@ -2,6 +2,47 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {backtestData, relatedRows} from '../../src/backtesting_api/web/backtest-data.mjs';
 
+test('ATC marker uses a confirmed auction and reserves time without fabricating OHLC', () => {
+    const time = 1774423500, auctionTime = time + 1200;
+    const iso = stamp => new Date(stamp * 1000).toISOString();
+    const metadata = {run_id: 'r', input_hash: 'i', policy_hash: 'p', resolution: '5', matching_model: 'hnx_sessions_v1'};
+    const run = {schema_version: 2, metadata,
+        signals: [{signal_id: 's', reason: 'ATC_CLOSE'}],
+        orders: [{order_id: 'o', signal_id: 's', status: 'filled'}],
+        fills: [{fill_id: 'f', order_id: 'o', side: 'CLOSE', direction: 'LONG', order_type: 'ATC',
+            contract_code: 'VN30F2604', fill_time: iso(auctionTime), bar_time: iso(auctionTime), fill_price: '1002'}],
+        equity_history: [{trading_date: iso(auctionTime), equity: '100000'}], summary: {final_equity: '100000'}};
+    const payload = {metadata, bars: [{time, open: '1000', high: '1001', low: '999', close: '1000'}],
+        auctions: [{time: auctionTime, status: 'matched', contract_code: 'VN30F2604', price: '1002'}]};
+    const data = backtestData(run, payload);
+    assert.deepEqual(data.candles.at(-1), {time: auctionTime});
+    assert.equal(data.markers[0].time, auctionTime);
+    assert.equal(data.markers[0].price, 1002);
+    assert.throws(() => backtestData(run, {...payload, auctions: []}));
+    assert.throws(() => backtestData(run, {...payload, auctions: [{...payload.auctions[0], price: '1003'}]}));
+    assert.throws(() => backtestData(run, {...payload, auctions: [{...payload.auctions[0], contract_code: 'OTHER'}]}));
+});
+
+test('ATO and ATC partial fills use their OHLC auction price after the order expires', () => {
+    const iso = stamp => new Date(stamp * 1000).toISOString();
+    for (const [orderType, time, field, price] of [
+        ['ATO', 1774396800, 'open', '1000'], ['ATC', 1774417500, 'close', '1002'],
+    ]) {
+        const metadata = {run_id: 'r', input_hash: 'i', policy_hash: 'p', resolution: '5', matching_model: 'hnx_sessions_v1'};
+        const run = {schema_version: 2, metadata,
+            signals: [{signal_id: 's', reason: `${orderType}_ORDER`}],
+            orders: [{order_id: 'o', signal_id: 's', status: 'expired', filled_quantity: 2}],
+            fills: [{fill_id: 'f', order_id: 'o', side: orderType === 'ATO' ? 'LONG' : 'CLOSE', direction: 'LONG',
+                order_type: orderType, contract_code: 'VN30F2604', fill_time: iso(time), bar_time: iso(time), fill_price: price}],
+            equity_history: [{trading_date: iso(time), equity: '100000'}], summary: {final_equity: '100000'}};
+        const bar = {time, open: '1000', high: '1003', low: '999', close: '1002', contract_code: 'VN30F2604'};
+        const data = backtestData(run, {metadata, bars: [bar]});
+        assert.equal(data.markers[0].time, time);
+        assert.equal(data.markers[0].price, Number(price));
+        assert.throws(() => backtestData(run, {metadata, bars: [{...bar, [field]: '999'}]}));
+    }
+});
+
 test('contract partial exits retain candle time, Close equity and optional market', () => {
     const time = 1774404300;
     const iso = stamp => new Date(stamp * 1000).toISOString();

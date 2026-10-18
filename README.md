@@ -30,13 +30,16 @@ Mẫu v1 trên form có hai nến minh họa; thay bằng dữ liệu và chiế
 - `POST /api/backtests/validate`: kiểm tra JSON và dữ liệu.
 - `POST /api/backtests`: chạy và lưu kết quả.
 - `GET /api/backtests`: danh sách kết quả đã lưu.
+- `GET /api/backtests/history`: tóm tắt có bộ lọc và phân trang.
 - `GET /api/backtests/{run_id}`: đọc kết quả.
 - `GET /api/backtests/{run_id}/input`: đọc đầu vào.
 - `GET /api/backtests/{run_id}/chart`: đọc dữ liệu biểu đồ.
 
 Hai endpoint POST nhận dữ liệu nhập tay hoặc `"auto_fetch_data": true`.
-Khi bật tự lấy, API ưu tiên tải VN30F1M và VNINDEX 5 phút từ VNDIRECT trong
-sáu tháng gần nhất, chỉ dùng nến đã đóng. Tải lỗi thì dừng, không dùng dữ liệu nhập tay.
+Khi bật tự lấy, API ưu tiên tải VN30F1M và VNINDEX 5 phút từ VNDIRECT. Nếu có
+`report`, khoảng tải bắt đầu từ sáu tháng trước `start_date` và kết thúc tại
+`end_date`; nếu không có thì lấy sáu tháng gần nhất đến hiện tại. Chỉ dùng nến
+đã đóng. Tải lỗi thì dừng, không dùng dữ liệu nhập tay.
 Chi tiết lựa chọn nguồn và giới hạn lịch hợp đồng tại
 [đặc tả API](docs/design/backtest-api-specification.md#3-cấu-trúc-request).
 
@@ -56,7 +59,7 @@ node --test tests/web/*.test.mjs
 Khởi động API, mở `notebooks/backtest-results.ipynb` bằng kernel `.venv`, rồi
 chạy các ô mã. `BACKTEST_API_URL` mặc định là `http://127.0.0.1:8000`;
 `BACKTEST_PAYLOAD` trỏ tới file JSON, mặc định `data/payload.json`.
-Xem [hướng dẫn API và notebook](docs/plans/vn30f1m-backtest-runbook.md).
+Xem [hướng dẫn API và notebook](docs/guides/run-backtest.md).
 
 ## Chạy bằng Docker
 
@@ -74,7 +77,7 @@ Mở `http://127.0.0.1:8000`. Compose gắn kho kết quả tại
 - [Hướng dẫn JSON chiến lược](docs/design/strategy-payload-guide.md)
 - [Đặc tả yêu cầu](docs/requirements/software-requirements-specification.md)
 - [Thiết kế hệ thống](docs/design/system-design.md)
-- [Kế hoạch kỹ thuật](docs/plans/technical-plan.md)
+- [Tài liệu project](docs/README.md)
 - [Hợp đồng dữ liệu VN30F1M](docs/data/vn30f1m/data-contract.md)
 - [Đặc tả giao diện](docs/design/web-ui-specification.md)
 

@@ -1,193 +1,133 @@
-# Data Contract — VN30F1M 5 phút
+# Hợp đồng dữ liệu JSON — VN30F1M
 
-## Bổ sung 09/10/2026 — tự lấy dữ liệu qua API
+API nhận `trade_data` và `market_data` trong yêu cầu, hoặc tự lấy hai nguồn khi
+`auto_fetch_data=true`. Không chọn dữ liệu, chiến lược hoặc cách tính tiền từ
+một dataset ID. Các trường chi tiết tại [đặc tả API](../../design/backtest-api-specification.md).
 
-Ngoài snapshot nhập tay, API cho phép `auto_fetch_data: true`: lấy VN30F1M
-và VNINDEX 5 phút từ VNDIRECT trong sáu tháng theo lịch đến thời điểm gọi.
-Hai nguồn dùng cùng `from/to` Unix giây; chỉ dùng nến có Open + 300 giây
-không muộn hơn `to`. OHLCV được kiểm tra trước khi chạy, không điền nến thiếu
-hoặc đổi khung thời gian. Không tự cộng lịch sử trước khoảng yêu cầu.
+## 1. Nến, thời gian và khả dụng
 
-Khi `auto_fetch_data` là boolean `true`, cả hai nguồn tự tải thay thế toàn bộ
-`trade_data` và `market_data` nhập tay, kể cả bảng hợp đồng người dùng gửi.
-Hai nguồn nhập tay bị bỏ qua trước kiểm tra; dữ liệu tự tải vẫn được kiểm tra
-đầy đủ. Nếu tải lỗi thì dừng, không ghép với hoặc dùng lại dữ liệu nhập tay.
+- `trade_data` dùng để khớp/mark; `market_data` là chuỗi tham chiếu độc lập.
+- Nhận mảng `bars` hoặc các mảng nguồn `t/o/h/l/c/v`; chuẩn hóa về nến.
+- Giá hữu hạn, > 0; `low <= min(open, close) <= max(open, close) <= high`.
+  Volume không âm và bắt buộc khi chỉ báo/biểu thức dùng volume.
+- Timestamp Unix nguyên, đơn vị giây hoặc mili giây; múi giờ IANA rõ ràng.
+  Không nhận nến trùng, đảo thứ tự, chồng lấn hoặc thời điểm khả dụng giảm.
+- Với `resolution="5"`, bỏ `close_time` thì Close = Open + 300 giây;
+  bỏ `available_at` thì bằng Close. Đây là quy ước mô phỏng.
+- Với `resolution="D"`, phải truyền cả Close và available_at; không tự gộp
+  dữ liệu trong ngày. Mô hình hợp đồng chỉ nhận chuỗi giao dịch 5 phút.
+- `Open < Close <= available_at`; chuỗi giao dịch hiện yêu cầu
+  `available_at == Close`. Chuỗi tham chiếu được phép khả dụng trễ.
 
-Đầu vào đã tải được ghim trong kho file cùng URL, mã băm phản hồi gốc,
-khoảng lấy, số nến đã đóng và số nến chưa đóng bị loại. Lần chạy lại phải dùng
-đầu vào đã lưu nếu cần đúng snapshot; một yêu cầu tự lấy mới có thể khác.
-Mặc định báo cáo theo ngày đầu/cuối thực có dữ liệu giao dịch đã đóng.
-Thiếu mẫu khởi tạo chỉ báo vẫn là chưa đánh giá được.
+Tại quyết định `t`, chỉ đọc nến tham chiếu có `available_at <= t`.
+Một nến tham chiếu dùng cho nhiều quyết định vẫn chỉ là một mẫu tính chỉ báo.
+Không nội suy, lặp hoặc điền nến thiếu để tạo đủ lịch sử.
 
-Không tự mở rộng lịch phiên hoặc suy mã hợp đồng từ giá. Mô hình tiền
-`normalized` giữ cách chạy hiện có; mô hình `contract` tự lấy dùng bảng đáo hạn
-đã có và chịu giới hạn lịch phiên 01/03–31/12/2026 (mở rộng ngày 09/10 theo
-[thông báo HNX](https://www.gov.hnx.vn/vi-vn/chi-tiet-lich-nghi-gd-60021971.html?_page=1)).
-Hai cấu hình `runtime-policy.json` và `runtime-policy-v1.json` giữ nguyên
-138 ngày đã có, bổ sung 75 ngày giao dịch đến hết năm; không thêm cuối tuần
-hoặc thay ngày nghỉ. Ngoài lịch vẫn bị từ chối; bảng đáo hạn hiện đến 17/12/2026.
-Chi tiết trường và lỗi tại [đặc tả API](../../design/backtest-api-specification.md#3-cấu-trúc-request).
+## 2. Kỳ báo cáo và khởi tạo chỉ báo
 
-## Snapshot và quyết định đã có
+`report` gồm ngày bắt đầu/kết thúc, tính cả hai đầu theo múi giờ trade_data.
+Bỏ report thì dùng ngày đầu/cuối của chuỗi giao dịch. Ngày bắt đầu lớn hơn
+ngày kết thúc bị từ chối bằng `INVALID_REPORT_RANGE`. Nguồn thiếu ngày đầu
+hoặc cuối kỳ vẫn chạy trên các nến thực có, giữ nguyên `report_range` đã yêu cầu;
+`metadata.available_range` ghi ngày đầu/cuối của nến giao dịch thực có trong kỳ.
+Khi áp dụng lịch phiên, các nến thiếu vẫn được ghi trong `data_gaps`.
+Chỉ trả `REPORT_DATA_MISSING` khi không có nến giao dịch nào trong kỳ, kèm kỳ
+yêu cầu và ngày đầu/cuối dữ liệu nguồn. Không tự rút ngắn kỳ hoặc tạo nến bù.
+Nến trước kỳ được giữ để khởi tạo chỉ báo, không tạo giao dịch;
+nến sau ngày kết thúc không vào engine.
 
-Kho file lưu JSON đầu vào/kết quả và đọc Parquet của lịch sử theo
-[kế hoạch kỹ thuật](../../plans/technical-plan.md). Dữ liệu nguồn giữ nguyên.
+`strategy.warmup_bars` là ngưỡng lịch sử bổ sung theo yêu cầu JSON.
+Thiếu lịch sử hoặc giá trị cần cho entry thì `UNEVALUABLE`, không tạo entry.
+Mẫu CANSLIM v1 dùng 150 nến VNINDEX, tính cả nến hiện tại đã khả dụng.
+Không tự thay kỳ báo cáo để che thiếu lịch sử.
 
+## 3. Lịch phiên và bảng hợp đồng
 
-Cập nhật: 25/09/2026. Contract dữ liệu này không tự quyết định strategy.
+Khi có `trade_data.contract_map`, service đọc `INLINE_POLICY_PATH`, mặc định
+[runtime-policy-v1.json](runtime-policy-v1.json). Bảng hợp đồng được kiểm tra
+ngày đáo hạn, Unix, mã không trùng, thứ tự, tháng liên tiếp và độ phủ cả lịch sử
+trước kỳ. Dòng đầu phủ từ đầu tháng đáo hạn; dòng sau phủ sau ngày đáo hạn
+trước tới hết ngày đáo hạn hiện tại. Muốn lấy lịch sử sớm hơn phải thêm dòng.
 
-**Quyết định mới 25/09 — đóng trước đáo hạn:** policy mới dùng
-`rollover_action=close_at_expiry_open`. Tại Open đầu phiên đáo hạn, hủy pending
-cũ và đóng toàn bộ vị thế với phí/slippage hiện hành; không entry trong ngày
-đáo hạn. Ngày sau tiếp tục đánh giá bình thường. Lịch phải có expiry hợp lệ;
-thiếu bar/session vẫn fail validation. Quyết định này thay `hold` cho run mới;
-policy và run lịch sử không sửa. Các ghi chú hold bên dưới là scope cũ.
+Nguồn giao dịch có bảng hợp đồng phải dùng `Asia/Ho_Chi_Minh`.
+Với mỗi nguồn 5 phút được gửi, `_session_gaps()` kiểm tra cả trade_data và
+market_data theo lịch/nhãn giờ trong chính sách. Lịch mặc định bao phủ
+01/03–31/12/2026, có 213 ngày giao dịch. Nhãn bắt buộc và tùy chọn của
+hai nguồn khác nhau; không lấy ngày có dữ liệu làm lịch giao dịch.
 
-**Xác nhận 18/09:** strategy/execution chính dùng VN30F1M 5 phút; 1D chỉ hỗ trợ,
-không thay bằng backtest daily. Ưu tiên source → API → notebook, chưa cần agent.
-C01–C03 đã chốt window 200/65/50 nến 5 phút; C04 đã chốt Open + 5 phút,
-ATC và price points; user cho phép rollover map tham khảo, giữ vị thế qua đáo hạn.
-Policy tại [runtime-policy.json](runtime-policy.json). Source/API/notebook đã
-implement và test fixture; riêng VN30F1M chạy CANSLIM v0 ngày 25/09 dùng report 25/03–15/09.
-Thứ tự triển khai tại [Technical Plan](../../plans/technical-plan.md).
+- Nến ngoài ngày/giờ hợp lệ hoặc dài khác 5 phút: từ chối `UNEXPECTED_BAR`.
+- Kỳ ngoài lịch: `REPORT_OUTSIDE_STATIC_CALENDAR`.
+- Nến bắt buộc bị thiếu: ghi `data_gaps` và `data_gap_before`, không tự điền.
+  Chuỗi chỉ báo bị ngắt và phải đủ lại lịch sử trước khi đánh giá entry.
+- Khi giữ vị thế hợp đồng, thiếu nến cần quản trị/thoát làm lượt chạy lỗi.
+- Không có contract_map thì không chạy kiểm tra lịch phiên này.
+  Nguồn ngày không được kiểm tra bằng lưới phiên 5 phút.
 
-## Snapshot warm-up mới được phép lấy — C06
+Chuyển mã hợp đồng ngắt chuỗi giá/chỉ báo trade_data; chuỗi VNINDEX vẫn giữ
+lịch sử nếu không có khoảng thiếu. Luồng JSON không đọc
+`rollover_action` để tự đóng ở Open ngày đáo hạn. Quy tắc thoát thuộc JSON.
 
-### JSON user cung cấp và assumption C04/C06 mới
+## 4. Tự lấy dữ liệu
 
-- Kỳ báo cáo riêng bản chạy VN30F1M v0 đã điều chỉnh: **25/03/2026–15/09/2026**,
-  inclusive theo UTC+7, giữ window 200/65/50.
-- `data/30f1m_5&from=1772323200&to=1789516800.json`: 6.076 rows,
-  18/03 09:00–15/09 14:45; SHA-256
-  `0a64c66974969070dbcdf811be40e3c6400d541f5b2834430c3fac188c4e9557`.
-- `data/VNINDEX_5&from=1772323200&to=1789516800.json`: 6.227 rows,
-  18/03 09:15–15/09 15:05; SHA-256
-  `c5810cdcf96b42936c9d403092ee3361fcd694d108c269f1adb1af5098a5def6`.
-- Cả hai có 124 ngày quan sát. Warm-up 18–24/03 trước kỳ mới gồm 245 nến
-  VN30F1M và 240 nến VNINDEX. SMA200 đủ lần đầu tại 24/03 09:55 UTC+7;
-  chọn 25/03 vì request theo ngày, cần đủ input ngay từ đầu phiên. Source
-  extraction time chưa xác nhận: null; import time là field riêng.
-- Timestamp đầu bar; bar_close_at/available_at = bar_open_at + 5 phút là
-  assumption user chốt cho mô phỏng, áp dụng cả record ATC 14:45. Không bỏ
-  record; chưa mô phỏng auction matching. Giá futures là index points như raw.
-- Market SMA200 tính trên nến VNINDEX riêng; tại futures Close chỉ dùng market
-  bar có available_at <= decision. Thiếu 200 nến là UNEVALUABLE, không daily fallback.
-- C05 dùng policy JSON tĩnh: schema_version=1, timezone=Asia/Ho_Chi_Minh,
-  trading_dates (ngày được phép giao dịch), sessions cho mỗi symbol với
-  required_times/optional_times là label HH:MM, rollover ranges có start/end
-  ngày inclusive và contract. Không lấy observed dates làm lịch đã xác nhận.
-- Runtime policy có nguồn lịch nghỉ HNX và map user cung cấp. User chốt
-  rollover_action=hold, cho phép mã tham khảo như assumption; không forced exit.
-- Kỳ cũ 15/03–15/09 từng trả 422 MISSING_EXPECTED_BAR ngày 16/03. User đã
-  cho phép lùi report; kỳ mới qua validation coverage/session/rollover với
-  bundle hiện có, không cần bổ sung daily hoặc sửa raw/policy. Runbook tại
-  [API/notebook](../../plans/vn30f1m-backtest-runbook.md).
-- Thiếu policy/map, expected bar/session hoặc range map không phủ input thì
-  fail validation trước core. Không pin dữ liệu thiếu thành run thành công.
+`auto_fetch_data=true` ưu tiên thay toàn bộ hai nguồn nhập tay bằng VN30F1M
+và VNINDEX 5 phút từ VNDIRECT. Hai nguồn nhập tay bị bỏ qua trước kiểm tra.
+Tải lỗi thì dừng; không chuyển sang dùng dữ liệu nhập tay hoặc ghép nguồn.
 
+Khi có `report`, chỉ lùi mốc tải đủ số nến khởi tạo cần dùng: lấy giá trị lớn
+nhất giữa `warmup_bars`, số nến tối thiểu của chỉ báo và phần nhìn lùi `shift`.
+MFI cần `period + 1`, MACD cần `slow_period + signal_period - 1`; ATO cần ít
+nhất một nến liên tục trước kỳ để có giá tham chiếu. Đếm ngược theo lịch phiên,
+bỏ ngày nghỉ; mô hình contract chỉ đếm nến trong giờ liên tục. Hai nguồn dùng
+chung mốc tải sớm nhất cần thiết, rồi mỗi nguồn chỉ giữ số nến khởi tạo cần dùng
+và toàn bộ dữ liệu trong kỳ. Không tính bản ghi đấu giá vào số nến khởi tạo
+contract; vẫn giữ các bản ghi này trong kỳ. Lịch sử có thể bắt đầu giữa phiên;
+không báo thiếu các nhãn trước mốc đó, nhưng vẫn kiểm tra khoảng thiếu phía sau.
+Thiếu nến nguồn hoặc bị ngắt chuỗi thì vẫn báo chưa đánh giá được, không tự
+điền nến hoặc kéo dài lịch sử qua khoảng thiếu. Không đổi kỳ báo cáo.
+`metadata.auto_fetch.warmup_bars_requested` ghi số nến yêu cầu; `warmup_count`
+và `retained_count` của mỗi nguồn ghi số nến khởi tạo và tổng số nến giữ lại.
+Mốc cuối là hết `end_date` hoặc thời điểm hiện tại nếu đó là hôm nay. Khi không
+có `report`, khoảng báo cáo mặc định vẫn là sáu tháng gần nhất, không phải sáu
+tháng khởi tạo bổ sung. Chỉ giữ nến `Open + 300 <= to`; OHLCV/thời gian vẫn phải hợp lệ.
 
-- VN30F1M: `https://dchart-api.vndirect.com.vn/dchart/history?resolution=5&symbol=VN30F1M&from=1772323200&to=1789516800`
-- VNINDEX: `https://dchart-api.vndirect.com.vn/dchart/history?resolution=5&symbol=VNINDEX&from=1772323200&to=1789516800`
-- Capture offline giữ raw bytes riêng theo content hash và extraction time UTC.
-  Manifest bundle JSON có schema/validator version, source URL, symbol/timeframe,
-  dataset ID/version/hash/count/range/timezone cho từng input; publish chỉ sau
-  khi cả hai payload pass schema. Không đổi raw/hash/manifest của chart cũ.
-- Timestamp semantics và volume unit vẫn unconfirmed; manifest capture không
-  đồng nghĩa snapshot đã đủ điều kiện backtest. Không tự infer session/holiday
-  hoặc rollover map từ chuỗi giá.
-- R1 cần 200 nến market 5 phút; R2/R3 cần 65/50 nến trước t. Chưa dùng 1D.
-  Report range và warm-up coverage phải được kiểm tra riêng trước nghiệm thu.
+Với `accounting.model="contract"`, service lấy bảng đáo hạn từ
+`AUTO_FETCH_POLICY_PATH`, mặc định [runtime-policy.json](runtime-policy.json);
+bảng hiện kết thúc 17/12/2026. Kiểm tra phiên dùng chính sách v1 nói trên.
+Normalized không được tự gắn bảng hợp đồng.
 
-## 1. Snapshot đã chốt cho MVP
+Khi có `report`, phần lịch sử khởi tạo tự tải của mô hình contract bắt đầu
+không sớm hơn ngày đầu lịch phiên và đầu tháng đầu tiên trong bảng đáo hạn.
+Với chính sách mặc định, giới hạn này là 01/03/2026, được ghi tại
+`metadata.auto_fetch.history_start_limit`; `from` ghi mốc tải thực tế.
+Kỳ báo cáo và ngưỡng `warmup_bars` giữ nguyên; thiếu mẫu vẫn báo
+`UNEVALUABLE`. Kỳ báo cáo ngoài lịch/bảng hợp đồng vẫn bị từ chối.
 
-- Source: [VNDIRECT dchart](https://dchart-api.vndirect.com.vn/dchart/history?resolution=5&symbol=VN30F1M&from=1773594000&to=1789463924);
-  `symbol=VN30F1M`; `resolution=5`.
-- Query window: Unix `1773594000..1789463924`.
-- Payload quan sát: 6.174 rows, 126 ngày, từ `2026-03-16 09:00` đến
-  `2026-09-15 14:45` theo UTC+7; 49 records/ngày.
-- SHA-256 payload đã lấy: `5930f355e7e5bbc8663835a60fca654a31cc5a83184d534008c284a8d3bbaad5`.
-- Dataset ID: `vndirect-vn30f1m-5m-20260316-20260915`; version phải bất biến
-  và đổi cùng hash nếu payload thay đổi.
+Khớp theo phiên `hnx_sessions_v1` cũng hỗ trợ tự lấy dữ liệu. Service tạo
+`contract_dates` theo bảng đáo hạn, giữ mã đến hết ngày đáo hạn rồi chuyển mã từ
+ngày sau đó; đây là giả định đã được người dùng đồng ý, được ghi trong nguồn dữ
+liệu và kết quả. ATO dùng Open bản ghi nhãn 09:00; ATC dùng Close bản ghi nhãn
+14:45. Giá đấu giá bị tách khỏi chuỗi chỉ báo; thiếu bản ghi đang cần làm lượt
+chạy lỗi, không lấy giá gần nhất thay thế. Chi tiết tại
+[khớp theo phiên HNX](../../design/hnx-session-matching.md).
 
-## 2. Bar contract
+`/validate` trả payload đã tải với `auto_fetch_data=false`; gửi lại payload này
+để chạy đúng snapshot đã kiểm tra. Gửi `true` lần nữa có thể lấy dữ liệu khác.
+Không tạo thêm nến đóng vị thế khi lấy giữa phiên; nên chọn ngày báo cáo đã
+hoàn tất nếu chiến lược cần đóng cuối ngày.
 
-Mỗi row cần timestamp Unix và finite `open/high/low/close/volume`; price `> 0`,
-volume `>= 0`, `high >= max(open, close)`, `low <= min(open, close)`. Arrays
-`t/o/h/l/c/v` phải cùng độ dài; timestamp unique và tăng nghiêm ngặt.
+## 5. Nguồn gốc và lưu trữ
 
-Payload quan sát mỗi ngày có các timestamp 09:00–11:25, 13:00–14:25 theo bước 5
-phút và một record 14:45. Ý nghĩa record 14:45 và bộ timestamp strategy thực sự sử
-dụng phải được rule được duyệt quyết định; data layer không tự loại record.
+Kho file ghim payload cụ thể, chính sách và metadata bằng input_hash/policy_hash.
+Tự lấy dữ liệu ghi URL, thời điểm/khoảng lấy, mã băm phản hồi, số nến gốc,
+số nến đã đóng và số bị loại của từng nguồn. Không lưu riêng toàn bộ phản hồi HTTP.
+Đầu vào nhập tay được ghi `input_origin=caller_provided`; API không tự xác
+minh vendor, đơn vị volume hoặc tính đầy đủ của lịch sử chỉ từ nhãn symbol.
 
-## 3. Provenance và giới hạn
+Ứng dụng không đọc `data/dataset_manifest.json` khi chạy JSON.
+Chart dựng từ đầu vào đã ghim; nhánh đọc kết quả phiên bản 1 vẫn đọc
+dataset/Parquet trong kho file. Xem [thiết kế hệ thống](../../design/system-design.md).
 
-- Core không gọi live endpoint; snapshot được lưu cùng URL, extraction time, hash,
-  count/range/timezone và validator version.
-- `VN30F1M` không cung cấp actual contract/roll map trong payload; mọi strategy
-  phải ghi rõ cách xử lý rollover và vị thế qua ngày.
-- Chưa coi volume unit, timestamp label semantics hoặc record 14:45 đã được nguồn
-  xác nhận. Không tự suy diễn hoặc sửa payload.
-- Kho file giữ đầu vào/kết quả JSON và Parquet lịch sử; không thay dữ liệu nguồn đã ghim.
-
-## 4. Metadata normalized lịch sử
-
-Theo xác nhận 17/09, run giữ mô hình tiền normalized trong
-[CANSLIM Rule](../../strategies/canslim-rules.md). Run config tối thiểu gồm dataset
-ID/version/hash cho mọi snapshot VN30F1M và VN-Index, symbol, timeframe nguồn,
-strategy/execution 5 phút, timeframe từng indicator/support series, timezone,
-kỳ báo cáo/warm-up, mapping và assumption đã xác nhận, strategy ID/parameters, initial_cash,
-fee_rate, slippage_rate và nhãn `normalized simulation`. Không yêu cầu multiplier,
-margin/tax/settlement phái sinh cho mô hình này.
-
-Result giữ metadata, signals, orders, fills/quantity, trades, equity history và
-summary. Nếu lưu timestamp intraday, phải giữ UTC offset hoặc timezone rõ ràng;
-đánh giá/equity theo Close bar 5 phút hợp lệ; tập bar/session chờ C04–C05.
-Đây là contract mục tiêu, chưa phải
-bằng chứng runtime đã hỗ trợ VN30F1M.
-
-### Dữ liệu strategy đã chốt và còn thiếu
-
-- Giữ VN-Index cho R1. Snapshot VN30F1M không chứa VN-Index; chọn market series
-  như cũ chưa xác nhận snapshot VN-Index nào có đủ thời gian phủ và warm-up.
-- Nguồn, strategy và execution chính là 5 phút. C01–C03 đã xác nhận window
-  200/65/50 nến 5 phút. Ghép theo available_at; quy ước mô phỏng Close và
-  available_at là Open + 5 phút. Không tự ghép dữ liệu để tạo đủ history. Các phương án daily dưới đây là
-  giải thích lịch sử, không phải mapping đã chọn hiện tại.
-- Nếu R1 dùng 1D, cần ít nhất 200 VN-Index daily closes đã available. VN30F1M
-  1D không thay VN-Index; dữ liệu cùng range 126 phiên không đủ SMA200 daily.
-- Nếu R2/R3 giữ window daily, cần đủ 65/50 phiên trước decision và chốt phép
-  so volume cùng kỳ đo; không tự so volume 5 phút với daily average.
-- Support snapshot có manifest/version/hash/extraction/range riêng, được pin
-  cùng run. Tại decision t chỉ dùng dữ liệu available_at <= t; không dùng daily
-  Close/High/Low/Volume của phiên chưa hoàn tất. Một daily bar dùng làm context
-  cho nhiều decision không trở thành nhiều mẫu daily để tính indicator.
-- Có thể mở rộng lịch sử trước kỳ báo cáo để warm-up mà giữ kỳ báo cáo.
-  Nguồn/range được phép lấy chờ C06; không tự fetch hoặc fill missing data.
-
-### Lịch sử đề xuất gộp daily — không thay luồng 5 phút
-
-Gộp daily nghĩa là lấy toàn bộ bar hợp lệ của một phiên để tạo một OHLCV ngày:
-Open của bar đầu, High lớn nhất, Low nhỏ nhất, Close của bar cuối, và tổng Volume
-(chỉ khi volume nguồn được xác nhận là volume từng bar có thể cộng).
-Strategy daily sẽ đánh giá sau khi phiên hoàn tất; chart/raw vẫn có thể giữ nến
-5 phút. Không được dùng Close/High/Low/Volume cả ngày trước khi phiên đóng.
-
-Đây là giải thích phương án cũ; ngày 18/09 đã chọn 5 phút làm timeframe chính.
-Chưa cho phép resample kể cả để tạo support data. Trước implementation cần
-chốt timeframe, session boundary, timestamp labels, record 14:45, volume và
-phiên thiếu. Nếu được duyệt, dữ liệu daily dẫn xuất phải có provenance/version
-riêng liên kết với raw snapshot; không sửa raw hoặc tự bù missing bars.
-
-## 5. Dữ liệu chart của lượt chạy
-
-Chart được đọc qua `GET /api/backtests/{run_id}/chart` và thuộc cùng kết quả
-đã lưu. Phiên bản 2 dựng từ JSON đầu vào đã ghim; phiên bản 1 đọc nến Parquet
-qua manifest lịch sử. Không tải snapshot ngoài hoặc chạy lại chiến lược khi
-xem chart. Trường, HTTP status và lỗi theo
-[đặc tả API](../../design/backtest-api-specification.md).
-
-Dữ liệu giao dịch nằm trong trade_data, tham chiếu trong market_data khi rule
-cần. Các hạn chế về volume/provenance nguồn ở trên vẫn phải được lưu rõ;
-không suy ra đủ kỳ báo cáo hoặc dữ liệu thật đủ điều kiện chỉ từ tên snapshot.
-JSON mới theo [hợp đồng v1](data-contract-v1.md) và
-[hướng dẫn payload](../../design/strategy-payload-guide.md).
+Biên độ giá chưa được kiểm tra vì không có giá tham chiếu; metadata lưu rõ
+`price_limit_check: not performed; reference price not supplied`.
+Việc gắn mã từ bảng tham khảo không chứng minh nguồn liên tục VN30F1M đã
+được đối chiếu với dữ liệu từng hợp đồng thực tế.

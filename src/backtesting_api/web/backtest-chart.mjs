@@ -87,7 +87,16 @@ export function renderCharts(data, metadata, onFillSelect = () => {}) {
         },
     });
     candles.setData(data.candles);
-    createSeriesMarkers(candles, data.markers, {autoScale: true});
+    const auctionIds = new Set(data.fills.filter(fill => ['ATO', 'ATC'].includes(fill.order_type)).map(fill => fill.fill_id));
+    createSeriesMarkers(candles, data.markers.filter(marker => !auctionIds.has(marker.id)), {autoScale: true});
+    if (auctionIds.size) {
+        // Auction markers need real price points; whitespace candles alone cannot host them.
+        const auctionSeries = priceChart.addSeries(LineSeries, {lineVisible: false, pointMarkersVisible: false,
+            lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false});
+        auctionSeries.setData(data.fills.filter(fill => auctionIds.has(fill.fill_id))
+            .map(fill => ({time: fill.chartTime, value: Number(fill.fill_price)})));
+        createSeriesMarkers(auctionSeries, data.markers.filter(marker => auctionIds.has(marker.id)), {autoScale: true});
+    }
     markerOutline = markerOutlinePrimitive(candles, priceChart, data.markers);
     priceChart.addSeries(HistogramSeries, {priceFormat: {type: 'volume'}}, 1).setData(data.volume);
     priceChart.panes()[1].setHeight(100);
@@ -142,7 +151,7 @@ export function renderCharts(data, metadata, onFillSelect = () => {}) {
     priceChart.subscribeClick(event => onFillSelect(showTooltip(event.hoveredObjectId, event.point)?.fill_id));
     priceChart.subscribeCrosshairMove(event => showTooltip(event.hoveredObjectId, event.point));
     $('#chart-metadata').textContent = JSON.stringify(metadata, null, 2);
-    $('#chart-status').textContent = `${metadata.symbol || 'Giá giao dịch'} · ${metadata.resolution || metadata.timeframe || ''} · ${data.candles.length} nến · ${data.markers.length} lần khớp · Mua ↑ / Bán ↓`;
+    $('#chart-status').textContent = `${metadata.symbol || 'Giá giao dịch'} · ${metadata.resolution || metadata.timeframe || ''} · ${data.candles.filter(bar => bar.open !== undefined).length} nến · ${data.markers.length} lần khớp · Mua ↑ / Bán ↓`;
     const fitRun = () => {priceChart.timeScale().fitContent(); marketChart?.timeScale().fitContent(); equityChart.timeScale().fitContent();};
     $('#fit-run').onclick = fitRun;
     if (data.candles.length > 250) {

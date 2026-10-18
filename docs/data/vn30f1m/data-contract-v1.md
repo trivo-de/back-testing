@@ -1,97 +1,62 @@
-# Data contract — CANSLIM v1 / VN30 futures
+# Dữ liệu cho mẫu CANSLIM v1
 
-Cập nhật: 28/09/2026. U05 đã có bộ ánh xạ JSON, lịch phiên/map và báo khoảng
-thiếu dữ liệu. U08 đã chạy v1 trên dữ liệu tổng hợp; chưa nghiệm thu dataset thật.
-Rule sử dụng dữ liệu tại [CANSLIM v1](../../strategies/canslim-v1-rules.md).
+Nếu bật `hnx_sessions_v1`, bổ sung mã hợp đồng thực tế theo ngày, nguồn dữ liệu
+và bản ghi ATC riêng theo [hợp đồng khớp theo phiên](../../design/hnx-session-matching.md).
+Nến nhãn `14:45` không được tự chuyển thành giá ATC. Mẫu CANSLIM mặc định không
+tự bật chế độ này hoặc thay đổi chuỗi chỉ báo.
 
-## 1. Dữ liệu yêu cầu
+Tài liệu này bổ sung [hợp đồng dữ liệu JSON](data-contract.md) cho
+[mẫu CANSLIM v1](../../strategies/canslim-v1-rules.md), không tạo bộ kiểm tra
+hoặc nguồn dữ liệu riêng.
 
-Primary: OHLCV 5 phút của hợp đồng F1M thực tế tại ngày giao dịch.
+## 1. Hai chuỗi dữ liệu
 
-- Map theo ngày từ nhãn VN30F1M sang mã hợp đồng thực.
-- VNINDEX 5 phút có OHLCV để tính SMA/EMA/BB/MACD/MFI, tối thiểu 150 nến đã đóng tính cả t.
-- Calendar/session, instrument metadata và margin/fee/tax policy có version.
-- market_data VNINDEX bắt buộc cho v1; không dùng SMA200 của v0. Khối lượng MFI lấy từ dữ liệu VNINDEX đã cung cấp, không thay bằng khối lượng hợp đồng.
+- `trade_data`: OHLCV VN30F1M 5 phút, dùng khớp lệnh, stop/target/trailing và P/L.
+- `market_data`: OHLCV VNINDEX 5 phút, dùng SMA20, EMA5, BB, MACD và MFI14.
+  Volume của MFI lấy từ VNINDEX, không thay bằng volume hợp đồng.
+- Cần tối thiểu 150 nến VNINDEX đã khả dụng tại lần xét entry, tính cả nến
+  hiện tại. Có thể cung cấp lịch sử trước report; không dùng nến tương lai.
+- Bộ chỉ báo của mô hình contract dùng các nến mở trong khoảng liên tục
+  09:00–11:30 và 13:00–14:30; record ngoài khoảng này vẫn có thể được giữ
+  trong dữ liệu nguồn, không đưa vào chuỗi tính chỉ báo 5 phút của mô hình này.
 
-## 2. Identity, provenance và availability
+## 2. Phiên và mã hợp đồng
 
-- Pin dataset ID/version/hash, vendor, symbol nguồn, mã hợp đồng và timezone.
-- Chỉ dùng nến đã khả dụng tại thời điểm quyết định.
-- Thiếu warm-up → UNEVALUABLE; thiếu bar thực thi forced exit → INVALID.
-- Khi đổi hợp đồng, giữ chuỗi chỉ báo VNINDEX; không nối giá hợp đồng cũ vào
-  hợp đồng mới.
+`runtime-policy-v1.json` quy định ngày và nhãn giờ của hai nguồn.
+Khi gửi contract_map, kiểm tra cả hai nguồn 5 phút theo chính sách này.
+Nhãn ATO/ATC của trade_data là tùy chọn. Market_data dùng lưới riêng, trong đó
+14:30 và 14:45 vẫn là nhãn bắt buộc của nguồn; không áp giờ ATO hợp đồng
+cho VNINDEX. Nến thiếu được báo và chuỗi chỉ báo liên quan phải
+khởi tạo lại; thiếu nến thực thi bắt buộc không được thay bằng giá giả.
 
-### Input cụ thể chưa chốt
+`trade_data.contract_map` gồm `contract_code`, `expiry_date`,
+`expiry_unix`. Unix biểu diễn ngày đáo hạn theo múi giờ nguồn, không phải
+thời điểm khớp. Bảng cần phủ cả lịch sử và kỳ báo cáo, các tháng liên tiếp.
+[Bảng tham khảo](vn30f1m-rollover-map.md) là nguồn map khi tự lấy dữ liệu.
 
-- Vendor và đường dẫn/manifest intraday từng hợp đồng: không hard-code trong strategy; manifest bắt buộc có `vendor`, `source_symbol`, `contract_code`, `path`, `hash` cho từng mã thực.
-- Timestamp Open/Close và available_at cho từng nguồn v1: `Asia/Ho_Chi_Minh`; bar 5 phút mang thời điểm bắt đầu, Close và `available_at = start + 5 phút`.
-- Session/calendar version cho v1: lịch HNX theo năm; ATO 08:45–09:00, liên tục 09:00–11:30 và 13:00–14:30, ATC 14:30–14:45; lưu version/hash lịch nghỉ.
-- Xử lý missing expected bars ngoài forced exit: không fill; đánh dấu `DATA_GAP`, ngừng đánh giá indicator phụ thuộc và chỉ resume sau khi đủ lại warm-up hợp lệ.
-- Quy tắc đủ 150 mẫu tại biên kỳ: đủ 150 nến VNINDEX 5 phút hợp lệ đã đóng, tính cả nến t; được lấy lịch sử trước kỳ báo cáo. Ghép theo available_at, không theo số dòng hay lặp nến thị trường để đủ mẫu.
+Đổi hợp đồng không khởi tạo lại chuỗi VNINDEX. Source hiện gắn mã theo bảng,
+chưa đối chiếu vendor_symbol hoặc kiểm tra giá với dữ liệu từng hợp đồng.
+Không suy mã hợp đồng từ giá.
 
-## 3. Lịch giao dịch
+## 3. Giá, tiền và khả dụng
 
-Cập nhật 09/10/2026: `runtime-policy-v1.json` và lịch gốc trong
-`runtime-policy.json` bao phủ 01/03–31/12/2026, tổng cộng 213 ngày giao dịch.
-Giữ nguyên lịch đã có đến 17/09, bổ sung các ngày thứ Hai đến thứ Sáu đến
-hết năm theo [thông báo HNX về lịch nghỉ năm 2026](https://www.gov.hnx.vn/vi-vn/chi-tiet-lich-nghi-gd-60021971.html?_page=1).
-Các ngày nghỉ trong phạm vi này là 27/04, 30/04, 01/05 và 31/08–02/09;
-ngày làm bù thứ Bảy 22/08 không giao dịch. Không suy lịch từ những ngày
-có nến trong nguồn; nến thiếu trong ngày giao dịch vẫn được báo là khoảng thiếu.
-Kiểm tra ngoài lịch, phiên trong ngày và ánh xạ đáo hạn vẫn được giữ nguyên.
+- Giá giữ đơn vị điểm, không nhân hệ số hợp đồng vào OHLC/chỉ báo.
+- Mẫu dùng hệ số 100.000, tick mô phỏng 0,1 điểm, slippage 0.
+- Mẫu truyền margin_rate 0,17 cùng phí/thuế trong JSON. Đây là cấu hình mô phỏng,
+  không xác nhận tỷ lệ thực tế của mọi ngày lịch sử.
+- Close/available_at mặc định bằng Open + 5 phút; chuỗi giao dịch công bố
+  trễ hơn Close bị từ chối `PRIMARY_AVAILABILITY_DELAY_UNSUPPORTED`.
+- Chuỗi tham chiếu chỉ được đọc sau available_at. Không lặp một nến VNINDEX
+  thành nhiều mẫu khi ghép với nến giao dịch.
+- Chưa kiểm tra biên độ giá hoặc quyết toán qua đêm bằng DSP/FSP.
 
-- Giờ giao dịch: lịch Việt Nam, múi giờ Asia/Ho_Chi_Minh.
-- Hợp đồng: ATO 08:45–09:00; liên tục
-  09:00–11:30 và 13:00–14:30; ATC 14:30–14:45; nghỉ cuối tuần/ngày nghỉ của sở.
-  [Hướng dẫn HSC](https://www.hsc.com.vn/vi/3-quy-dinh-giao-dich-hop-dong-tuong-lai-1).
-  VNINDEX dùng lịch và thời gian khả dụng của nguồn thị trường cơ sở, không
-  áp giờ ATO phái sinh cho VNINDEX.
+Công thức và thứ tự xử lý tại [tính tiền hợp đồng](../../design/canslim-v1-execution-accounting.md).
 
-## 4. Map đáo hạn và chuyển hợp đồng
+## 4. Ranh giới kiểm chứng
 
-Map đầu vào tại `trade_data.contract_map` trong [payload minh họa](../../../src/backtesting_api/web/canslim-v1-example.json), gồm:
+Các test tổng hợp đã có tại [danh mục kiểm thử](../../testing/vn30f1m/canslim-v1-test-cases.md),
+gồm khả dụng, khoảng thiếu, chuyển mã, khởi tạo chỉ báo và lỗi thiếu nến thoát.
 
-- contract_code (mã thực)
-- expiry_date (YYYY-MM-DD)
-- expiry_unix (Unix giây của ngày đáo hạn theo UTC+7). expiry_unix biểu diễn ngày, không phải giá hoặc thời điểm khớp lệnh.
-- Map đáo hạn đúng là map khớp timestamp, mã/ngày không trùng và thứ tự tăng dần.
-- Theo quy tắc chuyển kỳ bên dưới, ngày giao dịch sau đáo hạn trước đến hết ngày đáo hạn hiện tại thuộc hợp đồng hiện tại; đầu/cuối khoảng chạy phải có map bao phủ.
-- Mã hợp đồng và ngày/giờ chuyển kỳ: internal dùng `VN30FYYMM`; hợp đồng tháng hiện tại giữ đến hết ngày giao dịch cuối cùng, chuyển sang tháng kế tiếp từ Open phiên giao dịch kế tiếp.
-- Quy tắc đối chiếu với vendor: đối chiếu `trading_date + contract_code + vendor_symbol + expiry_date`; mismatch hoặc alias không rõ → fail validation.
-- Policy xử lý thiếu map: `INVALID`
-- Chuyển hợp đồng không làm mất warm-up VNINDEX; dữ liệu khớp lệnh vẫn phải đúng mã hợp đồng mới.
-
-## 5. Instrument và policy metadata
-
-- Multiplier: 100.000; tiền tệ mô hình: VND.
-- Tick mô phỏng: 0,1 điểm; quantity là số hợp đồng nguyên.
-- Slippage: 0.
-
-Margin/thuế/phí theo [accounting v1](../../design/canslim-v1-execution-accounting.md).
-
-- Nguồn/version/ngày hiệu lực instrument metadata: mẫu hợp đồng HNX + danh mục/tỷ lệ ký quỹ VSDC; lưu ngày hiệu lực, thời điểm tải và hash.
-- Price limit và cách xử lý nếu mô phỏng: ±7% giá tham chiếu; raw vượt biên → `INVALID`. Không clamp stop/target; mức ngoài biên chỉ không thể khớp trong ngày đó.
-- Bộ dữ liệu đủ điều kiện chạy v1: đủ map mã thực, 150 nến VNINDEX khởi tạo, calendar, metadata và tỷ lệ ký quỹ cố định 17%; không có gap trong bar quyết định/thực thi.
-
-## 6. Evidence
-
-U05 dùng `runtime-policy-v1.json`: giữ lịch ngày/ngày nghỉ từ cấu hình đã có,
-không lấy rule rollover v0. Phiên liên tục là các nhãn bắt buộc; nhãn ATO/ATC
-được liệt kê riêng trong optional_times. Không tạo nến để lấp khoảng trống.
-Map tháng phải liên tiếp; dòng đầu phủ từ đầu tháng đáo hạn, các dòng sau
-phủ sau ngày đáo hạn trước đến hết ngày đáo hạn hiện tại. Muốn lấy lịch sử
-trước tháng đầu phải cung cấp thêm map. Nguồn giao dịch có map dùng múi giờ
-Asia/Ho_Chi_Minh theo hợp đồng này.
-
-Close và available_at được giữ riêng. Engine nhận đầy đủ OHLCV của thị trường
-nhưng chỉ công bố nến khi available_at <= thời điểm xét; không lặp mẫu.
-Khoảng thiếu nến được báo trong data_gaps và đánh dấu data_gap_before tại nến
-quan sát tiếp theo. Việc đợi đủ lại 150 mẫu thuộc U08.
-Chuỗi giao dịch công bố trễ sau Close hiện bị từ chối chạy với
-PRIMARY_AVAILABILITY_DELAY_UNSUPPORTED; không tự sửa available_at về Close.
-Nến trước report chỉ cung cấp lịch sử, nến sau end_date không đi vào engine.
-Không rút ngắn kỳ báo cáo sáu tháng.
-
-- Validation schema/hash/session/coverage: lưu báo cáo kiểm tra schema, hash file, số bar kỳ vọng/thực tế, gap và coverage theo từng hợp đồng.
-- Kiểm tra chuyển hợp đồng: giữ lịch sử chỉ báo VNINDEX, chọn đúng dữ liệu hợp đồng để khớp; không dùng nến tương lai.
-- Nghiệm thu dữ liệu thật: toàn kỳ yêu cầu chạy lại cho cùng kết quả, không thiếu lịch chuyển hợp đồng/chính sách và không thiếu nến bắt buộc để khớp lệnh.
+Nghiệm thu dữ liệu thật sáu tháng chưa được xác nhận. Việc nhập được JSON,
+có bảng tham khảo hoặc nhận STRUCTURE_VALID không tự chứng minh đủ lịch sử,
+đúng mã hợp đồng thực tế hoặc đủ nến để hoàn tất mọi lệnh.

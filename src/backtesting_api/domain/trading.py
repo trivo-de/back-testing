@@ -33,6 +33,8 @@ class FixedSignal:
     quantity: int | None = None
     reason: str = "FIXED_TEST_SIGNAL"
     details: StrategyDetails = ()
+    order_type: Literal['NEXT_OPEN', 'LO', 'ATO', 'ATC'] = 'NEXT_OPEN'
+    limit_price: Decimal | None = None
 
     def __post_init__(self) -> None:
         validate_details(self.details)
@@ -63,8 +65,17 @@ class OrderResult:
 
     signal_date: BarTime
     side: Side
-    status: Literal["FILLED", "REJECTED", "PENDING"]
+    status: Literal["FILLED", "REJECTED", "PENDING", "CANCELED", "EXPIRED"]
     reason: str | None = None
+    order_type: str | None = None
+    quantity: int | None = None
+    limit_price: Decimal | None = None
+    events: tuple[dict, ...] = ()
+    fill_index: int | None = None
+    fill_indices: tuple[int, ...] = ()
+    filled_quantity: int = 0
+    expired_quantity: int = 0
+    remaining_quantity: int | None = None
 
 @dataclass(frozen=True)
 class Trade:

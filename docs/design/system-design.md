@@ -36,6 +36,7 @@ sequenceDiagram
     participant HTTP as FastAPI / backtest_routes
     participant Schema as inline_schemas
     participant Service as BacktestService
+    participant Fetch as AutoDataFetcher
     participant Data as inline_data
     participant Strategy as inline_strategy
     participant Repo as FileRunRepository
@@ -49,6 +50,18 @@ sequenceDiagram
     HTTP->>Service: run_inline(payload)
     Service->>Service: validate_inline(payload)
     Service->>Service: prepare_inline(payload)
+    opt auto_fetch_data == true
+        alt Có report.start_date/end_date
+            Service->>Fetch: fetch_by_range(start_date, end_date, warmup_bars, session_policy)
+        else Không có report
+            Service->>Fetch: fetch()
+        end
+        Fetch-->>Service: trade_data, market_data và metadata nguồn
+        opt accounting.model == contract
+            Service->>Service: Đọc AUTO_FETCH_POLICY_PATH và gắn contract_map
+        end
+        Service->>Service: Thay hai nguồn trong payload, đặt auto_fetch_data=false
+    end
     opt trade_data có contract_map
         Service->>Service: Đọc inline_policy_path bằng json.loads(path.read_bytes())
     end
@@ -76,6 +89,7 @@ sequenceDiagram
             Mapper->>Mapper: normalized_result_to_dict() → exact_json()
         end
         Mapper-->>Service: response dạng JSON
+        Service->>Service: Gắn metadata.run_at theo UTC
         Service->>Repo: complete_run(run_id, result, response)
         Repo->>Repo: Kiểm tra run/input/hash<br/>_publish_json() → _publish_bytes() → os.replace()
         Repo-->>Service: Đã công bố status=succeeded và result_hash
@@ -92,7 +106,8 @@ sequenceDiagram
 Kiểm tra schema không đạt thì FastAPI trả 422 trước khi gọi `run_backtest()`.
 Lỗi ở `validate_inline()` hoặc `start_inline()` xảy ra trước khối `try` chạy
 chiến lược, nên không đi qua `fail_run()`. Route đổi `ValueError` thành 422;
-`OSError`, `KeyError`, `TypeError` thành 503; ngoại lệ khác không được route
+`OSError`, `KeyError`, `TypeError` thành 503; `AutoFetchError` do lỗi nguồn
+được trả 503 riêng; ngoại lệ khác không được route
 này ánh xạ riêng. Nếu chính `fail_run()` lỗi thì việc ghi trạng thái failed
 cũng không được bảo đảm.
 
@@ -104,10 +119,19 @@ Khi cờ này là boolean `true`, `InlineRunRequest.prefer_auto_data()` bỏ hai
 nguồn nhập tay trước khi kiểm tra trường, kể cả khi chúng chưa hợp lệ;
 các nhóm cấu hình khác vẫn được kiểm tra. Không sửa trực tiếp JSON đầu vào
 do bên gọi truyền vào.
-`prepare_inline()` gọi `AutoDataFetcher.fetch()` khi bật tự lấy, kiểm tra
-OHLCV và chỉ giữ nến đã đóng trong sáu tháng gần nhất. Hai nguồn dùng cùng
-mốc Unix. Với mô hình contract, bảng đáo hạn được lấy từ chính sách hiện có;
+`prepare_inline()` gọi `AutoDataFetcher.fetch_by_range()` khi bật tự lấy và có
+`report`: service tính số nến khởi tạo từ `warmup_bars`, chỉ báo và `shift`;
+fetcher đếm ngược theo lịch phiên rồi chỉ giữ số nến lịch sử cần dùng trước
+`start_date`, cùng dữ liệu đến hết `end_date`. Contract chỉ đếm nến liên tục;
+ATO cần tối thiểu một nến trước kỳ. Thiếu nến/khoảng trống vẫn được báo, không
+tự lấp hoặc lùi thêm qua khoảng thiếu. Nếu không có `report`, service gọi `fetch()` để lấy sáu tháng gần
+nhất đến hiện tại. Cả hai đường đều kiểm tra OHLCV, chỉ giữ nến đã đóng và dùng
+cùng mốc Unix cho hai nguồn. Với mô hình contract, bảng đáo hạn được lấy từ chính sách hiện có;
 kiểm tra lịch phiên vẫn dùng `runtime-policy-v1.json`, không tự mở rộng lịch.
+Khi có `report` ở mô hình contract, lịch sử khởi tạo không được tải trước
+ngày đầu lịch phiên hoặc đầu tháng đầu tiên của bảng đáo hạn. Giới hạn được
+ghi tại `metadata.auto_fetch.history_start_limit`; kỳ báo cáo và ngưỡng
+`warmup_bars` giữ nguyên, thiếu mẫu vẫn báo chưa đánh giá được.
 Sau khi lấy, payload chứa hai nguồn cụ thể và `auto_fetch_data: false`;
 metadata giữ nguồn, khoảng lấy, mã băm và số nến bị loại. `start_inline()`
 lưu snapshot này như đầu vào nhập tay để có thể chạy lại. Lỗi nguồn HTTP/mạng
@@ -228,6 +252,7 @@ bỏ qua nhãn đó và xét nhãn tiếp theo. Margin/time-stop/giờ thoát th
 | Dữ liệu                | `resolve_inline()` → `normalize_raw_source()`, `_bars()` và `_session_gaps()` khi có map                                                                                                   | [inline_data.py](../../src/backtesting_api/application/inline_data.py)                                                                                                                                                         |
 | Chuẩn bị chiến lược | `run_inline_strategy()` → `check_runtime()`, `IndicatorData.__init__()`, khởi tạo executor → `run_engine()`                                                                               | [inline_strategy.py](../../src/backtesting_api/application/inline_strategy.py)                                                                                                                                                 |
 | Vòng lặp               | `run_engine()` → `before_open()`, `execute()` nếu có pending, `intrabar()`, `mark()`, `evaluate()`, `validate()` nếu có tín hiệu                                                 | [engine.py](../../src/backtesting_api/domain/engine.py)                                                                                                                                                                        |
+| Khớp theo phiên      | `run_engine()` → `run_session_engine()` → gửi ATO lúc 08:45, LO trong phiên, ATC lúc 14:30; `match_auction()` khớp tại 09:00/14:45 và làm phần dư hết hiệu lực | [engine.py](../../src/backtesting_api/domain/engine.py), [session_matching.py](../../src/backtesting_api/domain/session_matching.py) |
 | Tính điều kiện       | `evaluate()` → `IndicatorData.at()` → `evaluate_expression()` → `validate_expression()`                                                                                                    | [inline_strategy.py](../../src/backtesting_api/application/inline_strategy.py), [expressions.py](../../src/backtesting_api/domain/expressions.py)                                                                               |
 | Mua normalized           | `InlineNormalizedExecution.execute()` → `NormalizedExecution.execute()` → hàm `size(context)` → `Portfolio.buy()`                                                                         | [inline_strategy.py](../../src/backtesting_api/application/inline_strategy.py), [execution.py](../../src/backtesting_api/domain/execution.py), [portfolio.py](../../src/backtesting_api/domain/portfolio.py)                     |
 | Bán normalized          | `InlineNormalizedExecution.execute()` → `NormalizedExecution.execute()` → `Portfolio.sell()`                                                                                                  | [execution.py](../../src/backtesting_api/domain/execution.py), [portfolio.py](../../src/backtesting_api/domain/portfolio.py)                                                                                                    |
@@ -238,8 +263,10 @@ bỏ qua nhãn đó và xét nhãn tiếp theo. Margin/time-stop/giờ thoát th
 
 `portfolio` là sổ tiền bất biến: `buy()`/`sell()` hoặc `enter()`/`exit()` trả
 sổ tiền mới; executor thay `self.portfolio`, engine lấy lại sổ tiền đó sau
-khớp. `mark()` chỉ trả snapshot, không tự tạo giao dịch. Khối lượng được tính
-lúc `execute()`, không cố định từ lúc phát tín hiệu.
+khớp. `mark()` chỉ trả snapshot, không tự tạo giao dịch. Đường chạy mặc định tính
+khối lượng lúc `execute()`. Khớp theo phiên chốt lượng LO theo giá giới hạn, ATO
+theo Close liên tục gần nhất lúc 08:45 và ATC theo vị thế còn lại lúc 14:30;
+`auction_match_quantity` chỉ giới hạn lượng thực khớp, không sửa lượng đã đặt.
 
 ## 2. Ranh giới module
 
@@ -346,7 +373,7 @@ Parquet của lịch sử còn giữ; pyarrow phục vụ nhánh đọc này.
 
 Kho có một tiến trình ghi. Đường dẫn chính sách/kho file tương đối được xác
 định từ thư mục làm việc; chạy ứng dụng từ gốc repository theo
-[runbook](../plans/vn30f1m-backtest-runbook.md).
+[hướng dẫn chạy](../guides/run-backtest.md).
 
 ## 5. Giao diện và đọc kết quả
 
@@ -356,13 +383,14 @@ và lọc record, không tính lại chỉ báo hoặc tiền. Lỗi chart khôn
 mới; nút thử lại đọc kết quả/chart theo run_id đã có.
 Chi tiết tại [đặc tả giao diện](web-ui-specification.md).
 
-## 6. Kiểm thử và mở rộng
+## 6. Kiểm thử
 
 Kiểm thử các lớp dữ liệu/biểu thức, trạng thái lệnh, tính tiền, lỗi ghi nguyên
 tử, hash/schema, đọc lịch sử, API, notebook và ánh xạ chart. Đối chiếu đầy đủ
 với dữ liệu cắt tại t và dữ liệu tương lai bị thay đổi; chạy cùng JSON nhiều
-lần phải giữ kết quả nghiệp vụ sau khi tách UUID.
+lần phải giữ kết quả nghiệp vụ sau khi tách UUID và metadata.run_at.
+Input/policy hash được đối chiếu khi cùng đầu vào đã ghim; result_hash bao gồm
+định danh và thời điểm chạy nên có thể khác giữa hai run.
 
-Agent/MCP là thiết kế dự kiến tại [kế hoạch agent](../plans/agent-research-plan.md),
-chưa tham gia luồng thực thi. Chưa có queue, nhiều tiến trình ghi hoặc kho phiên
-agent được chọn. Mở rộng phải dùng cùng kiểm tra JSON và application boundary.
+Các test hiện có và giới hạn kiểm chứng tại
+[danh mục kiểm thử](../testing/vn30f1m/canslim-v1-test-cases.md).

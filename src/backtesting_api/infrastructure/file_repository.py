@@ -7,6 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
+from ..application.inline_data import resolve_inline
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -233,8 +234,7 @@ class FileRunRepository:
             return None
         metadata = response["metadata"]
         if response.get('schema_version') == 2:
-            # v1 dựng chart từ payload JSON và input_hash.
-            from ..application.inline_data import resolve_inline
+            # build chart data from the pinned input payload
             document = self._inline_input(metadata['input_hash'])
             payload = copy.deepcopy(document['payload'])
             # Keep new requests strict on `time`; read the one historical artifact
@@ -252,7 +252,13 @@ class FileRunRepository:
                          'close_time': bar.closed_at.isoformat(), 'available_at': bar.available_at.isoformat(),
                          'contract_code': bar.contract_code}
                         for bar in rows if data.start_date <= bar.trading_date.astimezone(ZoneInfo(metadata['timezone'])).date() <= data.end_date]
-            return {'metadata': metadata, 'bars': chart_rows(data.bars), 'market_bars': chart_rows(data.market_bars)}
+            chart = {'metadata': metadata, 'bars': chart_rows(data.bars), 'market_bars': chart_rows(data.market_bars)}
+            if metadata.get('matching_model'):
+                chart['auctions'] = [{'time': int(a.match_time.timestamp()), 'available_at': a.available_at.isoformat(),
+                                      'contract_code': a.contract_code, 'status': a.status,
+                                      'price': str(a.price) if a.price is not None else None, 'source': a.source}
+                                     for a in data.auction_events]
+            return chart
         # Legacy runs rebuild chart data from the manifest pinned in metadata.
         manifest_path = self.store / "datasets" / f"dataset-{metadata['dataset_version']}.json"
         _, rows = _read_dataset(manifest_path)

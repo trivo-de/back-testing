@@ -1,5 +1,11 @@
 # Đặc tả API backtest
 
+Phần bổ sung tùy chọn `execution.matching_model: "hnx_sessions_v1"`, ATO/LO/ATC,
+`auction_match_quantity`, `contract_dates`, `provenance`, bản ghi `auctions` cũ
+và các trường kết quả tương ứng được
+đặc tả tại [khớp theo phiên HNX](hnx-session-matching.md). Các mô tả `next_open`
+và giới hạn chờ một nến bên dưới là mặc định của đường chạy cũ.
+
 ## 1. Tổng quan
 
 API nhận dữ liệu giá và định nghĩa chiến lược bằng JSON để kiểm tra đầu vào,
@@ -19,8 +25,8 @@ Chuỗi gọi hàm từ HTTP đến engine và kho file, cùng thứ tự xử l
 - Chỉ tự tải khi bật `auto_fetch_data`; không điền dữ liệu giá bị thiếu.
 - `accounting.model` chọn mô hình tính tiền; symbol không chọn chiến lược.
 
-Quy tắc CANSLIM thuộc [quy tắc v1](../strategies/canslim-v1-rules.md) và
-[quy tắc normalized](../strategies/canslim-rules.md). Quy ước nguồn, phiên và
+Mẫu CANSLIM thuộc [quy tắc v1](../strategies/canslim-v1-rules.md); mô hình
+normalized theo [tính tiền normalized](normalized-accounting.md). Quy ước nguồn, phiên và
 đáo hạn thuộc [hợp đồng dữ liệu](../data/vn30f1m/data-contract-v1.md).
 Các ví dụ dưới đây không thay đổi quy tắc đã chốt.
 
@@ -113,16 +119,16 @@ web dùng endpoint lịch sử này để tránh tải toàn bộ bảng kết q
 **Payload nhận một JSON object với các trường chính dưới đây.**
 Tên trường và từ khóa phân biệt hoa/thường. Trường ngoài cấu trúc cho phép sẽ bị từ chối và trả lỗi 422.
 
-| Nhóm            | Kiểu JSON        | Bắt buộc                                  | Nội dung                                                      |
-| ---------------- | ----------------- | ------------------------------------------- | -------------------------------------------------------------- |
-| `auto_fetch_data` | boolean | Không; mặc định `false` | `true` để ưu tiên tự lấy cả hai nguồn và bỏ qua dữ liệu nhập tay |
-| `trade_data`   | object hoặc null | Khi không bật tự lấy | Chuỗi giá dùng giao dịch |
-| `market_data`  | object hoặc null | Khi nhập tay và được chỉ báo/biểu thức sử dụng | Chuỗi thị trường tham chiếu |
-| `strategy`     | object            | Có                                         | Chỉ báo, vào/thoát lệnh, số lượng và giới hạn ngày |
-| `execution`    | object            | Có                                         | Cách khớp và trượt giá                                   |
-| `accounting`   | object            | Có                                         | Mô hình tính tiền và phí                                 |
-| `initial_cash` | số thập phân   | Có                                         | Vốn ban đầu, lớn hơn 0                                    |
-| `report`       | object hoặc null | Không                                      | Khoảng ngày báo cáo                                        |
+| Nhóm               | Kiểu JSON        | Bắt buộc                                                | Nội dung                                                                       |
+| ------------------- | ----------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `auto_fetch_data` | boolean           | Không; mặc định`false`                              | `true` để ưu tiên tự lấy cả hai nguồn và bỏ qua dữ liệu nhập tay |
+| `trade_data`      | object hoặc null | Khi không bật tự lấy                                  | Chuỗi giá dùng giao dịch                                                    |
+| `market_data`     | object hoặc null | Khi nhập tay và được chỉ báo/biểu thức sử dụng | Chuỗi thị trường tham chiếu                                                |
+| `strategy`        | object            | Có                                                       | Chỉ báo, vào/thoát lệnh, số lượng và giới hạn ngày                  |
+| `execution`       | object            | Có                                                       | Cách khớp và trượt giá                                                    |
+| `accounting`      | object            | Có                                                       | Mô hình tính tiền và phí                                                  |
+| `initial_cash`    | số thập phân   | Có                                                       | Vốn ban đầu, lớn hơn 0                                                     |
+| `report`          | object hoặc null | Không                                                    | Khoảng ngày báo cáo                                                         |
 
 Quy tắc chọn nguồn cho cả `/api/backtests/validate` và `/api/backtests`
 (cập nhật 09/10/2026):
@@ -135,33 +141,46 @@ Quy tắc chọn nguồn cho cả `/api/backtests/validate` và `/api/backtests`
   nhập tay thiếu trường, sai kiểu, sai OHLCV, bảng hợp đồng hoặc khác khoảng
   báo cáo đều không chặn yêu cầu tự lấy.
 
-| `auto_fetch_data` | Dữ liệu nhập tay | Xử lý |
-| --- | --- | --- |
-| `true` | Có hoặc không, hợp lệ hoặc chưa hợp lệ | Bỏ qua cả hai nguồn nhập tay, tự tải cả hai nguồn |
-| `false` hoặc bỏ trường | Đủ và hợp lệ theo chiến lược | Dùng dữ liệu nhập tay |
-| `false` hoặc bỏ trường | Thiếu hoặc chưa hợp lệ | Trả 422 như trước |
+| `auto_fetch_data`          | Dữ liệu nhập tay                             | Xử lý                                                   |
+| ---------------------------- | ----------------------------------------------- | --------------------------------------------------------- |
+| `true`                     | Có hoặc không, hợp lệ hoặc chưa hợp lệ | Bỏ qua cả hai nguồn nhập tay, tự tải cả hai nguồn |
+| `false` hoặc bỏ trường | Đủ và hợp lệ theo chiến lược            | Dùng dữ liệu nhập tay                                 |
+| `false` hoặc bỏ trường | Thiếu hoặc chưa hợp lệ                     | Trả 422 như trước                                     |
 
 Các nhóm chiến lược, khớp lệnh, tính tiền, vốn ban đầu và `report` nếu gửi
 vẫn được kiểm tra. `report` được đối chiếu với dữ liệu tự tải khi bật tự lấy.
 Tự tải lỗi hoặc dữ liệu tải không hợp lệ thì trả lỗi và dừng trước khi tạo
 lượt chạy; không dùng lại dữ liệu nhập tay, không ghép hai loại nguồn.
-Quy tắc ưu tiên này thay thế lỗi `AUTO_FETCH_DATA_CONFLICT` trước đây.
 `auto_fetch_data` chỉ nhận boolean JSON,
 không nhận chuỗi `"true"`, số `1` hoặc `null`.
 
-Máy chủ gọi VNDIRECT cho **VN30F1M và VNINDEX, độ phân giải 5 phút**;
-`to` là Unix giây lúc bắt đầu lấy, `from` lùi đúng sáu tháng theo lịch tại
-`Asia/Ho_Chi_Minh`, giữ giờ/phút/giây. Nếu tháng đầu không có ngày tương ứng,
-dùng ngày cuối tháng đó. Hai nguồn dùng chung khoảng thời gian. Không cộng
-thêm lịch sử trước sáu tháng; thiếu mẫu khởi tạo vẫn được báo chưa đánh giá được.
+Máy chủ gọi VNDIRECT cho **VN30F1M và VNINDEX, độ phân giải 5 phút**. Nếu không
+có `report`, `to` là Unix giây lúc bắt đầu lấy và `from` lùi đúng sáu tháng theo
+lịch tại `Asia/Ho_Chi_Minh`, giữ giờ/phút/giây. Nếu có `report`, chỉ lùi `from`
+đủ số nến khởi tạo: giá trị lớn nhất giữa `warmup_bars`, yêu cầu tối thiểu của
+chỉ báo và `shift` (MFI: `period + 1`; MACD: `slow_period + signal_period - 1`).
+ATO cần ít nhất một nến liên tục trước kỳ. Đếm ngược trên lịch phiên, bỏ ngày
+nghỉ; contract không đếm nến ngoài giờ liên tục. Hai nguồn dùng chung mốc tải
+sớm nhất cần thiết; mỗi nguồn chỉ giữ số nến lịch sử cần dùng, cùng toàn bộ
+dữ liệu trong kỳ. Không kéo dài lịch sử qua khoảng thiếu để giả định đủ mẫu.
+`metadata.auto_fetch.warmup_bars_requested` ghi số nến yêu cầu; mỗi nguồn ghi
+`warmup_count` và `retained_count`. Lịch sử có thể bắt đầu giữa phiên; chỉ kiểm
+tra thiếu nhãn từ mốc này, kỳ báo cáo vẫn được kiểm tra đủ phiên.
+`to` là 23:59:59 của `report.end_date`, hoặc thời điểm hiện tại nếu ngày kết
+thúc là hôm nay. Ngày kết thúc trong tương lai bị từ chối. Thiếu mẫu khởi tạo
+vẫn được báo chưa đánh giá được. Không đổi kỳ báo cáo hoặc ngưỡng chiến lược.
 Header tải là `Accept: */*`, `User-Agent: backtest-hpg/0.1`; mỗi nguồn có
 thời gian chờ tối đa 60 giây. Không tự thử lại hoặc chuyển nguồn khi tải lỗi.
 
 Chỉ giữ nến có `time + 300 <= to`; không loại riêng nến ATC đã đóng,
 không điền nến thiếu, không đổi độ phân giải. Dữ liệu sai trạng thái, OHLCV,
 thứ tự, mốc 5 phút hoặc vượt khoảng yêu cầu bị từ chối. `report` nếu gửi
-phải nằm trong khoảng ngày thực có nến VN30F1M đã đóng; nếu bỏ, báo cáo dùng
-ngày đầu/cuối của các nến đó, có thể ngắn hơn khoảng yêu cầu nếu nguồn thiếu.
+được kiểm tra thứ tự ngày trước khi gọi nguồn. Nguồn thiếu ngày đầu/cuối kỳ
+vẫn chạy trên các nến thực có; `report_range` giữ nguyên, `available_range`
+ghi phạm vi nến giao dịch thực có trong kỳ. Khi áp dụng lịch phiên, nến thiếu
+vẫn được ghi trong `data_gaps`. Chỉ trả `REPORT_DATA_MISSING` khi không có nến
+giao dịch nào trong kỳ. Nếu bỏ `report`, báo cáo dùng ngày
+đầu/cuối của các nến đã đóng, có thể ngắn hơn khoảng yêu cầu nếu nguồn thiếu.
 
 Với `accounting.model: "contract"`, máy chủ dùng bảng đáo hạn từ
 `AUTO_FETCH_POLICY_PATH` (mặc định `runtime-policy.json`) và kiểm tra phiên
@@ -170,14 +189,26 @@ bao phủ 01/03–31/12/2026**, gồm ngày làm việc trừ ngày nghỉ theo
 [thông báo HNX năm 2026](https://www.gov.hnx.vn/vi-vn/chi-tiet-lich-nghi-gd-60021971.html?_page=1).
 Dữ liệu ngoài lịch vẫn trả `REPORT_OUTSIDE_STATIC_CALENDAR`; bảng đáo hạn
 hiện bao phủ đến 17/12/2026, vượt bảng trả `CONTRACT_MAP_COVERAGE_MISSING`.
+Khi có `report`, phần lịch sử khởi tạo tự tải được giới hạn bởi ngày đầu
+lịch phiên và đầu tháng đầu tiên của bảng đáo hạn (mặc định 01/03/2026).
+`metadata.auto_fetch.history_start_limit` ghi giới hạn này; `from` ghi mốc
+tải thực tế. Không đổi kỳ báo cáo hoặc ngưỡng `warmup_bars`; thiếu lịch sử
+vẫn báo `UNEVALUABLE`, kỳ báo cáo ngoài phạm vi vẫn bị từ chối.
+Khớp liên tục `hnx_sessions_v1` hỗ trợ `auto_fetch_data: true` với LO, mô hình
+`contract` và trượt giá `0`. Máy chủ tạo `trade_data.contract_dates` từ bảng
+đáo hạn theo giả định đã được chấp nhận: giữ mã đến hết ngày đáo hạn, đổi từ
+ngày sau đó; lưu giả định và nguồn dữ liệu cùng lượt chạy. Chưa đối chiếu lịch
+chuyển mã của nhà cung cấp. ATO/ATC yêu cầu bản ghi nhãn 09:00/14:45 tương ứng;
+thiếu bản ghi làm lượt chạy lỗi; xem [quy tắc khớp theo phiên](hnx-session-matching.md).
+
 Tự lấy với mô hình `normalized`
 giữ cách chạy hiện có, không tự thêm bảng hợp đồng hoặc đổi mô hình tiền.
 
 Tự lấy giữa phiên không tạo thêm nến đóng vị thế. Nếu chiến lược `contract`
 còn vị thế ở cuối dữ liệu mà chưa đến thời điểm đóng bắt buộc, lượt chạy có
 thể trả `END_OF_REPORT_POSITION_REQUIRES_EXIT`. Khi muốn chạy các phiên đã
-hoàn tất, gửi `report.end_date` là ngày giao dịch đã kết thúc; máy chủ vẫn
-tải đến hiện tại rồi cắt theo `report`, không tự đổi kỳ báo cáo.
+hoàn tất, gửi `report.end_date` là ngày giao dịch đã kết thúc; máy chủ dừng
+khoảng tải tại hết ngày đó và không tự đổi kỳ báo cáo.
 
 Kết quả tự lấy ghi `metadata.input_origin: "auto_fetch"` và
 `metadata.auto_fetch`: thời điểm/khoảng lấy, URL, mã băm phản hồi nguồn,
@@ -215,21 +246,22 @@ Kiểu 1: Mảng các JSON Object
 
 Kiểu 2: JSON Object chứa các mảng (cấu trúc dữ liệu gốc khi lấy từ API)
 
-| Trường | Kiểu           | Bắt buộc | Ý nghĩa/ràng buộc                                              |
-| -------- | --------------- | ---------- | ------------------------------------------------------------------ |
-| `t`    | số nguyên     | Có        | Unix tại lúc mở nến, theo timestamp_unit                       |
-| `c`    | số thập phân | Có        | Close                                                              |
-| `o`    | số thập phân | Có        | Open                                                               |
-| `h`    | số thập phân | Có        | High                                                               |
-| `l`    | số thập phân | Có        | Low                                                                |
-| `v`    | số nguyên     | Có        | Volume                                                             |
-| `s`    | chuỗi          | Có        | Trạng thái API khi lấy data từ VNDIRECT. Chứa cố định "ok" |
+| Trường | Kiểu           | Bắt buộc | Ý nghĩa/ràng buộc                                                                 |
+| -------- | --------------- | ---------- | ------------------------------------------------------------------------------------- |
+| `t`    | số nguyên     | Có        | Unix tại lúc mở nến, theo timestamp_unit                                          |
+| `c`    | số thập phân | Có        | Close                                                                                 |
+| `o`    | số thập phân | Có        | Open                                                                                  |
+| `h`    | số thập phân | Có        | High                                                                                  |
+| `l`    | số thập phân | Có        | Low                                                                                   |
+| `v`    | số nguyên     | Có        | Volume                                                                                |
+| `s`    | chuỗi          | Không     | Trạng thái nguồn; nếu truyền phải là "ok", bỏ thì bộ chuẩn hóa dùng "ok" |
 
 Dữ liệu OHLC được xem là hợp lệ khi thỏa các điều kiện sau:
 
 - `low <= min(open, close) <= max(open, close) <= high`.
 - `time < close_time <= available_at`, không trùng, đảo thứ tự hoặc chồng lấn.
-- Có `close_time` và `available_at` (đối với chứng khoán cơ sở).
+- Nến ngày phải có `close_time` và `available_at`; nến 5 phút dùng mặc định
+  Close = Open + 300 giây và available_at = Close khi bỏ các trường này.
 - Timestamp đúng format Unix tuyệt đối.
 
 **Mỗi phần tử contract_map:**
@@ -269,8 +301,10 @@ Cấu trúc chi tiết ở mục 5.
 
 | Trường              | Kiểu                  | Bắt buộc | Giá trị hỗ trợ   | Ý nghĩa                                                                                                                                                                                     |
 | --------------------- | ---------------------- | ---------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `entry_fill_policy` | string                 | Có        | `"next_open"`      | Quy định thời điểm khớp lệnh vào vị thế: tín hiệu hình thành sau giá đóng cửa nến hiện tại được khớp tại giá mở cửa hợp lệ kế tiếp                           |
+| `entry_fill_policy` | string                 | Có        | `"next_open"`, `"limit"`, `"ato"` | Quy định vào vị thế tại Open kế tiếp, bằng LO hoặc ATO Open 09:00; `ato` chỉ dùng với `hnx_sessions_v1` |
 | `slippage_rate`     | số/chuỗi thập phân | Có        | Từ 0 đến dưới 1 | Tỷ lệ trượt giá mô phỏng mức bất lợi giữa giá tham chiếu và giá khớp. Với normalized, giá mua = giá mở cửa × (1 + tỷ lệ), giá bán = giá mở cửa × (1 − tỷ lệ) |
+| `matching_model` | string/null | Không | `"hnx_sessions_v1"` | Bật khớp theo phiên cho contract 5 phút, trượt giá 0 |
+| `auction_match_quantity` | integer/null | Không | Số nguyên ≥ 0 | Giới hạn cố định lượng khớp mỗi lệnh ATO/ATC; bỏ để giả định khớp đủ; đây không phải mô hình thanh khoản thật |
 
 Stop/target trong nến có quy tắc tại mục 5.3.
 
@@ -311,8 +345,21 @@ Contract dùng VND; normalized dùng đơn vị giá mô phỏng.
 | `start_date` | string ngày | Có                       | YYYY-MM-DD bắt đầu |
 | `end_date`   | string ngày | Có                       | YYYY-MM-DD kết thúc |
 
-Khoảng gồm hai đầu theo ngày địa phương trade_data và nằm trong phạm vi
-chuỗi này.
+Khoảng gồm hai đầu theo ngày địa phương trade_data. `start_date > end_date`
+trả `INVALID_REPORT_RANGE` cho cả dữ liệu nhập tay và tự lấy, trước khi gọi nguồn.
+Chỉ khi không có nến giao dịch nào trong kỳ mới trả HTTP 422:
+
+```json
+{"detail":"REPORT_DATA_MISSING:requested=2026-10-08..2026-10-08;available=2026-10-09..2026-10-09"}
+```
+
+Nguồn bắt đầu muộn hoặc kết thúc sớm vẫn được sử dụng, không tự rút ngắn kỳ
+báo cáo và không tạo nến bù. `metadata.report_range` giữ kỳ yêu cầu;
+`metadata.available_range` ghi ngày đầu/cuối của nến giao dịch thực có trong kỳ.
+Ví dụ yêu cầu 10/04–14/10/2026 nhưng nguồn có từ 15/04 thì hai phạm vi được ghi
+riêng như vậy. Khi áp dụng lịch phiên, `data_gaps` vẫn ghi các nến thiếu đầu/cuối.
+Thiếu lịch sử chỉ báo tại nến trong kỳ vẫn ghi `UNEVALUABLE` khi chạy;
+đó không phải lỗi thứ tự ngày hoặc lỗi bao phủ kỳ báo cáo.
 
 ## 4. Payload minh họa
 
@@ -486,7 +533,7 @@ bộ dữ liệu nghiệm thu hoặc kết quả đầu tư.
     },
     "sizing": {
       "type": "risk_and_margin",
-      "risk_fraction": 0.01,
+      "risk_fraction": 0.02,
       "stop_points": 6,
       "margin_buffer": 1.1,
       "max_contracts": 5,
@@ -824,7 +871,8 @@ Một số mã thêm thông tin sau dấu `:`.
 | `UNORDERED_OR_OVERLAPPING_BARS`                                                                  | Nến trùng, đảo thứ tự, chồng lấn                                                            |
 | `DAILY_EXPLICIT_TIMES_REQUIRED`                                                                  | Nến ngày thiếu thời điểm đóng/khả dụng                                                    |
 | `MISSING_REQUIRED_DATA`, `MISSING_REQUIRED_VOLUME`                                             | Thiếu chuỗi/volume được sử dụng                                                              |
-| `INVALID_REPORT_RANGE`, `REPORT_DATA_MISSING`                                                  | Kỳ sai phạm vi hoặc không có nến trong kỳ                                                    |
+| `INVALID_REPORT_RANGE`                                                                         | Ngày bắt đầu lớn hơn ngày kết thúc; kiểm tra trước khi gọi nguồn                            |
+| `REPORT_DATA_MISSING`                                                                          | Không có nến giao dịch nào trong kỳ; kèm kỳ yêu cầu và phạm vi dữ liệu nguồn |
 | `INVALID_CONTRACT_MAP`, `CONTRACT_MAP_MONTH_MISSING`, `CONTRACT_MAP_COVERAGE_MISSING`        | Map sai, thiếu tháng/phạm vi                                                                     |
 | `REPORT_OUTSIDE_STATIC_CALENDAR`, `SESSION_POLICY_MISSING`, `UNEXPECTED_BAR`                 | Kỳ ngoài lịch, thiếu chính sách phiên hoặc nến sai phiên                                  |
 | `INDICATOR_PARAMETERS_MISMATCH`, `UNSUPPORTED_INDICATOR_SOURCE`                                | Tham số/nguồn chỉ báo sai                                                                       |
@@ -837,6 +885,8 @@ Một số mã thêm thông tin sau dấu `:`.
 | `NORMALIZED_REQUIRES_BUY_FIXED_FRACTIONAL_AND_BAR_CLOSE_EXIT`                                    | Tổ hợp normalized không hỗ trợ                                                                 |
 | `CONTRACT_REQUIRES_LONG_SHORT_AND_RISK_AND_MARGIN`                                               | Tổ hợp contract không hỗ trợ                                                                   |
 | `UNSUPPORTED_CONTRACT_RESOLUTION`, `UNSUPPORTED_CONTRACT_SLIPPAGE`                             | Contract không dùng 5 phút hoặc trượt giá khác 0                                            |
+| `MISSING_ATO_MATCH_BAR`, `MISSING_ATC_MATCH_BAR`, `ATC_CONTRACT_MISMATCH`                     | Thiếu bản ghi giá đấu giá hoặc sai mã hợp đồng                                              |
+| `INVALID_AUCTION_MATCH_QUANTITY`, `AUCTION_MATCH_QUANTITY_REQUIRES_AUCTION_ORDER`             | Giới hạn lượng khớp đấu giá sai hoặc không có lệnh ATO/ATC                                |
 | `PRIMARY_AVAILABILITY_DELAY_UNSUPPORTED`                                                         | Chuỗi giao dịch có thời điểm khả dụng khác Close                                           |
 | `MISSING_REQUIRED_EXIT_BAR`, `MISSING_POSITION_EXECUTION_BAR`                                  | Thiếu nến cần khớp/quản trị vị thế                                                          |
 | `FLAT_DEADLINE_MISSED`, `OVERNIGHT_POSITION_INVALID`, `END_OF_REPORT_POSITION_REQUIRES_EXIT` | Vi phạm hạn hoặc yêu cầu không qua đêm                                                      |
@@ -844,16 +894,16 @@ Một số mã thêm thông tin sau dấu `:`.
 
 ### 7.3. Status code của hai endpoint POST
 
-| Endpoint                    | HTTP status              | Mã/trạng thái                    | Điều kiện và response                                                   |
-| --------------------------- | ------------------------ | ----------------------------------- | --------------------------------------------------------------------------- |
-| `/api/backtests/validate` | 200 OK                   | STRUCTURE_VALID                     | Qua kiểm tra, trả body mục 8.1                                           |
-| `/api/backtests/validate` | 422 Unprocessable Entity | Lỗi cấu trúc/nội dung           | Không chạy/lưu; trả detail lỗi                                         |
-| `/api/backtests/validate` | 503 Service Unavailable  | INLINE_POLICY_UNAVAILABLE           | Không đọc được chính sách phiên cần dùng; detail là chuỗi      |
-| `/api/backtests`          | 201 Created              | —                                  | Chạy và lưu xong; trả kết quả mục 8.2                                |
-| `/api/backtests`          | 422 Unprocessable Entity | Lỗi cấu trúc/nội dung/thực thi | Không công bố kết quả một phần là thành công                      |
-| `/api/backtests`          | 503 Service Unavailable  | BACKTEST_STORAGE_UNAVAILABLE        | Lỗi lưu trữ/ghi thuộc nhóm được xử lý; detail là object có code |
-| Cả hai POST | 422 Unprocessable Entity | AUTO_FETCH_INVALID_SOURCE, AUTO_FETCH_NO_CLOSED_BARS | Nguồn trả dữ liệu sai hoặc không có nến đã đóng; detail là chuỗi kèm tên nguồn |
-| Cả hai POST | 503 Service Unavailable | AUTO_FETCH_HTTP_ERROR, AUTO_FETCH_NETWORK_ERROR, AUTO_FETCH_UNAVAILABLE | VNDIRECT lỗi HTTP/mạng hoặc máy chủ chưa nối bộ tải; detail là chuỗi, lỗi HTTP kèm mã nguồn trả về |
+| Endpoint                    | HTTP status              | Mã/trạng thái                                                        | Điều kiện và response                                                                                           |
+| --------------------------- | ------------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `/api/backtests/validate` | 200 OK                   | STRUCTURE_VALID                                                         | Qua kiểm tra, trả body mục 8.1                                                                                   |
+| `/api/backtests/validate` | 422 Unprocessable Entity | Lỗi cấu trúc/nội dung                                               | Không chạy/lưu; trả detail lỗi                                                                                 |
+| `/api/backtests/validate` | 503 Service Unavailable  | INLINE_POLICY_UNAVAILABLE                                               | Không đọc được chính sách phiên cần dùng; detail là chuỗi                                              |
+| `/api/backtests`          | 201 Created              | —                                                                      | Chạy và lưu xong; trả kết quả mục 8.2                                                                        |
+| `/api/backtests`          | 422 Unprocessable Entity | Lỗi cấu trúc/nội dung/thực thi                                     | Không công bố kết quả một phần là thành công                                                              |
+| `/api/backtests`          | 503 Service Unavailable  | BACKTEST_STORAGE_UNAVAILABLE                                            | Lỗi lưu trữ/ghi thuộc nhóm được xử lý; detail là object có code                                         |
+| Cả hai POST                | 422 Unprocessable Entity | AUTO_FETCH_INVALID_SOURCE, AUTO_FETCH_NO_CLOSED_BARS                    | Nguồn trả dữ liệu sai hoặc không có nến đã đóng; detail là chuỗi kèm tên nguồn                     |
+| Cả hai POST                | 503 Service Unavailable  | AUTO_FETCH_HTTP_ERROR, AUTO_FETCH_NETWORK_ERROR, AUTO_FETCH_UNAVAILABLE | VNDIRECT lỗi HTTP/mạng hoặc máy chủ chưa nối bộ tải; detail là chuỗi, lỗi HTTP kèm mã nguồn trả về |
 
 Ví dụ lỗi cấu trúc do trường thừa:
 
@@ -899,14 +949,14 @@ múi giờ. Mảng không có sự kiện trả []; không tạo fill cho lệnh
 
 ### 8.1. Kết quả POST /api/backtests/validate
 
-| Trường        | Kiểu        | Ý nghĩa                                                                                    |
-| --------------- | ------------ | -------------------------------------------------------------------------------------------- |
-| `status`      | string       | STRUCTURE_VALID khi qua kiểm tra                                                            |
-| `runnable`    | boolean      | Máy chủ có bộ chạy chiến lược                                                        |
-| `data_status` | string       | RESOLVED khi đã ánh xạ dữ liệu                                                         |
-| `data`        | object       | Kỳ báo cáo, số nến khởi tạo, chỉ báo, map, khoảng thiếu và giả định dữ liệu |
-| `pending`     | array string | [] khi có bộ chạy; nếu chưa có trả U08_STRATEGY_RUNTIME                               |
-| `payload`     | object       | Request đã chuẩn hóa, kèm mặc định schema, loại trường null                       |
+| Trường        | Kiểu        | Ý nghĩa                                                                                                         |
+| --------------- | ------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `status`      | string       | STRUCTURE_VALID khi qua kiểm tra                                                                                 |
+| `runnable`    | boolean      | Máy chủ có bộ chạy chiến lược                                                                             |
+| `data_status` | string       | RESOLVED khi đã ánh xạ dữ liệu                                                                              |
+| `data`        | object       | Kỳ báo cáo, số nến khởi tạo, chỉ báo, map, khoảng thiếu và giả định dữ liệu                      |
+| `pending`     | array string | [] trong ứng dụng chính đã nối bộ chạy; service tùy biến chưa nối bộ chạy trả U08_STRATEGY_RUNTIME |
+| `payload`     | object       | Request đã chuẩn hóa, kèm mặc định schema, loại trường null                                            |
 
 Ví dụ **trích riêng trường trạng thái**; body đầy đủ còn có data và payload:
 
@@ -935,17 +985,17 @@ Payload chuẩn hóa mặc định cấp cấu trúc; không có nghĩa mọi th
 
 Metadata gồm thông tin dữ liệu từ validate và:
 
-| Trường                          | Kiểu                     | Ý nghĩa                                                        |
-| --------------------------------- | ------------------------- | ---------------------------------------------------------------- |
-| `run_id`                        | string UUID               | Định danh để đọc lại                                      |
+| Trường                          | Kiểu                         | Ý nghĩa                                                                                         |
+| --------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------- |
+| `run_id`                        | string UUID                   | Định danh để đọc lại                                                                       |
 | `run_at`                        | string ISO 8601 có múi giờ | Thời điểm bắt đầu thực thi sau khi chuẩn bị dữ liệu; kết quả mới ghi thời gian UTC |
-| `engine_version`                | string                    | Phiên bản bộ thực thi                                        |
-| `accounting_profile`            | string                    | normalized_v0 hoặc contract_v1                                  |
-| `input_hash`, `policy_hash`   | string/null theo trường | Dấu kiểm tra đầu vào/chính sách                           |
-| `accounting`                    | object                    | Thông số đã áp dụng                                        |
-| `initial_cash`                  | chuỗi thập phân        | Vốn ban đầu                                                   |
-| `money_unit`, `quantity_unit` | string                    | Contract: VND/contracts; normalized: price_unit/normalized_units |
-| `fill_time_convention`          | string                    | Quy ước thời điểm khớp                                     |
+| `engine_version`                | string                        | Phiên bản bộ thực thi                                                                         |
+| `accounting_profile`            | string                        | normalized_v0 hoặc contract_v1                                                                   |
+| `input_hash`, `policy_hash`   | string/null theo trường     | Dấu kiểm tra đầu vào/chính sách                                                            |
+| `accounting`                    | object                        | Thông số đã áp dụng                                                                         |
+| `initial_cash`                  | chuỗi thập phân            | Vốn ban đầu                                                                                    |
+| `money_unit`, `quantity_unit` | string                        | Contract: VND/contracts; normalized: price_unit/normalized_units                                  |
+| `fill_time_convention`          | string                        | Quy ước thời điểm khớp                                                                      |
 
 Ví dụ **trích cấu trúc sự kiện và summary** cho kết quả không giao dịch;
 không phải body đầy đủ và không phải kết quả payload mục 4:
@@ -985,13 +1035,20 @@ Tín hiệu là ý định giao dịch, chưa chứng minh đã khớp.
 | `signal_id`        | string UUID             | Tín hiệu tạo lệnh                                                            |
 | `created_time`     | thời điểm ISO        | Thời điểm tạo                                                                |
 | `side`             | string                  | Hành động                                                                     |
-| `status`           | string                  | filled/rejected; pending ở contract hoặc unfilled ở normalized nếu còn chờ |
+| `status`           | string                  | `filled`, `rejected`, `pending`, `canceled`, `expired`; lệnh đấu giá khớp một phần kết thúc `expired` |
 | `reason`           | string/null, contract   | Lý do trạng thái                                                              |
 | `rejection_reason` | string/null, normalized | Lý do từ chối/chưa khớp                                                     |
 | `position_id`      | string UUID, khi có    | Vị thế liên quan; không có ở mọi lệnh bị từ chối                      |
+| `order_type`       | string, khớp theo phiên | `NEXT_OPEN`, `LO`, `ATO`, `ATC` hoặc `PROTECTIVE` |
+| `quantity`         | integer/null, khớp theo phiên | Lượng đặt ban đầu; không bị thay bằng lượng khớp |
+| `filled_quantity`  | integer, khớp theo phiên | Tổng lượng đã khớp |
+| `expired_quantity` | integer, khớp theo phiên | Lượng đã hết hiệu lực mà không khớp |
+| `remaining_quantity` | integer/null, khớp theo phiên | Lượng còn chờ; bằng 0 khi lệnh kết thúc |
 
 Lệnh bị từ chối không có fill. Lệnh mở còn chờ cuối báo cáo được chuyển
-rejected với lý do END_OF_REPORT.
+rejected với lý do END_OF_REPORT. Lệnh ATO/ATC khớp một phần có fill dù trạng
+thái cuối là `expired`; `filled_quantity + expired_quantity + remaining_quantity`
+bằng `quantity`.
 
 ### 8.5. fills
 
@@ -1008,6 +1065,8 @@ rejected với lý do END_OF_REPORT.
 | `direction`                                               | string, contract             | LONG/SHORT của vị thế                                                       |
 | `contract_code`                                           | string/null, contract        | Mã từ map                                                                    |
 | `exchange_fee`, `clearing_fee`, `broker_fee`, `pit` | chuỗi thập phân, contract | Từng khoản chi phí                                                          |
+| `order_type`, `phase`, `time_precision` | string, khớp theo phiên | Loại lệnh, phiên và độ chính xác thời điểm |
+| `available_at`, `source` | thời điểm ISO/string, ATO/ATC | Thời điểm giá đấu giá khả dụng và nguồn OHLCV |
 
 Fill_time của chạm trong nến là quy ước ghi nhận OHLC, không xác định chính
 xác thời điểm chạm bên trong nến. Dùng bar_time gắn mũi tên biểu đồ.

@@ -18,6 +18,8 @@ class DecisionContext:
     bars: tuple[Bar | StrategyBar, ...]
     support_bars: tuple[Bar | StrategyBar, ...]
     portfolio: Portfolio | ContractPortfolio
+    has_pending: bool = False
+    decision_time: BarTime | None = None
 
 
 SignalProvider = Callable[[DecisionContext], FixedSignal | None]
@@ -40,6 +42,13 @@ def run_engine(
     flat_dates: frozenset[date] = frozenset(),
     execution: Callable[[Decimal], NormalizedExecution | ContractExecution] | None = None,
     on_open: Callable[[BarTime], None] | None = None,
+    session_matching: bool = False,
+    auction_events: Sequence = (),
+    max_execution_bars: int = 1,
+    entry_cutoff: str | None = None,
+    auction_entry: bool = False,
+    auction_match_quantity: int | None = None,
+    require_end_flat: bool = False,
 ) -> BacktestResult:
     """Execute pending signals at Open, then evaluate new signals after Close.
 
@@ -76,6 +85,18 @@ def run_engine(
     executor = (execution(starting_cash) if execution is not None else
                 NormalizedExecution(starting_cash, fee, slippage, size_buy))
     portfolio = executor.portfolio
+    if session_matching:
+        if flat_dates or not callable(getattr(executor, 'prepare_order', None)):
+            raise ValueError('SESSION_MATCHING_REQUIRES_SESSION_EXECUTION_WITHOUT_FLAT_DATES')
+        if type(max_execution_bars) is not int or max_execution_bars < 1:
+            raise ValueError('INVALID_MAX_EXECUTION_BARS')
+        from .session_matching import run_session_engine
+        return run_session_engine(bars, signal_provider, executor, support_bars=support_bars,
+                                  record_start=record_start, trade_start=trade_start,
+                                  auction_events=auction_events, on_execution=on_execution,
+                                  max_execution_bars=max_execution_bars, entry_cutoff=entry_cutoff, on_open=on_open,
+                                  auction_entry=auction_entry, auction_match_quantity=auction_match_quantity,
+                                  require_end_flat=require_end_flat)
     pending: tuple[BarTime, FixedSignal] | None = None
     signal_records: list[SignalRecord] = []
     orders: list[OrderResult] = []

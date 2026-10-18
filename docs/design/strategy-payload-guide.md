@@ -1,10 +1,9 @@
 # Hướng dẫn điền cây công thức và payload chiến lược
 
-Cập nhật: 28/09/2026. Đọc cùng [đặc tả API](backtest-api-specification.md)
+Đọc cùng [đặc tả API](backtest-api-specification.md)
 và [payload minh họa](../../src/backtesting_api/web/canslim-v1-example.json).
-U03 đã triển khai kiểm tra cấu trúc tại `POST /api/backtests/validate`.
-U05/U06 đã nối payload mới vào tiếp nhận dữ liệu/lưu kết quả. Bộ thực thi
-strategy JSON đã nối ở U08 (29/09); trạng thái `STRUCTURE_VALID` không có nghĩa
+`POST /api/backtests/validate` kiểm tra cấu trúc, dữ liệu và tổ hợp thực thi.
+Bộ chạy JSON đã nối vào engine và kho file; trạng thái `STRUCTURE_VALID` không có nghĩa
 đã đủ lịch sử. Khi chạy, thiếu chỉ báo tại nến nào thì nến đó không tạo entry.
 Các giá trị v1 lấy từ [quy tắc đã chốt](../strategies/canslim-v1-rules.md).
 Không phải ngôn ngữ biểu diễn mọi chiến lược chứng khoán: chỉ sử dụng các
@@ -172,7 +171,10 @@ Khi `auto_fetch_data: true`, API ưu tiên tự lấy và bỏ qua toàn bộ `t
 và `market_data` nhập tay, kể cả dữ liệu nhập tay chưa hợp lệ. Khi `false`
 hoặc bỏ trường này, API dùng và kiểm tra dữ liệu nhập tay như trước.
 Tải lỗi thì dừng; không tự chuyển sang dùng dữ liệu nhập tay.
-Xem khoảng sáu tháng, nến đã đóng và giới hạn lịch hợp đồng trong
+Nếu có `report`, API chỉ lấy thêm số nến khởi tạo cần dùng trước `start_date`
+theo `warmup_bars`, chỉ báo và `shift`, rồi tải đến hết `end_date`. Không có
+`report` thì lấy sáu tháng gần nhất đến hiện tại.
+Xem quy tắc nến đã đóng và giới hạn lịch hợp đồng trong
 [đặc tả API](backtest-api-specification.md#3-cấu-trúc-request).
 
 **Params bắt buộc:**
@@ -189,7 +191,8 @@ initial_cash là chuỗi số thập phân, ví dụ `"100000000"`.
 
 - `auto_fetch_data`: Boolean, mặc định `false`. Đặt `true` để tự tải cả VN30F1M và VNINDEX 5 phút từ VNDIRECT; dữ liệu tự tải luôn được ưu tiên hơn cả hai nguồn nhập tay.
 - `trade_data`: Lịch sử giá và khối lượng giao dịch; bắt buộc khi không bật tự lấy.
-- `report`: report trên start_date/end_date dạng`YYYY-MM-DD `;
+- `report`: kỳ báo cáo gồm `start_date`/`end_date` dạng `YYYY-MM-DD`; khi tự lấy,
+  hai ngày này đồng thời xác định khoảng tải cùng sáu tháng dữ liệu khởi tạo.
 - `market_data`: Lịch sử VNINDEX để đánh giá thị trường chung. Khi nhập tay và có source/ref trỏ tới nguồn này thì phải gửi; nếu tự lấy thì máy chủ cung cấp.
 
 **Chỉ báo v1 lấy dữ liệu ở đâu?** Theo quyết định cập nhật, SMA20, EMA5,
@@ -207,7 +210,7 @@ Các field dưới đây chỉ nhập trong accounting, không lặp lại ở n
 
 **Param bắt buộc để chọn cách tính tiền:**
 
-- `model`: `"normalized"` cho mô hình tiền v0 hoặc `"contract"` cho hợp đồng v1.
+- `model`: `"normalized"` cho mô hình mua/bán theo đơn vị giá hoặc `"contract"` cho hợp đồng.
 
 Với `model: "normalized"`, điền `fee_rate` là tỷ lệ phí trên giá trị mỗi lượt
 khớp. Với `model: "contract"`, các param bắt buộc là:
@@ -251,8 +254,8 @@ Theo công thức v1: tax_base = giá khớp × contract_multiplier × số hợ
 nhân với số hợp đồng khớp trong lượt đó; mở và đóng là hai lượt riêng.
 Các mức trên là cấu hình mô phỏng lấy từ tài liệu v1 hiện tại.
 `account.equity` trong cây điều kiện vẫn là trạng thái engine tính ra;
-không đổi thành `accounting.equity`. Đầu vào mới đã được kiểm tra cấu trúc;
-U08 đã nối cây quy tắc vào engine; U06 lưu/đọc kết quả hợp đồng.
+không đổi thành `accounting.equity`. Bộ chạy thực thi cây quy tắc và kho file
+lưu/đọc cùng kết quả hợp đồng.
 
 ### trade_data / market_data
 
@@ -260,7 +263,6 @@ các nến đầu vào; field bars[].close là close trong từng phần tử ba
 
 **Params bắt buộc:**
 
-- `resolution`: Timeframe. `"5"`= 5 phút;`"D"`= ngày hỗ trợ.
 - `bars` : Mảng nến có thứ tự thời gian.
 - `bars[].time` : Số nguyên Unix tại lúc mở nến.
 - `bars[].open`, `bars[].high`, `bars[].low`, `bars[].close` : Mỗi trường là chuỗi giá thập phân hữu hạn, OHLC hợp lệ.
@@ -269,6 +271,7 @@ các nến đầu vào; field bars[].close là close trong từng phần tử ba
 
 **Params tùy chọn:**
 
+- `resolution`: Khung thời gian, mặc định `"5"` (5 phút); `"D"` là nến ngày.
 - `bars[].close_time`,`bars[].available_at` (tùy chọn với quy ước 5 phút đã chốt): Bỏ thì open+300 giây và available=close; không áp dụng mặc định này cho daily.
 - `symbol`: Nhãn như`VN30F1M `; không chọn rule.
 - `timestamp_unit`: Chỉ`"s"`,`"ms"`; mặc định`"s"`.
@@ -287,7 +290,7 @@ payload. Cách đọc ngày và chuyển kỳ theo [data contract v1](../data/vn
 
 - `entry`,`exit` : Theo mục 6–7.
 - `indicators` (khi quy tắc dùng chỉ báo): Object chứa các khai báo như sma20, ema5, bb
-- `sizing` (khi mở vị thế có số lượng): V1 dùng risk_and_margin; không có quy tắc ngầm mua 1 hợp đồng.
+- `sizing`: Bắt buộc; v1 dùng risk_and_margin, không có quy tắc ngầm mua 1 hợp đồng.
 
 **Params tùy chọn:**
 
@@ -397,7 +400,8 @@ Không phải cú pháp if tổng quát.
 | `effective_from`                                                                 | Chỉ`"next_bar"`             |
 | `combine`                                                                        | Chỉ`"tightest"`             |
 | `allow_widening`                                                                 | `false`trong thiết kế này |
-| không tự thay thế cho nhau. Trailing không lấy High/Low của chính nến TP1. |                                |
+
+Các trường không tự thay thế cho nhau. Trailing không lấy High/Low của chính nến TP1.
 
 ## 8. sizing và daily_limits
 
@@ -410,7 +414,7 @@ Không phải cú pháp if tổng quát.
   cho mô hình chuẩn hóa.
 - `risk_fraction`: Tỷ lệ > 0 và <= 1; v1`0.01 ` = 1%.
 - `stop_points`: Số dương, v1`6 `; phải khớp stop ban đầu để tính rủi ro.
-- `margin_buffer` : .
+- `margin_buffer`: Hệ số dự phòng ký quỹ, >= 1; mẫu v1 dùng `1.10`.
 - `max_contracts` : Số hợp đồng được giữ tối đa.
 - `pyramiding`(cho v1):`false `, không thêm vào vị thế.`daily_limits`khi có phải chứa`stop_new_entry`, giá trị là cây điều kiện.
 
@@ -430,6 +434,8 @@ Mô tả: cách khớp lệnh mở và trượt giá.
 | ------------------ | -------------------- |
 | `entry_fill_policy`  | Bắt buộc           |
 | `slippage_rate`  | Bắt buộc           |
+| `matching_model` | Không bắt buộc; dùng `hnx_sessions_v1` cho ATO/LO/ATC |
+| `auction_match_quantity` | Không bắt buộc; số nguyên không âm, giới hạn cố định lượng khớp ATO/ATC |
 
 Chưa có keyword để tự chọn mọi loại lệnh/thời điểm khớp. Định nghĩa hiện tại
 vẫn phải thực thi đúng thứ tự xử lý, giá gap stop/target, làm tròn bước giá,
@@ -441,6 +447,13 @@ phí/ký quỹ và lịch trong [tài liệu thực thi v1](canslim-v1-execution
 {"execution": {"entry_fill_policy": "next_open", "slippage_rate": "0"}}
 ```
 
+ATO dùng `entry_fill_policy: "ato"`; điều kiện vào được xét lúc 08:45 từ dữ liệu
+đã hoàn tất, lượng đặt chốt theo Close liên tục gần nhất và khớp tại Open 09:00.
+ATC dùng `strategy.exit.bar_close.fill_policy: "atc"` và khớp tại Close bản ghi
+14:45. Bỏ `auction_match_quantity` để giả định khớp đủ; đặt `2` để kiểm tra tối đa
+2 hợp đồng được khớp trong mỗi đợt. Đây là giới hạn mô phỏng, không phải thanh
+khoản suy ra từ volume. Xem [khớp theo phiên HNX](hnx-session-matching.md).
+
 ## 10. Kiểm tra trước khi gửi
 
 1. JSON đúng cú pháp, không dùng dấu ba chấm hoặc chú thích trong JSON gửi chạy.
@@ -448,5 +461,5 @@ phí/ký quỹ và lịch trong [tài liệu thực thi v1](canslim-v1-execution
 3. Mỗi phép toán đủ toán hạng và đúng kiểu; all/any không chứa cây trả số.
 4. Tên trong any/priority tồn tại; không dùng ref vị thế ở entry khi chưa có vị thế.
 5. Không đọc nến tương lai; đủ lịch sử VNINDEX và dữ liệu khớp đúng hợp đồng.
-6. V1 giữ 150 nến tính cả t, tối đa 5 hợp đồng và kỳ báo cáo sáu tháng.
-7. Hai nến minh họa chưa đủ lịch sử chạy thật; contract_map đã được điền.
+6. Mẫu v1 giữ 150 nến tính cả t và tối đa 5 hợp đồng; kỳ báo cáo phải nằm trong dữ liệu thực có.
+7. Hai nến minh họa chưa đủ lịch sử chạy thật; nghiệm thu dữ liệu thật sáu tháng là kiểm tra riêng.

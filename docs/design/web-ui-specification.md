@@ -49,7 +49,10 @@ Giao diện không tính lại chiến lược, chỉ báo hoặc tiền; dữ l
   VN30F1M và VNINDEX từ VNDIRECT, ưu tiên dữ liệu tự lấy dù request bên ngoài có
   gửi kèm dữ liệu nhập tay. Không gọi nguồn khi chỉ tick checkbox; không tách bước
   lấy dữ liệu trên trình duyệt. Nguồn lỗi thì báo lỗi, không dùng lại dữ liệu nhập tay.
-  Nguồn luôn lấy 6 tháng đến hiện tại; `report` chỉ giới hạn kỳ báo cáo theo
+  Người dùng có thể chỉ nhập hai ngày báo cáo rồi chạy, không cần nạp dữ liệu giá.
+  Khi có `report`, API chỉ lấy thêm số nến khởi tạo cần dùng trước ngày bắt đầu,
+  rồi tải đến hết ngày kết thúc;
+  khi bỏ `report`, API lấy sáu tháng gần nhất đến hiện tại theo
   [quy tắc API](backtest-api-specification.md). Các phần cấu hình còn lại vẫn được kiểm tra.
 - Chọn mô hình normalized/contract và cách tính khối lượng để hiện các tham số
   tương ứng. Khi đổi mô hình hoặc loại chỉ báo, nhập các tham số của lựa chọn mới;
@@ -127,8 +130,7 @@ số hợp đồng. Các run lịch sử được trình bày theo metadata đã
 - Khi cửa sổ dưới 1200 px, dùng nút Mục lục ghim ở góc dưới bên trái. Nút mở thanh
   dọc phủ tạm lên trang; chọn một mục thì đóng lại và nhảy đến vùng tương ứng.
   Có thể dùng Tab và Enter để điều hướng. Mục lục dài cuộn riêng theo chiều dọc.
-- Đã bỏ bố cục chia đôi vùng kết quả và khung cuộn bảng của phương án trước.
-  Bảng trở về cách cuộn theo trang; các liên kết đưa về tiêu đề/nút thu gọn.
+- Bảng cuộn theo trang; các liên kết đưa về tiêu đề/nút thu gọn.
   Mục lục không thay đổi lượng dữ liệu tải từ API.
 
 ![Thanh điều hướng ngoài vùng nội dung](backtest-navigation.jpg)
@@ -157,6 +159,20 @@ light/dark qua nút có nhãn truy cập. Main nối `create_app(..., preview=Tr
 Màu nến/hướng giao dịch giữ ý nghĩa đã chọn. Font dùng tài nguyên máy/fallback;
 không yêu cầu tải font ngoài để chạy.
 
+Chuyển ngôn ngữ bằng liên kết **VN / ENG** ở đầu trang, ngay cạnh nút
+sáng/tối; hai điều khiển căn giữa theo chiều dọc và nằm cùng hàng trong nhóm.
+Không hiển thị nhãn “Ngôn ngữ”; nhóm liên kết vẫn có nhãn truy cập cho trình
+đọc màn hình. Ngôn ngữ đang chọn dùng chữ đậm, gạch chân và `aria-current`.
+
+Mặc định dùng tiếng Việt; lựa chọn tiếng Anh/Việt được lưu trong localStorage
+bằng khóa `backtest-language` (`en`/`vi`) và khôi phục khi tải lại trang.
+`web/language.mjs` dịch nhãn, hướng dẫn và thông báo đã có bản dịch, kể cả
+nội dung được cập nhật sau khi tải kết quả/lịch sử; đồng thời cập nhật thuộc
+tính `lang` của trang. Chuyển ngôn ngữ không tải lại trang, không chạy lại
+backtest và không thay giá trị nhập, dữ liệu JSON, mã lỗi hoặc dữ liệu bảng.
+Nội dung chưa có bản dịch giữ nguyên; không dịch trực tiếp phần chart của
+thư viện và JSON thô.
+
 ## 7. Nghiệm thu
 
 - Form/validate/run/history dùng đúng hợp đồng JSON và endpoint còn hoạt động.
@@ -168,9 +184,12 @@ không yêu cầu tải font ngoài để chạy.
 - No-fill, rejected, vị thế mở và lỗi chart được trình bày đúng trạng thái.
 - Không tạo POST mới khi thử đọc lại chart; response cũ không thay run đang chọn.
 - Tài nguyên đóng gói tải được sau cài đặt/Docker, có attribution của thư viện.
+- VN / ENG nằm sát nút sáng/tối; chọn bằng chuột hoặc bàn phím, nhận biết
+  ngôn ngữ đang chọn và khôi phục lựa chọn sau khi tải lại trang. Kiểm tra
+  chuyển hai chiều khi đang nhập form hoặc xem run/lịch sử: nhãn/thông báo
+  đổi ngôn ngữ nhưng giá trị nhập và dữ liệu kết quả giữ nguyên.
 - Mở run sau restart vẫn đọc cùng result; keyboard, label, focus, aria-live và
   bố cục mobile là các mục kiểm tra giao diện.
 
-Các phép kiểm tra và giới hạn bằng chứng tại
-[kế hoạch chart](../plans/candlestick-ui-plan.md) và
-[checklist tích hợp](../plans/legacy-cleanup-checklist.md).
+Các test hiện có và giới hạn bằng chứng tại
+[danh mục kiểm thử](../testing/vn30f1m/canslim-v1-test-cases.md).

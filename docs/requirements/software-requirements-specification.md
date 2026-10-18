@@ -9,8 +9,8 @@ Hệ thống chạy chiến lược được cung cấp bằng JSON, từ dữ l
 Symbol hiện hành là VN30F1M, dữ liệu chính 5 phút; 1D là khả năng hỗ trợ theo
 cấu hình JSON. Chiến lược và cách tính tiền thuộc nội dung đầu vào được kiểm
 tra, không được suy ra từ tên symbol hoặc tên CANSLIM. Quy tắc v1 đã chốt tại
-[CANSLIM v1](../strategies/canslim-v1-rules.md); công thức nền normalized tại
-[CANSLIM nền](../strategies/canslim-rules.md). Không thay quy tắc khi dọn source.
+[CANSLIM v1](../strategies/canslim-v1-rules.md); mô hình tiền normalized tại
+[tính tiền normalized](../design/normalized-accounting.md).
 
 API nhận JSON trực tiếp; giao diện web và notebook dùng cùng API. Đầu vào,
 chính sách và kết quả được lưu tại kho file. Hệ thống đọc lại kết quả lịch sử
@@ -30,7 +30,7 @@ phiên bản 1 và kết quả JSON phiên bản 2 theo định dạng đã lưu
 | FR-008 | Ghi cash, vị thế, phí, lãi/lỗ đã chốt/chưa chốt, equity và ký quỹ khi áp dụng. |
 | FR-009 | Xử lý cuối kỳ theo execution/exit đã khai báo; không tạo giá hoặc giao dịch giả để đóng vị thế. |
 | FR-010 | Kết quả có metadata, signals, orders, fills, trades, open_position, equity_history, summary và evaluations. |
-| FR-011 | Cùng đầu vào và chính sách cho cùng kết quả nghiệp vụ; UUID không thuộc phép so số học. |
+| FR-011 | Cùng đầu vào đã ghim và chính sách cho cùng kết quả nghiệp vụ; UUID và thời điểm chạy run_at không thuộc phép so. |
 | FR-012 | Kiểm tra JSON bằng cùng quy tắc dữ liệu và khả năng thực thi trước khi chạy. |
 | FR-013 | Giao diện chỉ trình bày kết quả máy chủ, không tính lại quy tắc hoặc tiền. |
 | FR-014 | Summary, bảng, equity và chart phải thuộc cùng run_id và nguồn dữ liệu. |
@@ -72,7 +72,8 @@ strategy, còn status HTTP thuộc đặc tả API.
 
 - Kiểm tra timing, sizing, accounting, dữ liệu thiếu, tham chiếu và cây điều kiện.
 - Chạy cùng fixture/JSON cho cùng summary, signals, orders, fills, trades,
-  equity, evaluations và hash, sau khi tách UUID.
+  equity, evaluations và input/policy hash, sau khi tách UUID và run_at.
+  Không so result_hash giữa hai run vì result chứa định danh/thời điểm chạy khác nhau.
 - Kiểm tra, chạy, liệt kê, đọc kết quả/input/chart qua API; đọc lại sau restart.
 - Đọc được lịch sử phiên bản 1 còn giữ mà không chạy lại chiến lược.
 - Tài nguyên web được đóng gói, các module .mjs có MIME phù hợp trình duyệt.
@@ -83,7 +84,7 @@ strategy, còn status HTTP thuộc đặc tả API.
 Live trading, dữ liệu thời gian thực, nhiều vị thế đồng thời, mô hình thanh khoản,
 khớp một phần lệnh, xác thực nhiều người dùng và agent/MCP chưa thuộc hệ thống
 hiện tại. Đóng một phần vị thế theo rule là khả năng riêng với khớp một phần lệnh.
-Không tối ưu ngưỡng hoặc bổ sung chiến lược trong đợt dọn source.
+Không tự tối ưu ngưỡng hoặc bổ sung quy tắc ngoài JSON đã được kiểm tra.
 
 ## 6. Tài liệu sở hữu
 
@@ -91,4 +92,4 @@ Không tối ưu ngưỡng hoặc bổ sung chiến lược trong đợt dọn s
 - [Thiết kế hệ thống](../design/system-design.md): lớp xử lý, trạng thái và kho file.
 - [Hợp đồng dữ liệu](../data/vn30f1m/data-contract-v1.md): thời gian, lịch và map hợp đồng.
 - [Đặc tả giao diện](../design/web-ui-specification.md): trình bày dữ liệu của một run.
-- [Checklist tích hợp](../plans/legacy-cleanup-checklist.md): công việc và bằng chứng nghiệm thu.
+- [Danh mục kiểm thử](../testing/vn30f1m/canslim-v1-test-cases.md): các test hiện có và giới hạn kiểm chứng.

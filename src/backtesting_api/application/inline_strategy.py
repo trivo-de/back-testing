@@ -9,6 +9,7 @@ from ..domain.engine import run_engine
 from ..domain.execution import Bracket, ContractExecution, InvalidExecution, NormalizedExecution
 from ..domain.expressions import evaluate_expression, MissingValue, STATE_REFS
 from ..domain.portfolio import decimal
+from ..domain.session_matching import phase_at
 from ..domain.trading import FixedSignal, OrderResult
 
 
@@ -88,6 +89,7 @@ class IndicatorData:
 class InlineExecution(ContractExecution):
     def __init__(self, cash, payload):
         self.spec = payload['strategy']
+        self.session_matching = payload['execution'].get('matching_model') == 'hnx_sessions_v1'
         self.current_open = self.entry_open = self.last_exit_open = None
         self.entry_details = {}
         self.day = None
@@ -121,33 +123,55 @@ class InlineExecution(ContractExecution):
             raise InvalidExecution('FLAT_DEADLINE_MISSED')
         self.current_open = stamp
 
+    def quantity_for(self, side, price):
+        sizing = self.spec['sizing']
+        accounting = self.portfolio.accounting
+        sign = 1 if side == 'LONG' else -1
+        stop = self.level(price - sign * decimal(sizing['stop_points']), sign == -1)
+        costs = accounting.costs(price, 1).total + accounting.costs(stop, 1).total
+        risk = decimal(sizing['stop_points']) * accounting.contract_multiplier + costs
+        by_risk = int(self.portfolio.cash * decimal(sizing['risk_fraction']) // risk)
+        by_margin = int(self.portfolio.cash // (price * accounting.contract_multiplier * accounting.margin_rate * self.margin_buffer))
+        quantity = min(by_risk, by_margin, self.max_contracts)
+        if quantity < 1: raise ValueError('INSUFFICIENT_RISK_OR_MARGIN_BUDGET')
+        return quantity
+
+    def prepare_order(self, signal, reference_price=None):
+        if signal.order_type == 'LO':
+            price = signal.limit_price
+            if price is None or price <= 0 or price != self.level(price, True):
+                raise ValueError('LIMIT_PRICE_INVALID_OR_OFF_TICK')
+            quantity = (self.portfolio.position.quantity if signal.side == 'CLOSE'
+                        else self.quantity_for(signal.side, price))
+            return replace(signal, quantity=quantity)
+        if signal.order_type == 'ATC':
+            return replace(signal, quantity=self.portfolio.position.quantity)
+        if signal.order_type == 'ATO':
+            if reference_price is None: raise ValueError('ATO_REFERENCE_PRICE_MISSING')
+            return replace(signal, quantity=self.quantity_for(signal.side, decimal(reference_price)))
+        return signal
+
     def execute(self, signal, signal_date, fill_date, raw_open):
         """
         Execute a trade based on a signal.
-        
+
         """
         is_market = signal_date != (self.entry_fill.fill_date if self.entry_fill else None) or signal.reason not in ('TP1', 'TP2', 'STOP_LOSS', 'TRAILING_STOP')
-        if is_market and signal.side == 'CLOSE':
+        if is_market and signal.side == 'CLOSE' and signal.order_type == 'NEXT_OPEN':
             expected = signal_date.replace(hour=13, minute=0) if signal_date.strftime('%H:%M') == '11:30' else signal_date
             if fill_date != expected: raise InvalidExecution('MISSING_REQUIRED_EXIT_BAR')
         if signal.side != 'CLOSE':
-            if self.spec['entry'].get('pending') and fill_date != signal_date:
+            if not self.session_matching and self.spec['entry'].get('pending') and fill_date != signal_date:
                 raise ValueError('PENDING_EXPIRED')
             windows = self.spec['entry'].get('signal_windows')
-            if not continuous(fill_date) or (windows and fill_date.strftime('%H:%M') > windows[-1][1]):
+            opened = self.current_open if self.session_matching else fill_date
+            if not continuous(opened) or (windows and signal.order_type != 'ATO'
+                                          and opened.strftime('%H:%M') > windows[-1][1]):
                 raise ValueError('ENTRY_OUTSIDE_SESSION_OR_CUTOFF')
             price = decimal(raw_open)
-            sizing = self.spec['sizing']
             sign = 1 if signal.side == 'LONG' else -1
-            stop_price = price - sign * decimal(sizing['stop_points'])
-            stop_price = self.level(stop_price, sign == -1)
-            costs = self.portfolio.accounting.costs(price, 1).total + self.portfolio.accounting.costs(stop_price, 1).total
-            accounting = self.portfolio.accounting
-            risk = decimal(sizing['stop_points']) * accounting.contract_multiplier + costs
-            by_risk = int(self.portfolio.cash * decimal(sizing['risk_fraction']) // risk)
-            by_margin = int(self.portfolio.cash // (price * accounting.contract_multiplier * accounting.margin_rate * self.margin_buffer))
-            quantity = min(by_risk, by_margin, self.max_contracts)
-            if quantity < 1: raise ValueError('INSUFFICIENT_RISK_OR_MARGIN_BUDGET')
+            quantity = (signal.quantity if signal.order_type in ('LO', 'ATO')
+                        else self.quantity_for(signal.side, price))
             signal = replace(signal, quantity=quantity)
             self.bracket = None
             intrabar = self.spec['exit'].get('intrabar')
@@ -236,7 +260,7 @@ def run_inline_strategy(data, payload):
 
     def evaluate(context):
         bar = context.bars[-1]
-        stamp = bar.closed_at
+        stamp = context.decision_time or bar.closed_at
         values, counts, totals = series.at(stamp)
         values.update(dict.fromkeys(STATE_REFS))
         snapshot = context.portfolio.mark(bar.close)
@@ -256,16 +280,29 @@ def run_inline_strategy(data, payload):
                 try: matched = evaluate_expression(group['conditions'][name], values, group['conditions'])
                 except MissingValue: continue
                 if matched:
-                    signal, reason = executor.close_signal(name), name
+                    policy = group['fill_policy']
+                    order_type = {'next_open': 'NEXT_OPEN', 'limit': 'LO', 'atc': 'ATC'}[policy]
+                    if order_type == 'ATC' and stamp.strftime('%H:%M') != '14:30':
+                        continue
+                    try:
+                        limit = evaluate_expression(group['limit_price'], values) if order_type == 'LO' else None
+                    except MissingValue as error:
+                        status, reason = 'UNEVALUABLE', str(error)
+                        break
+                    signal, reason = replace(executor.close_signal(name), order_type=order_type, limit_price=limit), name
                     break
         if not position:
             windows = spec['entry'].get('signal_windows')
-            if bar.trading_date.date() < data.start_date: reason = 'HISTORY_ONLY'
-            elif windows and (not continuous(bar.trading_date) or not any(a <= stamp.strftime('%H:%M') <= b for a, b in windows)):
+            if stamp.date() < data.start_date: reason = 'HISTORY_ONLY'
+            elif context.has_pending: reason = 'ORDER_PENDING'
+            elif payload['execution'].get('matching_model') == 'hnx_sessions_v1' and not (
+                    phase_at(stamp) == 'ATO' if payload['execution']['entry_fill_policy'] == 'ato' else continuous(stamp)):
                 reason = 'OUTSIDE_ENTRY_WINDOW'
-            elif spec['entry'].get('reentry') and executor.last_exit_open is not None and bar.trading_date <= executor.last_exit_open:
+            if reason == 'NO_SIGNAL' and windows and not any(a <= stamp.strftime('%H:%M') <= b for a, b in windows):
+                reason = 'OUTSIDE_ENTRY_WINDOW'
+            elif reason == 'NO_SIGNAL' and spec['entry'].get('reentry') and executor.last_exit_open is not None and bar.trading_date <= executor.last_exit_open:
                 reason = 'REENTRY_WAIT'
-            else:
+            if reason == 'NO_SIGNAL':
                 try:
                     for source in required_sources:
                         n = totals[source]
@@ -283,7 +320,11 @@ def run_inline_strategy(data, payload):
                         elif matched:
                             details = tuple((name, evaluate_expression(node, values))
                                             for name, node in spec['entry'].get('details', {}).items())
-                            reason, signal = 'ENTRY', FixedSignal(matched[0], reason='ENTRY', details=details)
+                            policy = payload['execution']['entry_fill_policy']
+                            limit = evaluate_expression(spec['entry']['limit_price'], values) if policy == 'limit' else None
+                            reason, signal = 'ENTRY', FixedSignal(matched[0], reason='ENTRY', details=details,
+                                                                 order_type={'limit': 'LO', 'ato': 'ATO'}.get(policy, 'NEXT_OPEN'),
+                                                                 limit_price=limit)
                 except MissingValue as error:
                     status, reason = 'UNEVALUABLE', str(error)
         if bar.trading_date.date() >= data.start_date:
@@ -299,7 +340,14 @@ def run_inline_strategy(data, payload):
 
     result = run_engine(data.bars, evaluate, initial_cash=payload['initial_cash'], fee_rate=0, slippage_rate=0,
                         support_bars=data.market_bars, record_start=data.start_date, trade_start=data.start_date,
-                        execution=lambda cash: executor, on_open=executor.before_open)
+                        execution=lambda cash: executor, on_open=executor.before_open,
+                        session_matching=payload['execution'].get('matching_model') == 'hnx_sessions_v1',
+                        auction_events=data.auction_events,
+                        max_execution_bars=spec['entry'].get('pending', {}).get('max_execution_bars', 1),
+                        entry_cutoff=spec['entry']['signal_windows'][-1][1] if spec['entry'].get('signal_windows') else None,
+                        auction_entry=payload['execution']['entry_fill_policy'] == 'ato',
+                        auction_match_quantity=payload['execution'].get('auction_match_quantity'),
+                        require_end_flat=spec['exit'].get('allow_overnight') is False)
     if spec['exit'].get('allow_overnight') is False and result.portfolio.position is not None:
         raise InvalidExecution('END_OF_REPORT_POSITION_REQUIRES_EXIT')
     entry_sides = set(spec['entry']['conditions'])

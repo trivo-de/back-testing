@@ -1,0 +1,23 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {translate} from '../../src/backtesting_api/web/language.mjs';
+
+test('labels, metrics and live messages use either language while raw values stay intact', () => {
+    assert.equal(translate('Fills'), 'Lệnh đã khớp');
+    assert.equal(translate('Fills', 'en'), 'Fills');
+    assert.equal(translate('Tải JSON dữ liệu thị trường', 'en'), 'Upload market data JSON');
+    assert.equal(translate('Lấy dữ liệu tự động (VN30F1M và VNINDEX, 5 phút)', 'en'), 'Fetch data automatically (VN30F1M and VNINDEX, 5 minutes)');
+    assert.equal(translate('Chế độ khớp theo phiên', 'en'), 'Session matching model');
+    assert.equal(translate('Giới hạn khớp mỗi đợt đấu giá', 'en'), 'Auction fill limit');
+    assert.equal(translate('Theo phiên HNX: ATO, LO và ATC', 'en'), 'HNX sessions: ATO, LO and ATC');
+    assert.equal(translate('ATO lúc 09:00', 'en'), 'ATO at 09:00');
+    assert.equal(translate('Lệnh giới hạn (LO)', 'en'), 'Limit order (LO)');
+    assert.match(translate('Nếu nhập kỳ báo cáo, máy chủ chỉ lấy thêm số nến cần để khởi tạo chỉ báo trước ngày bắt đầu và tải đến hết ngày kết thúc. Nếu bỏ kỳ báo cáo, máy chủ lấy sáu tháng gần nhất đến hiện tại. Không cần nạp dữ liệu thủ công.', 'en'), /only the required indicator warm-up bars before its start/);
+    assert.equal(translate('final_equity: 11796021.628209', 'en'), 'Final equity: 11796021.628209');
+    assert.equal(translate('final_equity: 11796021.628209'), 'Vốn cuối kỳ: 11796021.628209');
+    assert.equal(translate('Đang hiển thị 20 kết quả.', 'en'), 'Showing 20 results.');
+    assert.equal(translate('Không tải được chart: CHART_DATA_INCONSISTENT', 'en'), 'Unable to load chart: CHART_DATA_INCONSISTENT');
+    assert.equal(translate('VN30F1M · 5 · 1000 nến · 18 lần khớp · Mua ↑ / Bán ↓', 'en'), 'VN30F1M · 5 · 1000 bars · 18 fills · Buy ↑ / Sell ↓');
+    assert.equal(translate('BUY đã khớp'), 'Mua đã khớp');
+    for (const raw of ['VN30F1M', 'CHART_DATA_INCONSISTENT', '{"time":1770000000}', '11796021.628209']) assert.equal(translate(raw, 'en'), raw);
+});

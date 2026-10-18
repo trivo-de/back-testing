@@ -18,10 +18,11 @@ from backtesting_api.api.app import create_app
 from backtesting_api.api.inline_schemas import InlineRunRequest
 from backtesting_api.application.inline_strategy import run_inline_strategy
 from backtesting_api.application.inline_data import resolve_inline
-from backtesting_api.application.run_backtest import BacktestService
+from backtesting_api.application.run_backtest import BacktestService, _warmup_bars
 from backtesting_api.infrastructure.auto_fetch_data import AutoDataFetcher
 from backtesting_api.infrastructure.file_repository import FileRunRepository
 from test_inline_strategy import sample
+from test_session_matching import session_payload
 
 ZONE = ZoneInfo('Asia/Ho_Chi_Minh')
 NOW = datetime(2026, 10, 9, 11, 13, 55, tzinfo=ZONE)
@@ -61,6 +62,80 @@ class AutoFetchTest(unittest.TestCase):
         self.service = BacktestService(self.repository, inline_runner=run_inline_strategy, data_fetcher=self.fetcher)
         self.client = TestClient(create_app(self.service))
 
+    def test_session_lo_auto_fetch_validates_executes_and_replays(self):
+        p = session_payload()
+        p.pop('trade_data'); p.pop('market_data', None)
+        p['auto_fetch_data'] = True
+        stamps = [int(NOW.replace(hour=9, minute=5*i, second=0).timestamp()) for i in range(4)]
+        raw = json.loads(raw_source(stamps)); raw['h'][2] = 1006
+        self.raw = json.dumps(raw).encode()
+        self.fetcher.clock = lambda: NOW.replace(hour=15, minute=0, second=0)
+
+        response = self.client.post('/api/backtests/validate', json=p)
+        self.assertEqual(response.status_code, 200, response.text)
+        prepared = response.json()['payload']
+        self.assertFalse(prepared['auto_fetch_data'])
+        self.assertEqual(prepared['execution']['matching_model'], 'hnx_sessions_v1')
+        self.assertEqual(prepared['trade_data']['contract_dates'], [
+            {'date': '2026-10-09', 'contract_code': 'VN30F2610'}])
+        self.assertEqual(prepared['trade_data']['provenance']['provider'], 'VNDIRECT')
+        self.assertEqual(response.json()['data']['auto_fetch']['contract_mapping_assumption'], 'expiry_inclusive')
+        InlineRunRequest.model_validate(prepared)
+
+        run = self.client.post('/api/backtests', json=p)
+        self.assertEqual(run.status_code, 201, run.text)
+        result = run.json()
+        self.assertEqual(result['metadata']['input_origin'], 'auto_fetch')
+        self.assertEqual(result['fills'][0]['order_type'], 'LO')
+        self.assertEqual(len(result['trades']), 1)
+        document = self.client.get('/api/backtests/' + result['metadata']['run_id'] + '/input').json()
+        self.assertEqual(document['payload'], prepared)
+        self.opener.reset_mock()
+        replay = self.client.post('/api/backtests', json=document['payload'])
+        self.assertEqual(replay.status_code, 201, replay.text)
+        self.opener.assert_not_called()
+        self.assertEqual(replay.json()['summary'], result['summary'])
+        fields = ('fill_time', 'fill_price', 'quantity', 'order_type', 'time_precision')
+        self.assertEqual([{key: row[key] for key in fields} for row in replay.json()['fills']],
+                         [{key: row[key] for key in fields} for row in result['fills']])
+
+    def test_session_auto_fetch_uses_approved_expiry_mapping_and_checks_coverage(self):
+        p = session_payload()
+        p.pop('trade_data'); p.pop('market_data', None)
+        p['auto_fetch_data'] = True
+        self.fetcher.clock = lambda: NOW.replace(day=20, hour=15, minute=0, second=0)
+        self.raw = raw_source([int(NOW.replace(day=day, hour=9, minute=0, second=0).timestamp()) for day in (15, 16)])
+        response = self.client.post('/api/backtests/validate', json=p)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['payload']['trade_data']['contract_dates'], [
+            {'date': '2026-10-15', 'contract_code': 'VN30F2610'},
+            {'date': '2026-10-16', 'contract_code': 'VN30F2611'}])
+        policy = json.loads(self.service.auto_fetch_policy_path.read_bytes())
+        policy['rollover'] = [row for row in policy['rollover'] if row['contract'] != 'VN30F2610']
+        path = self.repository.store / 'mapping-policy.json'
+        path.write_text(json.dumps(policy), encoding='utf-8')
+        self.service.auto_fetch_policy_path = path
+        response = self.client.post('/api/backtests/validate', json=p)
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIn('CONTRACT_MAP_MONTH_MISSING', response.json()['detail'])
+
+    def test_session_auto_fetch_allows_atc_bars_and_rejects_nonzero_slippage(self):
+        p = session_payload(atc=True)
+        p.pop('trade_data'); p.pop('market_data', None)
+        p['auto_fetch_data'] = True
+        response = self.client.post('/api/backtests/validate', json=p)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertFalse(response.json()['payload']['auto_fetch_data'])
+        self.opener.reset_mock()
+        p = session_payload()
+        p.pop('trade_data'); p.pop('market_data', None)
+        p['auto_fetch_data'] = True
+        p['execution']['slippage_rate'] = '.001'
+        response = self.client.post('/api/backtests/validate', json=p)
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIn('SESSION_MATCHING_REQUIRES_CONTRACT_5M_ZERO_SLIPPAGE', response.text)
+        self.opener.assert_not_called()
+
     def test_exact_calendar_range_shared_by_both_sources_and_closed_bars_only(self):
         sources, meta = self.fetcher.fetch()
         self.assertEqual(meta['from'], int(NOW.replace(month=4).timestamp()))
@@ -89,6 +164,238 @@ class AutoFetchTest(unittest.TestCase):
         sources, meta = self.fetcher.fetch()
         self.assertEqual(datetime.fromtimestamp(meta['from'], ZONE), end.replace(month=2, day=28))
         self.assertEqual(sources['trade_data']['bars'][0]['time'], atc)
+
+    def test_fetch_by_range_without_history_starts_at_report(self):
+        report_start = '2026-10-09'
+        report_end = '2026-10-09'
+        sources, meta = self.fetcher.fetch_by_range(report_start, report_end)
+        expected_start = datetime(2026, 10, 9, tzinfo=ZONE)
+        self.assertEqual(meta['from'], int(expected_start.timestamp()))
+        self.assertEqual(meta['to'], int(NOW.timestamp()))
+        for call in self.opener.call_args_list:
+            query = parse_qs(urlsplit(call.args[0].full_url).query)
+            self.assertEqual(query['from'], [str(meta['from'])])
+            self.assertEqual(query['to'], [str(meta['to'])])
+        self.assertEqual(set(sources), {'trade_data', 'market_data'})
+
+    def test_contract_report_limits_warmup_to_available_policies_and_replays(self):
+        self.fetcher.clock = lambda: datetime(2026, 10, 15, 15, tzinfo=ZONE)
+        stamps = [int(datetime(year, month, day, 9, 5, tzinfo=ZONE).timestamp())
+                  for year, month, day in ((2025, 10, 15), (2026, 1, 5), (2026, 3, 2),
+                                           (2026, 4, 15), (2026, 10, 14))]
+
+        def upstream(request, **kwargs):
+            query = parse_qs(urlsplit(request.full_url).query)
+            first, last = (int(query[key][0]) for key in ('from', 'to'))
+            return io.BytesIO(raw_source([stamp for stamp in stamps if first <= stamp <= last]))
+
+        self.opener.side_effect = upstream
+        for factory in (sample, session_payload):
+            with self.subTest(matching=factory.__name__):
+                p = factory()
+                if factory is session_payload:
+                    p['strategy']['entry']['conditions']['LONG'] = {'gt': [{'ref': 'market_data.close'}, 0]}
+                p.pop('trade_data'); p.pop('market_data', None)
+                p['auto_fetch_data'] = True
+                p['report'] = {'start_date': '2026-04-15', 'end_date': '2026-10-14'}
+                p['strategy']['warmup_bars'] = 150
+                validated = self.client.post('/api/backtests/validate', json=p)
+                self.assertEqual(validated.status_code, 200, validated.text)
+                data, prepared = validated.json()['data'], validated.json()['payload']
+                self.assertEqual(data['report_range'], {'start': '2026-04-15', 'end': '2026-10-14'})
+                self.assertEqual(data['auto_fetch']['history_start_limit'], '2026-03-01')
+                self.assertEqual(datetime.fromtimestamp(data['auto_fetch']['from'], ZONE),
+                                 datetime(2026, 4, 9, 13, 15, tzinfo=ZONE))
+                for name in ('trade_data', 'market_data'):
+                    self.assertEqual([row['time'] for row in prepared[name]['bars']], stamps[3:])
+                self.assertEqual(data['warmup_bars'], {'trade_data': 0, 'market_data': 0})
+                InlineRunRequest.model_validate(prepared)
+                run = self.client.post('/api/backtests', json=p)
+                self.assertEqual(run.status_code, 201, run.text)
+                result = run.json()
+                self.assertEqual(result['evaluation_status']['status'], 'UNEVALUABLE')
+                self.assertEqual(result['signals'], [])
+                self.assertEqual(result['metadata']['report_range'], data['report_range'])
+                self.opener.reset_mock()
+                replay = self.client.post('/api/backtests', json=prepared)
+                self.assertEqual(replay.status_code, 201, replay.text)
+                self.assertEqual(replay.json()['summary'], result['summary'])
+                self.opener.assert_not_called()
+                chart = self.client.get('/api/backtests/' + result['metadata']['run_id'] + '/chart')
+                self.assertEqual(chart.status_code, 200, chart.text)
+
+    def test_history_limit_uses_contract_map_boundary_and_preserves_invalid_report(self):
+        self.fetcher.clock = lambda: datetime(2026, 10, 15, 15, tzinfo=ZONE)
+        self.raw = raw_source([int(datetime(2026, 4, 15, 9, 5, tzinfo=ZONE).timestamp())])
+        policy = json.loads(self.service.auto_fetch_policy_path.read_bytes())
+        policy['rollover'] = policy['rollover'][3:]
+        path = self.repository.store / 'mapping-policy.json'
+        path.write_text(json.dumps(policy), encoding='utf-8')
+        self.service.auto_fetch_policy_path = path
+        p = session_payload()
+        p.pop('trade_data'); p.pop('market_data', None)
+        p['auto_fetch_data'] = True
+        p['report'] = {'start_date': '2026-04-15', 'end_date': '2026-04-15'}
+        p['strategy']['warmup_bars'] = 10000
+        response = self.client.post('/api/backtests/validate', json=p)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['data']['auto_fetch']['history_start_limit'], '2026-04-01')
+        self.assertEqual(datetime.fromtimestamp(response.json()['data']['auto_fetch']['from'], ZONE),
+                         datetime(2026, 4, 1, 9, tzinfo=ZONE))
+
+        # A report before the map remains an error, rather than being silently shortened.
+        p['report'] = {'start_date': '2026-03-25', 'end_date': '2026-04-15'}
+        self.raw = raw_source([int(datetime(2026, month, day, 9, 5, tzinfo=ZONE).timestamp())
+                               for month, day in ((3, 25), (4, 15))])
+        response = self.client.post('/api/backtests/validate', json=p)
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(response.json()['detail'], 'CONTRACT_MAP_COVERAGE_MISSING')
+
+        policy['rollover'] = []
+        path.write_text(json.dumps(policy), encoding='utf-8')
+        self.opener.reset_mock()
+        response = self.client.post('/api/backtests/validate', json=p)
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(response.json()['detail'], 'CONTRACT_MAP_COVERAGE_MISSING')
+        self.opener.assert_not_called()
+
+    def test_fetch_by_range_month_end_needs_no_history_when_not_requested(self):
+        report_start = '2026-08-31'
+        report_end = '2026-08-31'
+        self.fetcher.clock = lambda: datetime(2026, 8, 31, 15, 0, tzinfo=ZONE)
+        self.raw = raw_source([int(datetime(2026, 8, 31, 14, 45, tzinfo=ZONE).timestamp())])
+        _, meta = self.fetcher.fetch_by_range(report_start, report_end)
+        self.assertEqual(datetime.fromtimestamp(meta['from'], ZONE),
+                         datetime(2026, 8, 31, tzinfo=ZONE))
+
+    def test_auto_fetch_with_report_uses_fetch_by_range(self):
+        self.raw = raw_source([
+            int(datetime(2026, 10, 7, 11, 0, tzinfo=ZONE).timestamp()),
+            int(datetime(2026, 10, 8, 11, 0, tzinfo=ZONE).timestamp()),
+            int(datetime(2026, 10, 8, 11, 5, tzinfo=ZONE).timestamp()),
+        ])
+        payload = automatic_payload()
+        payload['report'] = {'start_date': '2026-10-07', 'end_date': '2026-10-08'}
+        response = self.client.post('/api/backtests/validate', json=payload)
+        self.assertEqual(response.status_code, 200, response.text)
+        metadata = response.json()['data']['auto_fetch']
+        self.assertEqual(datetime.fromtimestamp(metadata['from'], ZONE),
+                         datetime(2026, 10, 7, tzinfo=ZONE))
+        self.assertEqual(datetime.fromtimestamp(metadata['to'], ZONE),
+                         datetime(2026, 10, 8, 23, 59, 59, tzinfo=ZONE))
+        run = self.client.post('/api/backtests', json=payload)
+        self.assertEqual(run.status_code, 201, run.text)
+        self.assertEqual(run.json()['metadata']['auto_fetch'], metadata)
+
+    def test_warmup_requirement_includes_indicator_seed_and_shift(self):
+        self.assertEqual(_warmup_bars({'warmup_bars': 150}), 150)
+        self.assertEqual(_warmup_bars({}), 0)
+        for spec, expected in (({'type': 'SMA', 'period': 200}, 200),
+                               ({'type': 'MFI', 'period': 14}, 15),
+                               ({'type': 'MACD', 'slow_period': 26, 'signal_period': 9}, 34)):
+            with self.subTest(spec=spec):
+                self.assertEqual(_warmup_bars({'indicators': {'indicator': spec}}), expected)
+                self.assertEqual(_warmup_bars({'indicators': {'indicator': spec},
+                                               'entry': {'ref': 'indicator.signal', 'shift': 2}}), expected + 2)
+        self.assertEqual(_warmup_bars({'entry': {'ref': 'market_data.close', 'shift': 3}}), 4)
+
+    def test_150_bar_history_skips_weekends_holidays_and_auction_bars(self):
+        policy = json.loads(self.service.inline_policy_path.read_bytes())
+        start = datetime(2026, 9, 3, tzinfo=ZONE)
+        self.fetcher.clock = lambda: start.replace(hour=15)
+        continuous_labels = [f'{minute // 60:02}:{minute % 60:02}'
+                             for lo, hi in ((540, 690), (780, 870)) for minute in range(lo, hi, 5)]
+        available = [int(datetime.fromisoformat(day + 'T' + label).replace(tzinfo=ZONE).timestamp())
+                     for day in policy['trading_dates'] if '2026-08-20' <= day <= '2026-09-03'
+                     for label in continuous_labels + ['14:45']]
+        available.sort()
+
+        def upstream(request, **kwargs):
+            query = parse_qs(urlsplit(request.full_url).query)
+            first, last = (int(query[key][0]) for key in ('from', 'to'))
+            return io.BytesIO(raw_source([stamp for stamp in available if first <= stamp <= last]))
+
+        self.opener.side_effect = upstream
+        sources, meta = self.fetcher.fetch_by_range('2026-09-03', '2026-09-03', warmup_bars=150,
+                                                   session_policy=policy, continuous_only=True,
+                                                   history_start='2026-03-01')
+        self.assertEqual(datetime.fromtimestamp(meta['from'], ZONE), datetime(2026, 8, 25, 13, 15, tzinfo=ZONE))
+        self.assertEqual(meta['warmup_bars_requested'], 150)
+        for name, source in sources.items():
+            counted = [row for row in source['bars'] if row['time'] < int(start.timestamp())
+                       and datetime.fromtimestamp(row['time'], ZONE).strftime('%H:%M') != '14:45']
+            self.assertEqual(len(counted), 150)
+            self.assertEqual(datetime.fromtimestamp(counted[0]['time'], ZONE),
+                             datetime(2026, 8, 25, 14, tzinfo=ZONE))
+            self.assertEqual(meta['sources'][name]['warmup_count'], 150)
+            self.assertTrue(any(datetime.fromtimestamp(row['time'], ZONE).strftime('%H:%M') == '14:45'
+                                and row['time'] >= int(start.timestamp()) for row in source['bars']))
+        self.assertEqual(len(self.opener.call_args_list), 2)
+
+    def test_mid_session_history_preserves_real_gaps_and_replay(self):
+        p = session_payload()
+        p['strategy']['entry']['conditions']['LONG'] = {'lt': [{'ref': 'market_data.close'}, 0]}
+        p['strategy']['warmup_bars'] = 3
+        p['report'] = {'start_date': '2026-03-26', 'end_date': '2026-03-26'}
+        history = [int(datetime(2026, 3, 25, 14, minute, tzinfo=ZONE).timestamp()) for minute in (10, 15, 20, 25)]
+        report = int(datetime(2026, 3, 26, 9, 15, tzinfo=ZONE).timestamp())
+        self.fetcher.clock = lambda: datetime(2026, 3, 26, 15, tzinfo=ZONE)
+
+        def upstream(request, **kwargs):
+            query = parse_qs(urlsplit(request.full_url).query)
+            first, last = (int(query[key][0]) for key in ('from', 'to'))
+            return io.BytesIO(raw_source([stamp for stamp in [*history, report] if first <= stamp <= last]))
+
+        self.opener.side_effect = upstream
+        p.pop('trade_data'); p.pop('market_data', None)
+        p['auto_fetch_data'] = True
+        validated = self.client.post('/api/backtests/validate', json=p)
+        self.assertEqual(validated.status_code, 200, validated.text)
+        prepared = validated.json()['payload']
+        self.assertEqual([r['time'] for r in prepared['market_data']['bars']], history[1:] + [report])
+        data, policy = self.service.prepare_inline(prepared)
+        self.assertNotIn('2026-03-25T09:15:00+07:00', data.metadata['data_gaps']['market_data'])
+        self.assertIn('2026-03-25T14:30:00+07:00', data.metadata['data_gaps']['market_data'])
+        self.assertIn('2026-03-26T09:00:00+07:00', data.metadata['data_gaps']['trade_data'])
+        self.opener.reset_mock()
+        response = self.client.post('/api/backtests', json=prepared)
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.json()['signals'], [])
+        self.opener.assert_not_called()
+
+    def test_april_report_accepts_vndirect_starting_late_and_replays_same_snapshot(self):
+        self.fetcher.clock = lambda: datetime(2026, 10, 15, 15, tzinfo=ZONE)
+        self.raw = raw_source([int(datetime(2026, month, day, 11, tzinfo=ZONE).timestamp())
+                               for month, day in ((4, 15), (10, 14))])
+        for factory in (automatic_payload, sample, session_payload):
+            with self.subTest(model=factory.__name__):
+                p = factory()
+                p.pop('trade_data', None); p.pop('market_data', None)
+                p['auto_fetch_data'] = True
+                p['report'] = {'start_date': '2026-04-10', 'end_date': '2026-10-14'}
+                p['strategy']['warmup_bars'] = 150
+                if factory is session_payload:
+                    p['strategy']['entry']['conditions']['LONG'] = {'gt': [{'ref': 'market_data.close'}, 0]}
+                validated = self.client.post('/api/backtests/validate', json=p)
+                self.assertEqual(validated.status_code, 200, validated.text)
+                metadata = validated.json()['data']
+                self.assertEqual(metadata['report_range'], {'start': '2026-04-10', 'end': '2026-10-14'})
+                self.assertEqual(metadata['available_range'], {'start': '2026-04-15', 'end': '2026-10-14'})
+                run = self.client.post('/api/backtests', json=p)
+                self.assertEqual(run.status_code, 201, run.text)
+                result = run.json()
+                self.assertEqual(result['signals'], [])
+                self.assertEqual(result['metadata']['report_range'], metadata['report_range'])
+                self.assertEqual(result['metadata']['available_range'], metadata['available_range'])
+                document = self.client.get('/api/backtests/' + result['metadata']['run_id'] + '/input').json()
+                self.opener.reset_mock()
+                replay = self.client.post('/api/backtests', json=document['payload'])
+                self.assertEqual(replay.status_code, 201, replay.text)
+                self.assertEqual(replay.json()['summary'], result['summary'])
+                self.assertEqual(replay.json()['metadata']['available_range'], metadata['available_range'])
+                self.opener.assert_not_called()
+                chart = self.client.get('/api/backtests/' + result['metadata']['run_id'] + '/chart')
+                self.assertEqual(chart.status_code, 200, chart.text)
 
     def test_invalid_upstream_snapshots_are_not_repaired(self):
         invalid = [b'not json', b'{"s":"no_data"}',
@@ -228,10 +535,10 @@ class AutoFetchTest(unittest.TestCase):
 
     def test_explicit_report_must_fit_and_contract_calendar_covers_october(self):
         invalid = automatic_payload()
-        invalid['report'] = {'start_date': '2026-04-09', 'end_date': '2026-10-09'}
+        invalid['report'] = {'start_date': '2027-04-09', 'end_date': '2027-10-09'}
         response = self.client.post('/api/backtests', json=invalid)
         self.assertEqual(response.status_code, 422)
-        self.assertEqual(response.json()['detail'], 'INVALID_REPORT_RANGE')
+        self.assertIn('end_date must be less than or equal to now', response.json()['detail'])
         contract = sample()
         contract.pop('trade_data'); contract.pop('market_data'); contract['auto_fetch_data'] = True
         response = self.client.post('/api/backtests/validate', json=contract)

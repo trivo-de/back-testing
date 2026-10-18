@@ -9,7 +9,7 @@
     #price-chart-wrap{height:520px;position:relative}#price-chart{height:100%}#market-chart,#equity-chart{height:240px}#history{overflow:auto}#history table{min-width:560px}#history tbody tr{cursor:pointer}#history button{min-height:32px;padding:6px 10px;white-space:nowrap}#run-title,pre{overflow-wrap:anywhere;white-space:pre-wrap}#fill-tooltip{position:absolute;z-index:2;max-width:300px;padding:9px 11px;background:#16324f;color:#fff;border-radius:6px;box-shadow:0 2px 12px #0006;font-size:12px;line-height:1.35;pointer-events:none}#fill-tooltip strong{display:block;margin-bottom:4px}#fill-tooltip dl{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;margin:0}#fill-tooltip dt{color:#d7e7f7}#fill-tooltip dd{margin:0;overflow-wrap:anywhere}button:focus-visible{outline:2px solid #245ea8}#chart-panel{overflow:hidden}@media(max-width:600px){body{padding:12px!important}#price-chart-wrap{height:430px}#fill-tooltip{max-width:240px}}
     body{font:14px;font-family:Roboto,sans-serif;max-width:1200px;margin:auto;padding:24px;color:#182230}form,.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}label{display:grid;gap:4px}input,button{padding:8px}button{cursor:pointer}.cards div{background:#eef1f4;padding:12px;border-radius:6px}table{width:100%;border-collapse:collapse;margin:8px 0 24px}th,td{padding:7px;border:1px solid #c7cdd4;text-align:left}th{background:#16324f;color:white}.error{color:#a00}.muted{color:#667085}section{overflow:auto}
   </style>
-  <link rel="stylesheet" href="/static/theme.css">
+  <link rel="stylesheet" href="/static/theme.css?v=20261012">
   <link rel="stylesheet" href="/static/backtest-input.css?v=20261009">
   <link rel="stylesheet" href="/static/backtest-navigation.css?v=20261008-3">
   <style>
@@ -48,16 +48,17 @@
       </div>
     </nav>
   </aside>
-  <div class="theme-bar"><h1>Backtest</h1><button type="button" data-theme-toggle aria-label="Chuyển giao diện">☾</button></div>
+  <div class="theme-bar"><h1>Backtest</h1><div class="appearance-controls"><nav id="language-select" aria-label="Ngôn ngữ"><a href="#vi" data-language="vi" lang="vi">VN</a><span aria-hidden="true">/</span><a href="#en" data-language="en" lang="en">ENG</a></nav><button type="button" data-theme-toggle aria-label="Chuyển giao diện">☾</button></div></div>
   <!-- Backtest request inputs -->
   <form id="run-form" novalidate>
     <div id="input-payload" tabindex="-1" class="input-wide input-toolbar">
       <label>Tải payload JSON để tự điền form<input id="payload-file" type="file" accept=".json,application/json"></label>
-      <button type="button" id="load-example">Điền mẫu CANSLIM v1</button>
+      <button type="button" id="load-example">Điền mẫu</button>
     </div>
-    <p id="input-status" class="muted input-wide" role="status" aria-live="polite">Chọn mẫu hoặc tải payload JSON, sau đó chỉnh tham số và nạp dữ liệu.</p>
+    <p id="input-status" class="muted input-wide" role="status" aria-live="polite">Chọn mẫu hoặc tải payload JSON, sau đó chỉnh tham số và chọn tự lấy hoặc nạp dữ liệu.</p>
     <div class="input-wide">
-      <label class="input-checkbox"><input id="auto-fetch-data" type="checkbox" aria-describedby="auto-fetch-help">Lấy dữ liệu tự động (trade: VN30F1M, market: VNINDEX, timeframe: 5m, timestamp: 6 tháng đến hiện tại)</label>
+      <label class="input-checkbox"><input id="auto-fetch-data" type="checkbox" aria-describedby="auto-fetch-help">Lấy dữ liệu tự động (VN30F1M và VNINDEX, 5 phút)</label>
+      <p id="auto-fetch-help" class="muted">Nếu nhập kỳ báo cáo, máy chủ chỉ lấy thêm số nến cần để khởi tạo chỉ báo trước ngày bắt đầu và tải đến hết ngày kết thúc. Nếu bỏ kỳ báo cáo, máy chủ lấy sáu tháng gần nhất đến hiện tại. Không cần nạp dữ liệu thủ công.</p>
     </div>
     <fieldset id="input-general" tabindex="-1" class="input-wide"><legend>Tham số lần chạy</legend><div id="general-fields" class="input-grid"></div></fieldset>
     <fieldset id="input-trade" tabindex="-1" class="input-wide"><legend>Dữ liệu giao dịch</legend>
@@ -121,7 +122,8 @@
     <div id="history" aria-busy="false"></div>
     <button type="button" id="history-next" hidden>Trang tiếp</button>
   </section>
+  <script type="module" src="/static/language.mjs?v=20261014-2"></script>
   <script type="module" src="/static/theme.mjs?v=20260918"></script>
-  <script type="module" src="/static/backtest-app.mjs?v=20261009-2"></script>
+  <script type="module" src="/static/backtest-app.mjs?v=20261013-1"></script>
 </body>
 </html>
