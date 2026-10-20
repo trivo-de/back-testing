@@ -6,6 +6,7 @@ import re
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 from ..domain.expressions import STATE_REFS, validate_expression
 from ..infrastructure.market_snapshot import normalize_raw_source
+from ..application.order_config import strategy_orders
 
 Positive = Annotated[Decimal, Field(gt=0, allow_inf_nan=False)]
 Nonnegative = Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
@@ -208,24 +209,58 @@ class PendingInput(StrictModel):
     cross_session: Literal[False]
 
 
+class OrderInput(StrictModel):
+    type: Literal['SIMULATED', 'LO', 'ATO', 'ATC']
+    limit_price: dict | None = None
+    pending: PendingInput | None = None
+
+    @model_validator(mode='after')
+    def parameters(self):
+        if (self.type == 'LO') != (self.limit_price is not None):
+            raise ValueError('LIMIT_PRICE_REQUIRED_ONLY_FOR_LO')
+        if self.pending is not None and self.type in ('ATO', 'ATC'):
+            raise ValueError('AUCTION_LIFETIME_IS_FIXED')
+        return self
+
+
+class EntryActionInput(StrictModel):
+    side: Literal['BUY', 'LONG', 'SHORT']
+    order: OrderInput | None = None
+
+
+class CloseActionInput(StrictModel):
+    order: OrderInput | None = None
+
+
 class EntryInput(StrictModel):
     conditions: dict[str, dict] = Field(min_length=1)
     any: list[str] = Field(min_length=1)
     details: dict[str, dict] = Field(default_factory=dict)
-    require_flat: Literal[True] | None = None
-    require_no_pending: Literal[True] | None = None
+    require_flat: StrictBool | None = None
+    require_no_pending: StrictBool | None = None
     signal_windows: list[tuple[str, str]] | None = Field(default=None, min_length=1)
     on_conflict: Literal['SIGNAL_CONFLICT'] | None = None
     reentry: Literal['next_bar_close_after_exit'] | None = None
     pending: PendingInput | None = None
     limit_price: dict | None = None
+    order: OrderInput | None = None
+    actions: dict[str, EntryActionInput] = Field(default_factory=dict)
+    priority: list[str] | None = Field(default=None, min_length=1)
 
     @model_validator(mode='after')
     def directions(self):
-        if set(self.conditions) - {'BUY', 'LONG', 'SHORT'} or set(self.any) != set(self.conditions) or len(set(self.any)) != len(self.any):
+        if set(self.any) != set(self.conditions) or len(set(self.any)) != len(self.any):
             raise ValueError('INVALID_ENTRY_DIRECTIONS')
+        if self.actions:
+            if set(self.actions) != set(self.conditions):
+                raise ValueError('ENTRY_ACTIONS_MUST_MATCH_CONDITIONS')
+        elif set(self.conditions) - {'BUY', 'LONG', 'SHORT'}:
+            raise ValueError('INVALID_ENTRY_DIRECTIONS')
+        if self.priority is not None and (
+                set(self.priority) != set(self.any) or len(self.priority) != len(self.any)):
+            raise ValueError('INVALID_ENTRY_PRIORITY')
         previous_end = None
-        if len(self.conditions) > 1 and self.on_conflict is None:
+        if len(self.conditions) > 1 and self.on_conflict is None and self.priority is None:
             raise ValueError('MISSING_CONFLICT_POLICY')
         for start, end in self.signal_windows or ():
             check_time(start); check_time(end)
@@ -277,8 +312,10 @@ class CloseInput(StrictModel):
     any: list[str] = Field(min_length=1)
     priority: list[str] = Field(min_length=1)
     quantity: Literal['remaining']
-    fill_policy: Literal['next_open', 'limit', 'atc']
+    fill_policy: Literal['next_open', 'limit', 'atc'] | None = None
     limit_price: dict | None = None
+    order: OrderInput | None = None
+    actions: dict[str, CloseActionInput] = Field(default_factory=dict)
 
 
 class ExitInput(StrictModel):
@@ -295,7 +332,7 @@ class ContractSizingInput(StrictModel):
     stop_points: Positive
     margin_buffer: Annotated[Decimal, Field(ge=1, allow_inf_nan=False)]
     max_contracts: Period
-    pyramiding: Literal[False]
+    pyramiding: StrictBool
 
 
 class NormalizedSizingInput(StrictModel):
@@ -335,6 +372,14 @@ class StrategyInput(StrictModel):
         entry_refs = refs - {r for r in STATE_REFS if r.startswith('position.')}
         for node in self.entry.conditions.values():
             validate_expression(node, entry_refs, self.entry.conditions, 'bool')
+        for group, available in ((self.entry, entry_refs), (self.exit.bar_close, refs)):
+            if group is None:
+                continue
+            if set(group.actions) - set(group.conditions):
+                raise ValueError('UNKNOWN_ACTION_CONDITION')
+            for order in [group.order, *(action.order for action in group.actions.values())]:
+                if order is not None and order.limit_price is not None:
+                    validate_expression(order.limit_price, available, expected='number')
         if self.entry.limit_price is not None:
             validate_expression(self.entry.limit_price, entry_refs, expected='number')
         for name, node in self.entry.details.items():
@@ -349,7 +394,8 @@ class StrategyInput(StrictModel):
                 raise ValueError('ENTRY_WINDOW_AFTER_FLAT_BY')
         if self.exit.intrabar is None and self.exit.bar_close is None:
             raise ValueError('MISSING_EXIT_ACTIONS')
-        if set(self.exit.targets) - set(self.entry.conditions):
+        directions = {action.side for action in self.entry.actions.values()} if self.entry.actions else set(self.entry.conditions)
+        if set(self.exit.targets) - directions:
             raise ValueError('UNKNOWN_TARGET_DIRECTION')
         for levels in self.exit.targets.values():
             if set(levels) - {'TP1', 'TP2'}: raise ValueError('UNKNOWN_TARGET_LEVEL')
@@ -361,7 +407,8 @@ class StrategyInput(StrictModel):
                     or len(group.any) != len(set(group.any)) or len(group.priority) != len(set(group.priority))):
                 raise ValueError('INVALID_EXIT_PRIORITY')
         if self.exit.bar_close:
-            if (self.exit.bar_close.fill_policy == 'limit') != (self.exit.bar_close.limit_price is not None):
+            if self.exit.bar_close.fill_policy is not None and (
+                    (self.exit.bar_close.fill_policy == 'limit') != (self.exit.bar_close.limit_price is not None)):
                 raise ValueError('CLOSE_LIMIT_PRICE_REQUIRED_ONLY_FOR_LO')
             if self.exit.bar_close.limit_price is not None:
                 validate_expression(self.exit.bar_close.limit_price, refs, expected='number')
@@ -380,7 +427,7 @@ class StrategyInput(StrictModel):
                 raise ValueError('DUPLICATE_EXIT_ACTION')
             for action in actions:
                 if isinstance(action, TargetInput):
-                    if any(action.level not in self.exit.targets.get(side, {}) for side in self.entry.conditions):
+                    if any(action.level not in self.exit.targets.get(side, {}) for side in directions):
                         raise ValueError('MISSING_TARGET_LEVEL')
                     if action.requires and (action.level == 'TP1' or 'TP1' not in levels):
                         raise ValueError('INVALID_TARGET_DEPENDENCY')
@@ -395,9 +442,9 @@ class StrategyInput(StrictModel):
 
 
 class ExecutionInput(StrictModel):
-    entry_fill_policy: Literal['next_open', 'limit', 'ato']
+    entry_fill_policy: Literal['next_open', 'limit', 'ato'] | None = None
     slippage_rate: Annotated[Nonnegative, Field(lt=1)]
-    matching_model: Literal['hnx_sessions_v1'] | None = None
+    matching_model: Literal['next_open', 'hnx_sessions_v1'] | None = None
     auction_match_quantity: AuctionQuantity | None = None
 
 
@@ -456,11 +503,25 @@ class InlineRunRequest(StrictModel):
             if source is None: raise ValueError('MISSING_REQUIRED_DATA: ' + name)
             if name in volumes and any(b.volume is None for b in source.bars):
                 raise ValueError('MISSING_REQUIRED_VOLUME: ' + name)
-        sides = set(self.strategy.entry.conditions)
+        entry_actions, close_actions = strategy_orders(self.model_dump(by_alias=True, exclude_none=True))
+        sides = {action['side'] for action in entry_actions.values()}
+        entry_types = {action['order']['type'] for action in entry_actions.values()}
+        close_types = {action['order']['type'] for action in close_actions.values()}
+        if entry_types - {'SIMULATED', 'LO', 'ATO'} or close_types - {'SIMULATED', 'LO', 'ATC'}:
+            raise ValueError('ORDER_UNSUPPORTED_FOR_ACTION')
         session = self.execution.matching_model == 'hnx_sessions_v1'
+        multi = getattr(self.strategy.sizing, 'pyramiding', False)
+        entry = self.strategy.entry
+        if multi:
+            if not session or self.accounting.model != 'contract' or entry_types - {'LO', 'ATO'}:
+                raise ValueError('MULTI_ENTRY_REQUIRES_SESSION_LO_OR_ATO')
+            if not entry.priority:
+                raise ValueError('MULTI_ENTRY_REQUIRES_PRIORITY')
+            if entry.on_conflict is not None or entry.require_flat is True or entry.require_no_pending is True:
+                raise ValueError('MULTI_ENTRY_CONFLICTING_SINGLE_POSITION_FLAGS')
+        elif entry.require_flat is False or entry.require_no_pending is False:
+            raise ValueError('MULTI_ENTRY_FLAGS_REQUIRE_PYRAMIDING')
         close = self.strategy.exit.bar_close
-        if (self.execution.entry_fill_policy == 'limit') != (self.strategy.entry.limit_price is not None):
-            raise ValueError('ENTRY_LIMIT_PRICE_REQUIRED_ONLY_FOR_LO')
         if session:
             if (self.accounting.model != 'contract' or self.execution.slippage_rate != 0
                     or (not self.auto_fetch_data and self.trade_data.resolution != '5')):
@@ -470,14 +531,14 @@ class InlineRunRequest(StrictModel):
                     raise ValueError('CONTRACT_TIMEZONE_MISMATCH')
                 if not self.trade_data.contract_dates or self.trade_data.provenance is None:
                     raise ValueError('SESSION_MATCHING_REQUIRES_CONTRACT_DATES_AND_PROVENANCE')
-            if close and close.fill_policy == 'atc' and self.strategy.exit.flat_by and self.strategy.exit.flat_by < '14:45':
+            if 'ATC' in close_types and self.strategy.exit.flat_by and self.strategy.exit.flat_by < '14:45':
                 raise ValueError('ATC_AFTER_FLAT_DEADLINE')
             if (self.execution.auction_match_quantity is not None
-                    and self.execution.entry_fill_policy != 'ato'
-                    and (close is None or close.fill_policy != 'atc')):
+                    and 'ATO' not in entry_types and 'ATC' not in close_types):
                 raise ValueError('AUCTION_MATCH_QUANTITY_REQUIRES_AUCTION_ORDER')
-        elif (self.execution.entry_fill_policy != 'next_open' or (close and close.fill_policy != 'next_open')
-              or (self.strategy.entry.pending and self.strategy.entry.pending.max_execution_bars != 1)
+        elif (entry_types | close_types != {'SIMULATED'}
+              or any(action['order'].get('pending', {}).get('max_execution_bars', 1) != 1
+                     for action in (*entry_actions.values(), *close_actions.values()))
               or self.execution.auction_match_quantity is not None
               or (self.trade_data and (self.trade_data.auctions or self.trade_data.contract_dates))):
             raise ValueError('SESSION_MATCHING_REQUIRED')

@@ -10,7 +10,10 @@ from ..domain.execution import Bracket, ContractExecution, InvalidExecution, Nor
 from ..domain.expressions import evaluate_expression, MissingValue, STATE_REFS
 from ..domain.portfolio import decimal
 from ..domain.session_matching import phase_at
-from ..domain.trading import FixedSignal, OrderResult
+from ..domain.trading import FixedSignal
+from ..domain.orders import OrderRequest, OrderResult
+from ..domain.multi_execution import MultiContractExecution, LotAccount
+from .order_config import strategy_orders
 
 
 def continuous(stamp):
@@ -137,16 +140,16 @@ class InlineExecution(ContractExecution):
         return quantity
 
     def prepare_order(self, signal, reference_price=None):
-        if signal.order_type == 'LO':
-            price = signal.limit_price
+        if signal.order.result_type == 'LO':
+            price = signal.order.limit_price
             if price is None or price <= 0 or price != self.level(price, True):
                 raise ValueError('LIMIT_PRICE_INVALID_OR_OFF_TICK')
             quantity = (self.portfolio.position.quantity if signal.side == 'CLOSE'
                         else self.quantity_for(signal.side, price))
             return replace(signal, quantity=quantity)
-        if signal.order_type == 'ATC':
+        if signal.order.result_type == 'ATC':
             return replace(signal, quantity=self.portfolio.position.quantity)
-        if signal.order_type == 'ATO':
+        if signal.order.result_type == 'ATO':
             if reference_price is None: raise ValueError('ATO_REFERENCE_PRICE_MISSING')
             return replace(signal, quantity=self.quantity_for(signal.side, decimal(reference_price)))
         return signal
@@ -157,20 +160,20 @@ class InlineExecution(ContractExecution):
 
         """
         is_market = signal_date != (self.entry_fill.fill_date if self.entry_fill else None) or signal.reason not in ('TP1', 'TP2', 'STOP_LOSS', 'TRAILING_STOP')
-        if is_market and signal.side == 'CLOSE' and signal.order_type == 'NEXT_OPEN':
+        if is_market and signal.side == 'CLOSE' and signal.order.result_type == 'NEXT_OPEN':
             expected = signal_date.replace(hour=13, minute=0) if signal_date.strftime('%H:%M') == '11:30' else signal_date
             if fill_date != expected: raise InvalidExecution('MISSING_REQUIRED_EXIT_BAR')
         if signal.side != 'CLOSE':
-            if not self.session_matching and self.spec['entry'].get('pending') and fill_date != signal_date:
+            if not self.session_matching and signal.order.max_execution_bars is not None and fill_date != signal_date:
                 raise ValueError('PENDING_EXPIRED')
             windows = self.spec['entry'].get('signal_windows')
             opened = self.current_open if self.session_matching else fill_date
-            if not continuous(opened) or (windows and signal.order_type != 'ATO'
+            if not continuous(opened) or (windows and signal.order.result_type != 'ATO'
                                           and opened.strftime('%H:%M') > windows[-1][1]):
                 raise ValueError('ENTRY_OUTSIDE_SESSION_OR_CUTOFF')
             price = decimal(raw_open)
             sign = 1 if signal.side == 'LONG' else -1
-            quantity = (signal.quantity if signal.order_type in ('LO', 'ATO')
+            quantity = (signal.quantity if signal.order.result_type in ('LO', 'ATO')
                         else self.quantity_for(signal.side, price))
             signal = replace(signal, quantity=quantity)
             self.bracket = None
@@ -199,6 +202,34 @@ class InlineExecution(ContractExecution):
             self.last_exit_open = self.current_open
             self.entry_details = {}
         return fill, trade
+
+
+class InlineMultiExecution(MultiContractExecution):
+    def __init__(self, cash, payload):
+        super().__init__(cash, lambda amount: InlineExecution(amount, payload))
+        self.day = None
+        self.day_start = decimal(cash)
+        self.entry_count = 0
+        self.last_exit_open = None
+
+    def before_open(self, stamp):
+        super().before_open(stamp)
+        if self.day != stamp.date():
+            self.day, self.day_start, self.entry_count = stamp.date(), self.portfolio.cash, 0
+
+    def execute(self, signal, signal_date, fill_date, raw_open):
+        result = super().execute(signal, signal_date, fill_date, raw_open)
+        if signal.side != 'CLOSE':
+            self.entry_count += 1
+        elif self.portfolio.lot(signal.position_id) is None:
+            self.last_exit_open = self.current_open
+        return result
+
+    def intrabar(self, bar, *, intrabar_entries=(), phase=None):
+        events = super().intrabar(bar, intrabar_entries=intrabar_entries, phase=phase)
+        if any(self.portfolio.lot(signal.position_id) is None for signal, _, _ in events):
+            self.last_exit_open = self.current_open
+        return events
 
 
 class InlineNormalizedExecution(NormalizedExecution):
@@ -241,10 +272,16 @@ class InlineNormalizedExecution(NormalizedExecution):
 def run_inline_strategy(data, payload):
     check_runtime(payload)
     spec = payload['strategy']
+    entry_actions, close_actions = strategy_orders(payload)
+    session_matching = payload['execution'].get('matching_model') == 'hnx_sessions_v1'
+    multi = spec['sizing'].get('pyramiding', False)
     series = IndicatorData(data, payload)
     executor = (InlineExecution(payload['initial_cash'], payload)
                 if payload['accounting']['model'] == 'contract'
                 else InlineNormalizedExecution(payload['initial_cash'], payload))
+    if multi:
+        executor = InlineMultiExecution(payload['initial_cash'], payload)
+    position_sequence = 0
     evaluations = []
     gap_times = {source: [datetime.fromisoformat(s) + timedelta(minutes=5) for s in stamps]
                  for source, stamps in data.metadata['data_gaps'].items()}
@@ -258,21 +295,28 @@ def run_inline_strategy(data, payload):
             for child in value: collect(child)
     collect(spec['entry'])
 
-    def evaluate(context):
+    def request(action, values):
+        order = action['order']
+        limit = evaluate_expression(order['limit_price'], values) if order['type'] == 'LO' else None
+        return OrderRequest(order['type'], limit, order.get('pending', {}).get('max_execution_bars'))
+
+    def evaluate(context, lot_executor=None):
+        nonlocal position_sequence
         bar = context.bars[-1]
         stamp = context.decision_time or bar.closed_at
         values, counts, totals = series.at(stamp)
         values.update(dict.fromkeys(STATE_REFS))
         snapshot = context.portfolio.mark(bar.close)
-        position = context.portfolio.position
-        held = sum(b.trading_date >= executor.entry_open for b in context.bars) if position else 0
+        state = lot_executor or executor
+        position = None if multi and lot_executor is None else context.portfolio.position
+        held = sum(b.trading_date >= state.entry_open for b in context.bars) if position else 0
         values.update({'clock.local_time': stamp.strftime('%H:%M'), 'account.equity': snapshot.equity,
                        'account.required_margin': getattr(snapshot, 'required_margin', Decimal(0)), 'day.start_equity': executor.day_start,
                        'day.net_pnl': snapshot.equity - executor.day_start, 'day.entry_fill_count': executor.entry_count,
                        'position.entry_price': position.entry_price if position else None,
                        'position.initial_quantity': getattr(position, 'initial_quantity', position.quantity) if position else None,
                        'position.held_bars': held})
-        values.update({f'position.entry_{name}': value for name, value in executor.entry_details.items()})
+        values.update({f'position.entry_{name}': value for name, value in getattr(state, 'entry_details', {}).items()})
         status, reason, signal = 'EVALUABLE', 'NO_SIGNAL', None
         if position and spec['exit'].get('bar_close'):
             group = spec['exit']['bar_close']
@@ -280,23 +324,24 @@ def run_inline_strategy(data, payload):
                 try: matched = evaluate_expression(group['conditions'][name], values, group['conditions'])
                 except MissingValue: continue
                 if matched:
-                    policy = group['fill_policy']
-                    order_type = {'next_open': 'NEXT_OPEN', 'limit': 'LO', 'atc': 'ATC'}[policy]
+                    order_type = close_actions[name]['order']['type']
                     if order_type == 'ATC' and stamp.strftime('%H:%M') != '14:30':
                         continue
                     try:
-                        limit = evaluate_expression(group['limit_price'], values) if order_type == 'LO' else None
+                        order = request(close_actions[name], values)
                     except MissingValue as error:
                         status, reason = 'UNEVALUABLE', str(error)
                         break
-                    signal, reason = replace(executor.close_signal(name), order_type=order_type, limit_price=limit), name
+                    signal, reason = replace(state.close_signal(name), order=order), name
                     break
         if not position:
             windows = spec['entry'].get('signal_windows')
+            eligible = [name for name in spec['entry'].get('priority', spec['entry']['any'])
+                        if not session_matching or (
+                            phase_at(stamp) == 'ATO' if entry_actions[name]['order']['type'] == 'ATO' else continuous(stamp))]
             if stamp.date() < data.start_date: reason = 'HISTORY_ONLY'
-            elif context.has_pending: reason = 'ORDER_PENDING'
-            elif payload['execution'].get('matching_model') == 'hnx_sessions_v1' and not (
-                    phase_at(stamp) == 'ATO' if payload['execution']['entry_fill_policy'] == 'ato' else continuous(stamp)):
+            elif context.has_pending and not multi: reason = 'ORDER_PENDING'
+            elif not eligible:
                 reason = 'OUTSIDE_ENTRY_WINDOW'
             if reason == 'NO_SIGNAL' and windows and not any(a <= stamp.strftime('%H:%M') <= b for a, b in windows):
                 reason = 'OUTSIDE_ENTRY_WINDOW'
@@ -315,16 +360,22 @@ def run_inline_strategy(data, payload):
                     limits = spec.get('daily_limits')
                     if limits and evaluate_expression(limits['stop_new_entry'], values): reason = 'DAILY_ENTRY_LIMIT'
                     else:
-                        matched = [side for side in spec['entry']['any'] if evaluate_expression(spec['entry']['conditions'][side], values, spec['entry']['conditions'])]
-                        if len(matched) > 1: reason = 'SIGNAL_CONFLICT'
+                        matched = [name for name in eligible if evaluate_expression(spec['entry']['conditions'][name], values, spec['entry']['conditions'])]
+                        if len(matched) > 1 and not multi and spec['entry'].get('on_conflict'):
+                            reason = 'SIGNAL_CONFLICT'
                         elif matched:
+                            if not multi:
+                                matched = matched[:1]
                             details = tuple((name, evaluate_expression(node, values))
                                             for name, node in spec['entry'].get('details', {}).items())
-                            policy = payload['execution']['entry_fill_policy']
-                            limit = evaluate_expression(spec['entry']['limit_price'], values) if policy == 'limit' else None
-                            reason, signal = 'ENTRY', FixedSignal(matched[0], reason='ENTRY', details=details,
-                                                                 order_type={'limit': 'LO', 'ato': 'ATO'}.get(policy, 'NEXT_OPEN'),
-                                                                 limit_price=limit)
+                            proposed = []
+                            for name in matched:
+                                action = entry_actions[name]
+                                position_sequence += 1
+                                proposed.append(FixedSignal(action['side'], reason='ENTRY', details=details,
+                                                            order=request(action, values),
+                                                            position_id=f'{name}:{position_sequence}' if multi else None))
+                            reason, signal = 'ENTRY', tuple(proposed) if multi else proposed[0]
                 except MissingValue as error:
                     status, reason = 'UNEVALUABLE', str(error)
         if bar.trading_date.date() >= data.start_date:
@@ -336,26 +387,49 @@ def run_inline_strategy(data, payload):
                                                     if totals[source] and not name.startswith(('trade_data.', 'market_data.'))},
                                 'indicators': {name: rows[-1] if rows else None for name, rows in values.items()
                                                if name in series.values and not name.startswith(('trade_data.', 'market_data.'))}})
+            if multi:
+                evaluations[-1]['position_id'] = context.portfolio.position_id if lot_executor else None
         return signal
 
-    result = run_engine(data.bars, evaluate, initial_cash=payload['initial_cash'], fee_rate=0, slippage_rate=0,
+    def evaluate_all(context):
+        signals = []
+        closing = {signal.position_id for signal in context.pending_signals if signal.side == 'CLOSE'}
+        for key, _ in context.portfolio.positions:
+            if key in closing:
+                continue
+            signal = evaluate(replace(context, portfolio=LotAccount(context.portfolio, key)), executor.lots[key])
+            if signal is not None:
+                signals.append(replace(signal, position_id=key))
+        entries = evaluate(context)
+        if entries:
+            signals.extend(entries)
+        return tuple(signals)
+
+    result = run_engine(data.bars, evaluate_all if multi else evaluate, initial_cash=payload['initial_cash'], fee_rate=0, slippage_rate=0,
                         support_bars=data.market_bars, record_start=data.start_date, trade_start=data.start_date,
                         execution=lambda cash: executor, on_open=executor.before_open,
-                        session_matching=payload['execution'].get('matching_model') == 'hnx_sessions_v1',
+                        matching_model=payload['execution'].get('matching_model') or 'next_open',
                         auction_events=data.auction_events,
                         max_execution_bars=spec['entry'].get('pending', {}).get('max_execution_bars', 1),
                         entry_cutoff=spec['entry']['signal_windows'][-1][1] if spec['entry'].get('signal_windows') else None,
-                        auction_entry=payload['execution']['entry_fill_policy'] == 'ato',
+                        auction_entry=any(action['order']['type'] == 'ATO' for action in entry_actions.values()),
                         auction_match_quantity=payload['execution'].get('auction_match_quantity'),
                         require_end_flat=spec['exit'].get('allow_overnight') is False)
-    if spec['exit'].get('allow_overnight') is False and result.portfolio.position is not None:
+    holding = bool(result.portfolio.quantity) if multi else result.portfolio.position is not None
+    if spec['exit'].get('allow_overnight') is False and holding:
         raise InvalidExecution('END_OF_REPORT_POSITION_REQUIRES_EXIT')
-    entry_sides = set(spec['entry']['conditions'])
+    entry_sides = {action['side'] for action in entry_actions.values()}
     orders = tuple(OrderResult(o.signal_date, o.side, 'REJECTED', 'END_OF_REPORT')
                    if o.status == 'PENDING' and o.side in entry_sides else o for o in result.orders)
-    if result.portfolio.position and payload['accounting']['model'] == 'contract':
+    if multi:
+        details = ()
+    elif result.portfolio.position and payload['accounting']['model'] == 'contract':
         details = tuple((key, value) for key, value in (('active_stop', executor.active_stop), ('trailing_extreme', executor.extreme))
                         if value is not None)
     else:
         details = tuple(executor.entry_details.items()) if result.portfolio.position else ()
-    return replace(result, orders=orders, evaluations=tuple(evaluations), position_details=details)
+    lot_details = tuple((key, tuple((name, value) for name, value in (
+        ('active_stop', executor.lots[key].active_stop), ('trailing_extreme', executor.lots[key].extreme))
+        if value is not None)) for key, _ in result.portfolio.positions) if multi else ()
+    return replace(result, orders=orders, evaluations=tuple(evaluations), position_details=details,
+                   lot_details=lot_details)

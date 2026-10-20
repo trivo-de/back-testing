@@ -74,12 +74,14 @@ class ContractFill(Fill):
     costs: Costs
     direction: str
     bar_time: BarTime | None = None
+    position_id: str | None = None
 
 
 @dataclass(frozen=True)
 class ContractTrade(Trade):
     direction: str
     allocated_entry_cost: Decimal
+    position_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -166,7 +168,7 @@ class ContractExecution:
         self.portfolio = updated
         return fill, trade
 
-    def intrabar(self, bar, *, entry_intrabar=False):
+    def intrabar(self, bar, *, entry_intrabar=False, phase=None):
         p = self.portfolio.position
         if p is None or self.bracket is None: return ()
         if not hasattr(bar, 'high') or not hasattr(bar, 'low'):
@@ -174,10 +176,12 @@ class ContractExecution:
         high, low, opened = map(decimal, (bar.high, bar.low, bar.open))
         if not 0 < low <= min(opened, decimal(bar.close)) <= max(opened, decimal(bar.close)) <= high:
             raise ValueError('INVALID_OHLC')
+        if phase == 'open':
+            high = low = opened
         events = []
         stop_hit = low <= self.active_stop if p.sign == 1 else high >= self.active_stop
         if stop_hit:
-            gap = not entry_intrabar and (opened <= self.active_stop if p.sign == 1 else opened >= self.active_stop)
+            gap = phase != 'close' and not entry_intrabar and (opened <= self.active_stop if p.sign == 1 else opened >= self.active_stop)
             price = opened if gap else self.active_stop
             initial_stop = self.level(p.entry_price - p.sign * self.bracket.stop_distance, p.sign == -1)
             reason = 'TRAILING_STOP' if self.active_stop != initial_stop else 'STOP_LOSS'
@@ -187,20 +191,24 @@ class ContractExecution:
             return ((signal, replace(fill, bar_time=bar.trading_date), trade),)
         if entry_intrabar:
             return ()
-        trailing_was_active = self.extreme is not None
+        trailing_was_active = self.extreme is not None and getattr(self, '_trailing_seed_bar', None) != bar.trading_date
         while self.target_index < len(self.bracket.targets) and self.portfolio.position is not None:
             distance, quantity = self.bracket.targets[self.target_index]
             target = self.level(p.entry_price + p.sign * distance, p.sign == 1)
             if not (high >= target if p.sign == 1 else low <= target): break
             quantity = min(quantity, self.portfolio.position.quantity) if quantity is not None else None
             signal = FixedSignal('CLOSE', quantity, reason=f'TP{self.target_index + 1}')
-            gap = opened >= target if p.sign == 1 else opened <= target
+            gap = phase != 'close' and (opened >= target if p.sign == 1 else opened <= target)
             fill, trade = self.execute(signal, self.entry_fill.fill_date,
                                        bar.trading_date if gap else bar.closed_at, target)
             events.append((signal, replace(fill, bar_time=bar.trading_date), trade))
             self.target_index += 1
             if self.target_index == 1 and self.portfolio.position and self.bracket.trailing_distance is not None:
                 self.extreme = target
+                if phase == 'open':
+                    self._trailing_seed_bar = bar.trading_date
+        if phase == 'open':
+            return tuple(events)
         if self.portfolio.position is not None and self.extreme is not None:
             # Seed the first TP with its target price, excluding that bar's High/Low.
             if trailing_was_active:

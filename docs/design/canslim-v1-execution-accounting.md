@@ -1,12 +1,21 @@
 # Thực thi và tính tiền hợp đồng
 
-Chế độ tùy chọn [khớp theo phiên HNX](hnx-session-matching.md) bổ sung LO liên tục
-và ATC đóng, tái sử dụng cùng sổ tiền/phí/ký quỹ. Thứ tự `next_open` bên dưới vẫn
+Chế độ tùy chọn [khớp theo phiên HNX](hnx-session-matching.md) bổ sung LO liên tục,
+ATO mở và ATC đóng, tái sử dụng cùng cách tính tiền/phí/ký quỹ. Thứ tự `next_open` bên dưới vẫn
 áp dụng cho mẫu CANSLIM hiện tại; không tự chuyển giờ thoát của mẫu sang ATC.
 
 Luồng JSON hiện tại dùng `InlineExecution` → `ContractExecution` →
 `ContractPortfolio`. Long/short, đóng từng phần, stop/target/trailing, sizing
 tại Open, phí/thuế và ký quỹ đã được triển khai.
+
+Với `sizing.pyramiding: true`, `InlineMultiExecution` dùng `ContractBook` cho
+tiền chung và bộ thực thi riêng mỗi `position_id`. Giá vốn và phân bổ phí mở
+thuộc từng lần mở; đóng `remaining` chỉ giảm phần đang xét. Cách tính phí và
+lãi/lỗ từng phần tái sử dụng `ContractPortfolio`, rồi cộng về tài khoản chung.
+Hạn mức hợp đồng tính cả đang giữ và mở đang chờ; ký quỹ tổng được kiểm tra
+lại khi thực khớp. LO chốt lượng tại giá giới hạn; ATO dùng Close liên tục đã
+hoàn tất trước 08:45. Chế độ này chỉ nhận LO/ATO mở với model HNX; thứ tự
+Open/Close ở [tài liệu phiên](hnx-session-matching.md#1-bật-chế-độ).
 
 Các giá trị 6/12 điểm, tối đa 5 hợp đồng, ký quỹ 17% và dự phòng 1,10 thuộc
 [mẫu CANSLIM v1](../strategies/canslim-v1-rules.md). API lấy giá trị thực tế

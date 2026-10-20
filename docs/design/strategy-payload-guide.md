@@ -432,9 +432,9 @@ Mô tả: cách khớp lệnh mở và trượt giá.
 
 | Trường execution | Yêu cầu trong mẫu |
 | ------------------ | -------------------- |
-| `entry_fill_policy`  | Bắt buộc           |
+| `entry_fill_policy`  | Tương thích JSON cũ; cấu hình mới dùng `strategy.entry.order`/`actions` |
 | `slippage_rate`  | Bắt buộc           |
-| `matching_model` | Không bắt buộc; dùng `hnx_sessions_v1` cho ATO/LO/ATC |
+| `matching_model` | `next_open` (mặc định khi bỏ trống) hoặc `hnx_sessions_v1` cho ATO/LO/ATC |
 | `auction_match_quantity` | Không bắt buộc; số nguyên không âm, giới hạn cố định lượng khớp ATO/ATC |
 
 Chưa có keyword để tự chọn mọi loại lệnh/thời điểm khớp. Định nghĩa hiện tại
@@ -447,12 +447,75 @@ phí/ký quỹ và lịch trong [tài liệu thực thi v1](canslim-v1-execution
 {"execution": {"entry_fill_policy": "next_open", "slippage_rate": "0"}}
 ```
 
-ATO dùng `entry_fill_policy: "ato"`; điều kiện vào được xét lúc 08:45 từ dữ liệu
+Trong JSON cũ, ATO dùng `entry_fill_policy: "ato"`; điều kiện vào được xét lúc 08:45 từ dữ liệu
 đã hoàn tất, lượng đặt chốt theo Close liên tục gần nhất và khớp tại Open 09:00.
 ATC dùng `strategy.exit.bar_close.fill_policy: "atc"` và khớp tại Close bản ghi
 14:45. Bỏ `auction_match_quantity` để giả định khớp đủ; đặt `2` để kiểm tra tối đa
 2 hợp đồng được khớp trong mỗi đợt. Đây là giới hạn mô phỏng, không phải thanh
 khoản suy ra từ volume. Xem [khớp theo phiên HNX](hnx-session-matching.md).
+
+### 9.1. Chọn lệnh trong chiến lược
+
+Hai payload đầy đủ để nạp lên web hoặc gửi API:
+[LO tự lấy dữ liệu](../examples/orders/lo-auto.json) và
+[ATO/ATC giới hạn lượng khớp](../examples/orders/ato-atc-partial-auto.json).
+Các mẫu giữ điều kiện và tham số của ví dụ tương ứng trước đây, chỉ chuyển
+nơi khai báo lệnh. Mẫu ATO/ATC dùng thời hạn cố định của phiên đấu giá.
+Đây là cấu hình minh họa; kiểm tra schema không thay nghiệm thu dữ liệu thật.
+
+Các đoạn dưới đây thay phần tương ứng trong payload, không phải yêu cầu API
+đầy đủ. Giữ nguyên điều kiện, ngưỡng, dữ liệu và cách tính tiền khi chuyển đổi.
+
+Với normalized hoặc contract dùng `next_open`, thay
+`execution.entry_fill_policy: "next_open"` bằng
+`strategy.entry.order: {"type":"SIMULATED"}`. Với nhóm đóng, thay
+`bar_close.fill_policy: "next_open"` bằng `bar_close.order` cùng giá trị.
+`execution.matching_model: "next_open"` chỉ chọn cách khớp; `SIMULATED`
+giữ yêu cầu mô phỏng cũ, chưa phải loại lệnh Market của sàn.
+
+Ví dụ LO: chọn `execution.matching_model: "hnx_sessions_v1"`, bỏ
+`entry_fill_policy: "limit"` và chuyển `entry.limit_price` vào `order`:
+
+```json
+{"order":{"type":"LO","limit_price":{"ref":"trade_data.close"},"pending":{"max_execution_bars":2,"cross_lunch":false,"cross_cutoff":false,"cross_session":false}}}
+```
+
+Ví dụ ATO mở / ATC đóng riêng, cùng model HNX: nhóm `entry` dùng
+`"order":{"type":"ATO"}`; nhóm `exit.bar_close` dùng cấu hình dưới đây,
+giữ các điều kiện và thứ tự ưu tiên đã được chọn:
+
+```json
+{"order":{"type":"ATC"},"quantity":"remaining"}
+```
+
+Không gắn `limit_price` hoặc `pending` vào ATO/ATC. Nếu JSON cũ dùng
+HNX cùng `next_open`, vẫn giữ model HNX và chuyển riêng loại lệnh sang
+SIMULATED; kiểm tra phiên và lệnh ATC tiếp tục áp dụng.
+
+Để nhánh A/B chọn lệnh riêng, thêm vào nhóm `entry`:
+
+```json
+{
+  "actions": {
+    "A": {"side":"LONG","order":{"type":"LO","limit_price":{"ref":"trade_data.close"}}},
+    "B": {"side":"LONG","order":{"type":"ATO"}}
+  },
+  "any": ["A","B"],
+  "priority": ["A","B"]
+}
+```
+
+`conditions` phải có đúng nhãn A/B. Mỗi nhánh dùng điều kiện `all`/`any`
+hiện có; không cần thêm `if` để chọn loại lệnh theo nhánh. ATO chỉ được xét
+lúc 08:45, LO trong phiên liên tục. Chưa có Market/MTL/MOK/MAK.
+
+Nếu muốn đặt nhiều nhánh cùng đúng, đặt `sizing.pyramiding: true`, dùng
+contract/HNX và chỉ LO/ATO cho lệnh mở; bỏ `on_conflict` và các cờ
+`require_flat: true`/`require_no_pending: true`. Hạn mức tính cả lượng đang
+giữ và lượng mở đang chờ; nhánh sau được giảm lượng theo phần còn đủ.
+Chỉ bổ sung cùng hướng. Mỗi lần mở giữ giá vốn, stop/TP và thời gian riêng;
+lệnh đóng `remaining` áp dụng cho phần vị thế đang xét. Xem hợp đồng đầy đủ
+tại [đặc tả API, mục 3.4](backtest-api-specification.md#34-execution).
 
 ## 10. Kiểm tra trước khi gửi
 

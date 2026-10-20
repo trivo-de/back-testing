@@ -2,10 +2,9 @@
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Literal
 from .market import BarTime
+from .orders import OrderRequest, OrderResult, Side
 
-Side = Literal["BUY", "SELL", "LONG", "SHORT", "CLOSE"]
 StrategyDetails = tuple[tuple[str, Decimal], ...]
 
 
@@ -33,8 +32,8 @@ class FixedSignal:
     quantity: int | None = None
     reason: str = "FIXED_TEST_SIGNAL"
     details: StrategyDetails = ()
-    order_type: Literal['NEXT_OPEN', 'LO', 'ATO', 'ATC'] = 'NEXT_OPEN'
-    limit_price: Decimal | None = None
+    order: OrderRequest = OrderRequest()
+    position_id: str | None = None
 
     def __post_init__(self) -> None:
         validate_details(self.details)
@@ -47,6 +46,7 @@ class SignalRecord:
     side: Side
     reason: str
     details: StrategyDetails = ()
+    position_id: str | None = None
 
 @dataclass(frozen=True)
 class Fill:
@@ -58,24 +58,6 @@ class Fill:
     price: Decimal
     quantity: int
     fee: Decimal
-
-@dataclass(frozen=True)
-class OrderResult:
-    """Execution outcome for one signal, including rejected or pending states."""
-
-    signal_date: BarTime
-    side: Side
-    status: Literal["FILLED", "REJECTED", "PENDING", "CANCELED", "EXPIRED"]
-    reason: str | None = None
-    order_type: str | None = None
-    quantity: int | None = None
-    limit_price: Decimal | None = None
-    events: tuple[dict, ...] = ()
-    fill_index: int | None = None
-    fill_indices: tuple[int, ...] = ()
-    filled_quantity: int = 0
-    expired_quantity: int = 0
-    remaining_quantity: int | None = None
 
 @dataclass(frozen=True)
 class Trade:

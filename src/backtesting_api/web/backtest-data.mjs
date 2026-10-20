@@ -8,7 +8,8 @@ const day = value => {
 };
 
 export function relatedRows(run, fillId) {
-    const all = {fills: run.fills, trades: run.trades, position: run.open_position ? [run.open_position] : [],
+    const positions = run.open_positions ?? (run.open_position ? [run.open_position] : []);
+    const all = {fills: run.fills, trades: run.trades, position: positions,
         signals: run.signals, orders: run.orders, equity: run.equity_history, selected: null};
     const selected = run.fills.find(fill => fill.fill_id === fillId);
     if (!selected) return all;
@@ -18,7 +19,7 @@ export function relatedRows(run, fillId) {
     return {
         fills: run.fills.filter(fill => sameDay(fill.fill_time)),
         trades: run.trades.filter(trade => trade.entry_fill_id === fillId || trade.exit_fill_id === fillId),
-        position: run.open_position?.entry_fill_id === fillId ? [run.open_position] : [],
+        position: positions.filter(position => position.entry_fill_id === fillId),
         signals: run.signals.filter(signal => signal.signal_id === order?.signal_id),
         orders: order ? [order] : [],
         equity: exactEquity.length ? exactEquity : run.equity_history.filter(point => sameDay(point.trading_date)),

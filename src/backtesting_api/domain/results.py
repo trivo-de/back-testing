@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
 from .portfolio import Portfolio, PortfolioSnapshot
-from .contract_accounting import ContractPortfolio, ContractSnapshot
+from .contract_accounting import ContractPortfolio, ContractBook, ContractSnapshot
 from .trading import Fill, OrderResult, SignalRecord, StrategyDetails, Trade, validate_details
 from .market import BarTime
 
@@ -28,7 +28,7 @@ class Summary:
 class BacktestResult:
     """Complete in-memory audit trail and final portfolio state for one run."""
 
-    portfolio: Portfolio | ContractPortfolio
+    portfolio: Portfolio | ContractPortfolio | ContractBook
     signals: tuple[SignalRecord, ...]
     orders: tuple[OrderResult, ...]
     fills: tuple[Fill, ...]
@@ -37,6 +37,9 @@ class BacktestResult:
     summary: Summary
     evaluations: tuple[dict, ...] = ()
     position_details: StrategyDetails = ()
+    lot_details: tuple[tuple[str, StrategyDetails], ...] = ()
 
     def __post_init__(self) -> None:
         validate_details(self.position_details)
+        for _, details in self.lot_details:
+            validate_details(details)

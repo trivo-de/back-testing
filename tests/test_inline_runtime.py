@@ -146,12 +146,15 @@ class InlineRuntimeTest(unittest.TestCase):
         result = run_inline_strategy(resolve_inline(conflict), conflict)
         self.assertEqual(result.fills, ())
         self.assertEqual(result.evaluations[0]['reason'], 'SIGNAL_CONFLICT')
-        execution = InlineExecution('100000000', p)
         stamp = datetime(2026, 3, 25, 9, 5, tzinfo=ZONE)
-        execution.before_open(stamp)
-        fill, _ = execution.execute(FixedSignal('LONG'), stamp, stamp, D(1000))
-        self.assertEqual(fill.quantity, 1)
-        self.assertEqual(fill.price, 1000)
+        for risk_fraction, expected_quantity in (('0.01', 1), ('0.02', 3)):
+            with self.subTest(risk_fraction=risk_fraction):
+                p['strategy']['sizing']['risk_fraction'] = risk_fraction
+                execution = InlineExecution('100000000', p)
+                execution.before_open(stamp)
+                fill, _ = execution.execute(FixedSignal('LONG'), stamp, stamp, D(1000))
+                self.assertEqual(fill.quantity, expected_quantity)
+                self.assertEqual(fill.price, 1000)
 
     def test_real_runner_api_and_reload(self):
         with tempfile.TemporaryDirectory() as directory:

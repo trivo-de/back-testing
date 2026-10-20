@@ -1,5 +1,16 @@
 // Presentation labels only; form values and persisted JSON stay untouched.
 const labels = [
+    ['Mô hình khớp lệnh', 'Mô hình khớp lệnh', 'Matching model'],
+    ['Loại lệnh', 'Loại lệnh', 'Order type'],
+    ['Biểu thức giá giới hạn', 'Biểu thức giá giới hạn', 'Limit price expression'],
+    ['Số nến chờ khớp tối đa', 'Số nến chờ khớp tối đa', 'Maximum waiting bars'],
+    ['Theo mô phỏng đã chọn', 'Theo mô phỏng đã chọn', 'Selected simulation'],
+    ['ATC lúc 14:45', 'ATC lúc 14:45', 'ATC at 14:45'],
+    ['Đã cập nhật lệnh trong JSON chiến lược.', 'Đã cập nhật lệnh trong JSON chiến lược.', 'Order updated in strategy JSON.'],
+    ['LO cần biểu thức giá; ATO/ATC không nhận giá giới hạn hoặc số nến chờ. Đổi loại lệnh không tự xóa tham số.', 'LO cần biểu thức giá; ATO/ATC không nhận giá giới hạn hoặc số nến chờ. Đổi loại lệnh không tự xóa tham số.', 'LO requires a price expression; ATO/ATC do not accept a limit price or waiting bars. Changing type preserves parameters.'],
+    ['LO/ATO/ATC cần mô hình khớp theo phiên HNX.', 'LO/ATO/ATC cần mô hình khớp theo phiên HNX.', 'LO/ATO/ATC require the HNX session matching model.'],
+    ['LO cần biểu thức giá; loại lệnh khác không nhận giá giới hạn.', 'LO cần biểu thức giá; loại lệnh khác không nhận giá giới hạn.', 'LO requires a price expression; other order types do not accept a limit price.'],
+    ['ATO/ATC không nhận số nến chờ; hãy xóa tham số này.', 'ATO/ATC không nhận số nến chờ; hãy xóa tham số này.', 'ATO/ATC do not accept waiting bars; remove this parameter.'],
     ['Ngôn ngữ', 'Ngôn ngữ', 'Language'],
     ['☰ Mục lục', '☰ Mục lục', '☰ Contents'],
     ['Mục lục trang', 'Mục lục trang', 'Page contents'],
@@ -128,6 +139,7 @@ export function translate(text, language = 'vi') {
     const metric = key.match(/^([a-z_]+): (.*)$/s);
     if (metric && fields[metric[1]]) return `${translate(metric[1], language)}: ${metric[2]}`;
     const patterns = [
+        [/^(Entry|Exit): (.*)$/s, m => language === 'en' ? key : `${m[1] === 'Entry' ? 'Mở lệnh' : 'Đóng lệnh'}: ${m[2]}`],
         [/^Không tải được chart: (.*)$/s, m => language === 'en' ? `Unable to load chart: ${m[1]}` : `Không tải được biểu đồ: ${m[1]}`],
         [/^Không tải được lịch sử: (.*)$/s, m => language === 'en' ? `Unable to load history: ${m[1]}` : key],
         [/^Đang hiển thị (\d+) kết quả\.$/, m => language === 'en' ? `Showing ${m[1]} results.` : key],

@@ -6,7 +6,10 @@ from itertools import groupby
 from .engine import DecisionContext
 from .execution import InvalidExecution
 from .results import BacktestResult, EquityPoint, Summary
-from .trading import OrderResult, SignalRecord
+from .trading import SignalRecord
+from .orders import OrderResult
+from .multi_execution import MultiContractExecution
+from .matching import match_continuous, match_auction as auction_match
 
 
 def phase_at(stamp):
@@ -33,7 +36,8 @@ def run_session_engine(bars, signal_provider, executor, *, support_bars=(), reco
                        trade_start=None, auction_events=(), on_execution=None,
                        max_execution_bars=1, entry_cutoff=None, on_open=None,
                        auction_entry=False, auction_match_quantity=None, require_end_flat=False):
-    """One position and one pending intent, with stable signal/order/fill links."""
+    """Match pending intents in submission order; preserve per-position links."""
+    multi = isinstance(executor, MultiContractExecution)
     all_bars = tuple(bars)
     auction_bars = {(bar.trading_date.date(), bar.trading_date.time()): bar for bar in all_bars
                     if bar.trading_date.time() in (time(9), time(14, 45))}
@@ -46,7 +50,7 @@ def run_session_engine(bars, signal_provider, executor, *, support_bars=(), reco
     auctions = {a.match_time.date(): a for a in auction_events}
     initial_cash = executor.portfolio.cash
     signals, orders, fills, trades, equity, completed, support = [], [], [], [], [], [], []
-    pending = None
+    pending = {}
     support_index = 0
 
     def finish(index, signal, status, stamp, reason=None, fill=None, trade=None):
@@ -83,22 +87,24 @@ def run_session_engine(bars, signal_provider, executor, *, support_bars=(), reco
 
     def submit(signal, stamp):
         index = len(orders)
-        signals.append(SignalRecord(stamp, signal.side, signal.reason, signal.details))
-        orders.append(OrderResult(stamp, signal.side, 'PENDING', order_type=signal.order_type,
-                                  quantity=signal.quantity, limit_price=signal.limit_price,
+        signals.append(SignalRecord(stamp, signal.side, signal.reason, signal.details, signal.position_id))
+        orders.append(OrderResult(stamp, signal.side, 'PENDING', order_type=signal.order.result_type,
+                                  quantity=signal.quantity, limit_price=signal.order.limit_price, position_id=signal.position_id,
                                   events=({'time': stamp, 'status': 'submitted', 'reason': None,
                                            'phase': phase_at(stamp)},)))
         try:
+            signal.order.validate()
             executor.validate(signal)
-            if signal.order_type == 'ATO' and (signal.side not in ('LONG', 'SHORT') or phase_at(stamp) != 'ATO'):
+            if signal.order.result_type == 'ATO' and (signal.side not in ('LONG', 'SHORT') or phase_at(stamp) != 'ATO'):
                 raise ValueError('ATO_ENTRY_REQUIRES_PREOPEN_SUBMISSION')
-            if signal.order_type == 'ATC' and (signal.side != 'CLOSE' or phase_at(stamp) != 'ATC'):
+            if signal.order.result_type == 'ATC' and (signal.side != 'CLOSE' or phase_at(stamp) != 'ATC'):
                 raise ValueError('ATC_CLOSE_REQUIRES_1430_SUBMISSION')
-            lunch_exit = signal.order_type == 'NEXT_OPEN' and signal.side == 'CLOSE' and stamp.time() == time(11, 30)
-            if signal.order_type not in ('ATO', 'ATC') and not phase_at(stamp).startswith('CONTINUOUS') and not lunch_exit:
+            lunch_exit = signal.order.result_type == 'NEXT_OPEN' and signal.side == 'CLOSE' and stamp.time() == time(11, 30)
+            if signal.order.result_type not in ('ATO', 'ATC') and not phase_at(stamp).startswith('CONTINUOUS') and not lunch_exit:
                 raise ValueError('ORDER_OUTSIDE_CONTINUOUS_SESSION')
-            reference_price = completed[-1].close if signal.order_type == 'ATO' and completed else None
-            signal = executor.prepare_order(signal, reference_price)
+            reference_price = completed[-1].close if signal.order.result_type == 'ATO' and completed else None
+            signal = (executor.prepare_order(signal, reference_price, pending=tuple(p[1] for p in pending.values()))
+                      if multi else executor.prepare_order(signal, reference_price))
         except ValueError as error:
             finish(index, signal, 'REJECTED', stamp, str(error))
             return None
@@ -110,73 +116,119 @@ def run_session_engine(bars, signal_provider, executor, *, support_bars=(), reco
 
     def match_auction(index, signal, stamp, match_time, price, bar_time):
         # shortcut: giới hạn cố định cho từng lệnh; nâng cấp khi hợp đồng dữ liệu thanh khoản được duyệt.
-        matched = signal.quantity if auction_match_quantity is None else min(signal.quantity, auction_match_quantity)
-        if matched == 0:
+        match = auction_match(signal.order, price=price, time=match_time, bar_time=bar_time,
+                              quantity=signal.quantity, quantity_limit=auction_match_quantity)
+        if match is None:
             finish(index, signal, 'EXPIRED', match_time, 'AUCTION_NO_MATCH')
             return False
         try:
-            fill, trade = executor.execute(replace(signal, quantity=matched), stamp, match_time, price)
+            fill, trade = executor.execute(replace(signal, quantity=match.quantity), stamp, match.time, match.price)
         except InvalidExecution:
             raise
         except ValueError as error:
             finish(index, signal, 'REJECTED', match_time, str(error))
             return False
-        fill = replace(fill, bar_time=bar_time)
-        partial = matched < signal.quantity
+        fill = replace(fill, bar_time=match.bar_time)
+        partial = match.quantity < signal.quantity
         finish(index, signal, 'EXPIRED' if partial else 'FILLED', match_time,
                'AUCTION_REMAINDER_EXPIRED' if partial else None, fill, trade)
         return True
 
+    def has_position():
+        return bool(executor.portfolio.quantity if multi else executor.portfolio.position)
+
+    def pending_at_bar(bar):
+        waiting = tuple(pending.values())
+        if not multi:
+            return [(bar.trading_date, item) for item in waiting]
+        timed = []
+        for item in waiting:
+            signal = item[1]
+            matched_at = bar.trading_date if signal.order.type == 'ATO' else bar.closed_at
+            if signal.order.type not in ('ATO', 'ATC'):
+                position = executor.portfolio.lot(signal.position_id)
+                buy = signal.side == 'LONG' or (signal.side == 'CLOSE' and position.sign == -1)
+                match = match_continuous(signal.order, bar, buy=buy, quantity=signal.quantity)
+                if match is not None:
+                    matched_at = match.time
+            timed.append((matched_at, item))
+        return sorted(timed, key=lambda row: row[0])
+
+    def protect(bar, intrabar_entries, phase=None):
+        protections = (executor.intrabar(bar, intrabar_entries=intrabar_entries, phase=phase) if multi
+                       else executor.intrabar(bar, entry_intrabar=bool(intrabar_entries)))
+        for signal, fill, trade in protections:
+            for index, waiting, stamp, _ in tuple(pending.values()):
+                if not multi or (waiting.side == 'CLOSE' and waiting.position_id == signal.position_id):
+                    finish(index, waiting, 'CANCELED', fill.fill_date, 'POSITION_CHANGED')
+                    pending.pop(index)
+            index = len(orders)
+            signals.append(SignalRecord(fill.signal_date, signal.side, signal.reason, signal.details, signal.position_id))
+            orders.append(OrderResult(fill.signal_date, signal.side, 'PENDING', order_type='PROTECTIVE',
+                                      quantity=fill.quantity, position_id=signal.position_id))
+            finish(index, signal, 'FILLED', fill.fill_date, signal.reason, fill, trade)
+
+    def decide(stamp, *, preopen=False):
+        proposed = signal_provider(DecisionContext(
+            tuple(completed), tuple(support), executor.portfolio, bool(pending),
+            stamp if preopen else None, tuple(p[1] for p in pending.values())))
+        if proposed is None or (trade_start is not None and stamp.date() < trade_start):
+            return
+        if not multi and pending:
+            return
+        candidates = proposed if multi and isinstance(proposed, (tuple, list)) else (proposed,)
+        for signal in candidates:
+            waiting = submit(signal, stamp)
+            if waiting is not None:
+                pending[waiting[0]] = waiting
+
     for day, day_rows in groupby(bars, key=lambda b: b.trading_date.date()):
         rows = tuple(day_rows)
-        if auction_entry and completed and executor.portfolio.position is None and pending is None and (
+        if auction_entry and completed and (multi or (not has_position() and not pending)) and (
                 trade_start is None or day >= trade_start):
             decision_time = datetime.combine(day, time(8, 45), rows[0].trading_date.tzinfo)
             while support_index < len(support_bars) and support_bars[support_index].available_at <= decision_time:
                 support.append(support_bars[support_index])
                 support_index += 1
             if on_open is not None: on_open(decision_time)
-            signal = signal_provider(DecisionContext(tuple(completed), tuple(support), executor.portfolio,
-                                                     pending is not None, decision_time))
-            if signal is not None:
-                pending = submit(signal, decision_time)
+            decide(decision_time, preopen=True)
         for bar in rows:
             if on_open is not None: on_open(bar.trading_date)
-            intrabar_entry = False
-            if pending:
-                index, signal, stamp, age = pending
-                lunch_exit = signal.order_type == 'NEXT_OPEN' and signal.side == 'CLOSE'
+            intrabar_entries = set()
+            open_protected = False
+            for matched_at, (index, signal, stamp, age) in pending_at_bar(bar):
+                if multi and not open_protected and matched_at > bar.trading_date:
+                    protect(bar, intrabar_entries, 'open')
+                    open_protected = True
+                if index not in pending:
+                    continue
+                lunch_exit = signal.order.result_type == 'NEXT_OPEN' and signal.side == 'CLOSE'
                 expired = (bar.trading_date.date() != stamp.date() or (not lunch_exit and (
                            stamp.time() == time(11, 30)
                            or (stamp.time() < time(11, 30) and bar.trading_date.time() >= time(13)))))
-                cutoff = (signal.order_type not in ('ATO', 'ATC') and signal.side != 'CLOSE' and entry_cutoff
+                cutoff = (signal.order.result_type not in ('ATO', 'ATC') and signal.side != 'CLOSE' and entry_cutoff
                           and bar.trading_date.strftime('%H:%M') > entry_cutoff)
                 if expired or cutoff:
                     finish(index, signal, 'CANCELED', stamp if expired else bar.trading_date,
                            'SESSION_BOUNDARY' if expired else 'ENTRY_CUTOFF')
-                    pending = None
-                elif signal.order_type == 'ATO':
+                    pending.pop(index)
+                elif signal.order.result_type == 'ATO':
                     if bar.trading_date.date() != stamp.date() or bar.trading_date.time() != time(9):
                         raise InvalidExecution('MISSING_ATO_MATCH_BAR')
                     match_auction(index, signal, stamp, bar.trading_date, bar.open, bar.trading_date)
-                    pending = None
-                elif signal.order_type != 'ATC':
+                    pending.pop(index)
+                elif signal.order.result_type != 'ATC':
                     expected = completed[-1].closed_at
                     if expected.time() == time(11, 30): expected = expected.replace(hour=13, minute=0)
                     if bar.trading_date != expected:
                         raise InvalidExecution('MISSING_PENDING_EXECUTION_BAR')
-                    price, fill_time = None, bar.trading_date
-                    if signal.order_type == 'NEXT_OPEN':
-                        price = bar.open
-                    else:
-                        buy = signal.side == 'LONG' or (signal.side == 'CLOSE' and executor.portfolio.position.sign == -1)
-                        if (bar.open <= signal.limit_price if buy else bar.open >= signal.limit_price):
-                            price = bar.open
-                        elif (bar.low <= signal.limit_price if buy else bar.high >= signal.limit_price):
-                            price, fill_time = signal.limit_price, bar.closed_at
-                    if price is not None:
+                    position = executor.portfolio.lot(signal.position_id) if multi else executor.portfolio.position
+                    buy = signal.side == 'LONG' or (signal.side == 'CLOSE' and position.sign == -1)
+                    match = match_continuous(signal.order, bar, buy=buy, quantity=signal.quantity)
+                    if match is not None:
+                        fill_time = match.time
                         try:
-                            fill, trade = executor.execute(signal, stamp, fill_time, price)
+                            fill, trade = executor.execute(signal, stamp, fill_time, match.price)
                         except InvalidExecution:
                             raise
                         except ValueError as error:
@@ -184,25 +236,19 @@ def run_session_engine(bars, signal_provider, executor, *, support_bars=(), reco
                         else:
                             fill = replace(fill, bar_time=bar.trading_date)
                             finish(index, signal, 'FILLED', fill_time, fill=fill, trade=trade)
-                            intrabar_entry = signal.side != 'CLOSE' and fill_time == bar.closed_at
-                        pending = None
+                            if signal.side != 'CLOSE' and fill_time == bar.closed_at:
+                                intrabar_entries.add(signal.position_id)
+                        pending.pop(index)
                     else:
                         age += 1
-                        if age >= max_execution_bars:
+                        if age >= (signal.order.max_execution_bars or max_execution_bars):
                             finish(index, signal, 'EXPIRED', bar.closed_at, 'MAX_EXECUTION_BARS')
-                            pending = None
+                            pending.pop(index)
                         else:
-                            pending = (index, signal, stamp, age)
-            for signal, fill, trade in executor.intrabar(bar, entry_intrabar=intrabar_entry):
-                if pending:
-                    index, waiting, stamp, _ = pending
-                    finish(index, waiting, 'CANCELED', fill.fill_date, 'POSITION_CHANGED')
-                    pending = None
-                index = len(orders)
-                signals.append(SignalRecord(fill.signal_date, signal.side, signal.reason, signal.details))
-                orders.append(OrderResult(fill.signal_date, signal.side, 'PENDING', order_type='PROTECTIVE',
-                                          quantity=fill.quantity))
-                finish(index, signal, 'FILLED', fill.fill_date, signal.reason, fill, trade)
+                            pending[index] = (index, signal, stamp, age)
+            if multi and not open_protected:
+                protect(bar, intrabar_entries, 'open')
+            protect(bar, intrabar_entries, 'close' if multi else None)
             if record_start is None or day >= record_start:
                 equity.append(EquityPoint(bar.closed_at, executor.portfolio.mark(bar.close)))
             completed.append(bar)
@@ -211,16 +257,16 @@ def run_session_engine(bars, signal_provider, executor, *, support_bars=(), reco
                 support_index += 1
             # The cancellation is a predeclared client policy at the session boundary.
             if pending and bar.closed_at.time() in (time(11, 30), time(14, 30)):
-                index, signal, _, _ = pending
-                finish(index, signal, 'CANCELED', bar.closed_at, 'BEFORE_ATC' if bar.closed_at.time() == time(14, 30) else 'LUNCH')
-                pending = None
-            signal = signal_provider(DecisionContext(tuple(completed), tuple(support), executor.portfolio, pending is not None))
-            if signal and (trade_start is None or day >= trade_start) and pending is None:
-                pending = submit(signal, bar.closed_at)
+                for index, signal, _, _ in tuple(pending.values()):
+                    finish(index, signal, 'CANCELED', bar.closed_at, 'BEFORE_ATC' if bar.closed_at.time() == time(14, 30) else 'LUNCH')
+                pending.clear()
+            decide(bar.closed_at)
 
         last = rows[-1]
-        if pending and pending[1].order_type == 'ATC':
-            index, signal, stamp, _ = pending
+        auction_mark = None
+        for index, signal, stamp, _ in tuple(pending.values()):
+            if signal.order.result_type != 'ATC':
+                continue
             if last.closed_at.time() != time(14, 30):
                 raise InvalidExecution('MISSING_ATC_DECISION_BAR')
             auction_bar = auction_bars.get((day, time(14, 45)))
@@ -241,18 +287,18 @@ def run_session_engine(bars, signal_provider, executor, *, support_bars=(), reco
             else:
                 matched = match_auction(index, signal, stamp, match_time, price, bar_time)
             if matched:
-                if record_start is None or day >= record_start:
-                    equity.append(EquityPoint(match_time, executor.portfolio.mark(price)))
-            pending = None
-        if require_end_flat and executor.portfolio.position and (
+                auction_mark = (match_time, price)
+            pending.pop(index)
+        if auction_mark and (record_start is None or day >= record_start):
+            equity.append(EquityPoint(auction_mark[0], executor.portfolio.mark(auction_mark[1])))
+        if require_end_flat and has_position() and (
                 last.closed_at.time() == time(14, 30) or day != bars[-1].trading_date.date()):
             raise InvalidExecution('END_OF_DAY_POSITION_REQUIRES_EXIT')
         if pending and (last.closed_at.time() in (time(11, 30), time(14, 30)) or day != bars[-1].trading_date.date()):
-            index, signal, _, _ = pending
-            finish(index, signal, 'CANCELED', last.closed_at, 'SESSION_BOUNDARY')
-            pending = None
-    if pending:
-        index, signal, _, _ = pending
+            for index, signal, _, _ in tuple(pending.values()):
+                finish(index, signal, 'CANCELED', last.closed_at, 'SESSION_BOUNDARY')
+            pending.clear()
+    for index, signal, _, _ in pending.values():
         finish(index, signal, 'EXPIRED', bars[-1].closed_at, 'END_OF_REPORT')
     if not equity: raise ValueError('Report range contains no bars')
     portfolio, final = executor.portfolio, equity[-1].snapshot

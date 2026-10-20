@@ -122,3 +122,64 @@ class ContractPortfolio:
         margin = money(price * multiplier * p.quantity * self.accounting.margin_rate) if p else Decimal('0')
         equity = self.cash + unrealized
         return ContractSnapshot(self.cash, p.quantity if p else 0, unrealized, equity, margin, equity - margin)
+
+
+@dataclass(frozen=True)
+class ContractBook:
+    """Shared cash with separately costed, same-direction position lots."""
+
+    cash: Decimal
+    accounting: ContractAccounting
+    positions: tuple[tuple[str, ContractPosition], ...] = ()
+    realized_pnl: Decimal = Decimal('0')
+    fees: Decimal = Decimal('0')
+
+    @classmethod
+    def open(cls, initial_cash, accounting):
+        portfolio = ContractPortfolio.open(initial_cash, accounting)
+        return cls(portfolio.cash, accounting)
+
+    def lot(self, position_id):
+        return next((p for key, p in self.positions if key == position_id), None)
+
+    def portfolio_for(self, position_id):
+        return ContractPortfolio(self.cash, self.accounting, self.lot(position_id),
+                                 self.realized_pnl, self.fees)
+
+    @property
+    def quantity(self):
+        return sum(p.quantity for _, p in self.positions)
+
+    def enter(self, position_id, direction, quantity, price, *,
+              margin_buffer=Decimal('1.1'), max_contracts=5):
+        if not isinstance(position_id, str) or not position_id or self.lot(position_id) is not None:
+            raise ValueError('INVALID_POSITION_ID')
+        if any(p.direction != direction for _, p in self.positions):
+            raise ValueError('OPPOSITE_POSITION_EXISTS')
+        updated, costs = self.portfolio_for(position_id).enter(
+            direction, quantity, price, margin_buffer=margin_buffer, max_contracts=max_contracts)
+        if self.quantity + quantity > max_contracts:
+            raise ValueError('MAX_CONTRACTS_EXCEEDED')
+        # Every held contract consumes margin, including lots opened earlier.
+        required = decimal(price) * (self.quantity + quantity) * self.accounting.contract_multiplier * self.accounting.margin_rate
+        if updated.cash < required * decimal(margin_buffer):
+            raise ValueError('INSUFFICIENT_MARGIN_AFTER_COSTS')
+        return replace(self, cash=updated.cash, fees=updated.fees,
+                       positions=self.positions + ((position_id, updated.position),)), costs
+
+    def exit(self, position_id, quantity, price):
+        updated, costs, allocated, net = self.portfolio_for(position_id).exit(quantity, price)
+        positions = tuple((key, updated.position if key == position_id else p)
+                          for key, p in self.positions if key != position_id or updated.position is not None)
+        return (replace(self, cash=updated.cash, positions=positions,
+                        fees=updated.fees, realized_pnl=updated.realized_pnl), costs, allocated, net)
+
+    def mark(self, price):
+        price = decimal(price)
+        if price <= 0:
+            raise ValueError('mark must be > 0')
+        unrealized = sum((self.portfolio_for(key).mark(price).unrealized_pnl
+                          for key, _ in self.positions), Decimal('0'))
+        margin = money(price * self.quantity * self.accounting.contract_multiplier * self.accounting.margin_rate)
+        equity = self.cash + unrealized
+        return ContractSnapshot(self.cash, self.quantity, unrealized, equity, margin, equity - margin)

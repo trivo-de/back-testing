@@ -16,7 +16,7 @@ Lịch sử công việc và kế hoạch triển khai cũ không thuộc bộ t
 - [Thiết kế hệ thống và đường đi lời gọi](design/system-design.md)
 - [Cấu trúc repository](design/project-structure.md)
 - [Thực thi và tính tiền hợp đồng](design/canslim-v1-execution-accounting.md)
-- [Khớp LO/ATC theo phiên HNX](design/hnx-session-matching.md)
+- [Khớp ATO/LO/ATC theo phiên HNX](design/hnx-session-matching.md)
 - [Tính tiền normalized](design/normalized-accounting.md)
 - [Đặc tả giao diện](design/web-ui-specification.md)
 - [Màu sắc và bố cục giao diện](design/DESIGN.md)
@@ -36,6 +36,7 @@ Lịch sử công việc và kế hoạch triển khai cũ không thuộc bộ t
 
 - [Kiểm thử hợp đồng và CANSLIM v1](testing/vn30f1m/canslim-v1-test-cases.md)
 - [Ví dụ số học normalized](testing/normalized-accounting-test-cases.md)
+- [Kiểm thử cấu hình lệnh và nhiều phần vị thế](testing/order-strategy-matching-separation.md)
 
 Tài liệu kiểm thử dẫn tới các test hiện có. Kiểm thử tổng hợp không thay
 nghiệm thu dữ liệu thật toàn kỳ hoặc kiểm tra trực tiếp trong trình duyệt.

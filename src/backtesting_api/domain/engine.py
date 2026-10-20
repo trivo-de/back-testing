@@ -6,10 +6,12 @@ from itertools import chain
 from typing import Callable, Mapping, Sequence
 from .market import Bar, BarTime, StrategyBar, trading_day
 from .portfolio import Portfolio, decimal
-from .contract_accounting import ContractPortfolio
+from .contract_accounting import ContractPortfolio, ContractBook
 from .execution import BuyContext, NormalizedExecution, ContractExecution, InvalidExecution
 from .results import BacktestResult, EquityPoint, Summary
 from .trading import Fill, FixedSignal, OrderResult, SignalRecord, Trade
+from .matching import match_next_open
+from .multi_execution import MultiContractExecution
 
 @dataclass(frozen=True)
 class DecisionContext:
@@ -17,12 +19,13 @@ class DecisionContext:
 
     bars: tuple[Bar | StrategyBar, ...]
     support_bars: tuple[Bar | StrategyBar, ...]
-    portfolio: Portfolio | ContractPortfolio
+    portfolio: Portfolio | ContractPortfolio | ContractBook
     has_pending: bool = False
     decision_time: BarTime | None = None
+    pending_signals: tuple[FixedSignal, ...] = ()
 
 
-SignalProvider = Callable[[DecisionContext], FixedSignal | None]
+SignalProvider = Callable[[DecisionContext], FixedSignal | tuple[FixedSignal, ...] | None]
 BuySizing = Callable[[BuyContext], int]
 ExecutionFeedback = Callable[[FixedSignal, OrderResult, Fill | None], None]
 
@@ -40,9 +43,10 @@ def run_engine(
     record_start: date | None = None,
     trade_start: date | None = None,
     flat_dates: frozenset[date] = frozenset(),
-    execution: Callable[[Decimal], NormalizedExecution | ContractExecution] | None = None,
+    execution: Callable[[Decimal], NormalizedExecution | ContractExecution | MultiContractExecution] | None = None,
     on_open: Callable[[BarTime], None] | None = None,
     session_matching: bool = False,
+    matching_model: str | None = None,
     auction_events: Sequence = (),
     max_execution_bars: int = 1,
     entry_cutoff: str | None = None,
@@ -85,7 +89,14 @@ def run_engine(
     executor = (execution(starting_cash) if execution is not None else
                 NormalizedExecution(starting_cash, fee, slippage, size_buy))
     portfolio = executor.portfolio
-    if session_matching:
+    model = matching_model or ('hnx_sessions_v1' if session_matching else 'next_open')
+    if model not in ('next_open', 'hnx_sessions_v1'):
+        raise ValueError('UNSUPPORTED_MATCHING_MODEL')
+    if session_matching and model != 'hnx_sessions_v1':
+        raise ValueError('CONFLICTING_MATCHING_MODEL')
+    if isinstance(executor, MultiContractExecution) and model != 'hnx_sessions_v1':
+        raise ValueError('MULTI_ENTRY_REQUIRES_SESSION_MATCHING')
+    if model == 'hnx_sessions_v1':
         if flat_dates or not callable(getattr(executor, 'prepare_order', None)):
             raise ValueError('SESSION_MATCHING_REQUIRES_SESSION_EXECUTION_WITHOUT_FLAT_DATES')
         if type(max_execution_bars) is not int or max_execution_bars < 1:
@@ -129,7 +140,8 @@ def run_engine(
             signal_date, signal = pending
             fill = None
             try:
-                fill, trade = executor.execute(signal, signal_date, bar.trading_date, raw_open)
+                match = match_next_open(signal.order, bar, signal.quantity)
+                fill, trade = executor.execute(signal, signal_date, match.time, decimal(match.price))
             except InvalidExecution:
                 raise
             except ValueError as error:

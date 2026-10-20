@@ -1,6 +1,6 @@
-import {backtestData, relatedRows} from './backtest-data.mjs?v=20260929';
+import {backtestData, relatedRows} from './backtest-data.mjs?v=20261020';
 import {clearCharts, renderCharts} from './backtest-chart.mjs?v=20260930';
-import {mountInputForm} from './backtest-input.mjs?v=20261013-1';
+import {mountInputForm} from './backtest-input.mjs?v=20261020';
 
 const $ = selector => document.querySelector(selector);
 const percent = new Intl.NumberFormat('vi-VN', {style: 'percent', maximumFractionDigits: 2});

@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID, uuid5
 from ..config import BACKTEST
-from ..domain.contract_accounting import ContractPortfolio
+from ..domain.contract_accounting import ContractPortfolio, ContractBook
 from ..domain.execution import ContractFill, ContractTrade
 from ..domain.portfolio import Portfolio
 
@@ -22,13 +22,19 @@ def exact_json(value):
 
 def contract_result_to_dict(run_id, data, result, *, input_hash, policy_hash, accounting):
     """Convert a contract typeresult to a dictionary."""
-    if not isinstance(result.portfolio, ContractPortfolio):
+    if not isinstance(result.portfolio, (ContractPortfolio, ContractBook)):
         raise ValueError('CONTRACT_RESULT_REQUIRED')
     if len(result.signals) != len(result.orders): raise ValueError('EVENT_COUNT_MISMATCH')
     signals, orders, fills, trades = [], [], [], []
     next_fill_index = trade_index = position_index = 0
     seen_fills = set()
     position = entry = None
+    multi = isinstance(result.portfolio, ContractBook)
+    positions, entries = {}, {}
+    close_indices = [i for i, fill in enumerate(result.fills) if fill.side == 'CLOSE']
+    if len(close_indices) != len(result.trades):
+        raise ValueError('EXIT_LEG_COUNT_MISMATCH')
+    trade_links = {fill_index: (i, result.trades[i]) for i, fill_index in enumerate(close_indices)}
     contracts = {bar.trading_date.date(): bar.contract_code for bar in data.bars}
     for sequence, (signal, order) in enumerate(zip(result.signals, result.orders), 1):
         if (signal.signal_date, signal.side) != (order.signal_date, order.side):
@@ -45,6 +51,14 @@ def contract_result_to_dict(run_id, data, result, *, input_hash, policy_hash, ac
                               remaining_quantity=order.remaining_quantity,
                               events=order.events, submitted_time=order.signal_date,
                               completed_time=order.events[-1]['time'] if order.events and order.status != 'PENDING' else None)
+        if multi:
+            if signal.position_id != order.position_id or not signal.position_id:
+                raise ValueError('SIGNAL_ORDER_POSITION_MISMATCH')
+            position = positions.get(signal.position_id)
+            entry = entries.get(signal.position_id)
+            public_id = uuid5(run_id, f'position:{signal.position_id}')
+            signals[-1]['position_id'] = public_id
+            orders[-1]['position_id'] = public_id
         if signal.side == 'CLOSE' and position is not None:
             orders[-1]['position_id'] = position['position_id']
         linked = order.fill_indices or ((order.fill_index,) if order.fill_index is not None else ())
@@ -59,15 +73,19 @@ def contract_result_to_dict(run_id, data, result, *, input_hash, policy_hash, ac
             fill = result.fills[actual_index]
             if not isinstance(fill, ContractFill) or (fill.signal_date, fill.side) != (signal.signal_date, signal.side):
                 raise ValueError('ORDER_FILL_MISMATCH')
+            if multi and fill.position_id != signal.position_id:
+                raise ValueError('ORDER_FILL_POSITION_MISMATCH')
             fill_id = uuid5(run_id, f'fill:{actual_index + 1}')
             contract = contracts.get(fill.fill_date.date())
             if fill.side in ('LONG', 'SHORT'):
                 if position is not None: raise ValueError('OVERLAPPING_POSITIONS')
                 position_index += 1
-                position = {'position_id': uuid5(run_id, f'position:{position_index}'), 'direction': fill.direction,
+                position = {'position_id': public_id if multi else uuid5(run_id, f'position:{position_index}'), 'direction': fill.direction,
                             'contract_code': contract, 'entry_fill_id': fill_id, 'entry_time': fill.fill_date,
                             'entry_price': fill.price, 'initial_quantity': fill.quantity, 'quantity': fill.quantity}
                 entry = fill
+                if multi:
+                    positions[signal.position_id], entries[signal.position_id] = position, fill
             elif position is None or contract != position['contract_code']:
                 raise ValueError('EXIT_POSITION_OR_CONTRACT_MISMATCH')
             orders[-1]['position_id'] = position['position_id']
@@ -94,28 +112,56 @@ def contract_result_to_dict(run_id, data, result, *, input_hash, policy_hash, ac
                         raise ValueError('AUCTION_FILL_SOURCE_MISSING')
             if fill.side == 'CLOSE':
                 if trade_index >= len(result.trades): raise ValueError('MISSING_EXIT_LEG')
-                trade = result.trades[trade_index]
+                linked_trade_index, trade = trade_links[actual_index]
                 trade_index += 1
+                if multi and trade.position_id != signal.position_id:
+                    raise ValueError('TRADE_POSITION_MISMATCH')
                 if (not isinstance(trade, ContractTrade) or trade.quantity != fill.quantity
                         or trade.exit_date != fill.fill_date or trade.entry_date != entry.fill_date
                         or trade.direction != position['direction']):
                     raise ValueError('EXIT_LEG_MISMATCH')
-                trades.append({'trade_id': uuid5(run_id, f'trade:{trade_index}'),
+                trades.append({'trade_id': uuid5(run_id, f'trade:{linked_trade_index + 1}'),
                                'position_id': position['position_id'], 'entry_fill_id': position['entry_fill_id'],
                                'exit_fill_id': fill_id, 'contract_code': contract, 'close_reason': signal.reason,
-                               **trade.__dict__})
+                               **{k: v for k, v in trade.__dict__.items() if k != 'position_id'}})
                 position['quantity'] -= fill.quantity
                 if position['quantity'] < 0: raise ValueError('NEGATIVE_OPEN_QUANTITY')
-                if position['quantity'] == 0: position = None
+                if position['quantity'] == 0:
+                    position = None
+                    if multi:
+                        positions.pop(signal.position_id)
     if len(seen_fills) != len(result.fills) or trade_index != len(result.trades):
         raise ValueError('UNMATCHED_RESULT_EVENTS')
-    ledger = result.portfolio.position
-    if (ledger is None) != (position is None) or (ledger and ledger.quantity != position['quantity']):
-        raise ValueError('POSITION_LEDGER_MISMATCH')
-    if position:
-        position.update(remaining_entry_cost=ledger.remaining_entry_cost,
-                        unrealized_pnl=result.equity_history[-1].snapshot.unrealized_pnl)
-        if result.position_details: position['strategy_details'] = dict(result.position_details)
+    if multi:
+        if set(positions) != {key for key, _ in result.portfolio.positions}:
+            raise ValueError('POSITION_LEDGER_MISMATCH')
+        stamp = result.equity_history[-1].trading_date
+        mark_price = next((a.price for a in data.auction_events if a.match_time == stamp and a.price is not None), None)
+        if mark_price is None:
+            mark_price = next((bar.close for bar in data.bars if bar.closed_at == stamp), None)
+        if mark_price is None:
+            mark_price = next((bar.close for bar in data.bars if bar.trading_date == stamp), None)
+        for key, ledger in result.portfolio.positions:
+            if positions[key]['quantity'] != ledger.quantity or mark_price is None:
+                raise ValueError('POSITION_LEDGER_MISMATCH')
+            positions[key].update(remaining_entry_cost=ledger.remaining_entry_cost,
+                                  unrealized_pnl=result.portfolio.portfolio_for(key).mark(mark_price).unrealized_pnl)
+            details = dict(result.lot_details).get(key)
+            if details:
+                positions[key]['strategy_details'] = dict(details)
+        position = None
+        fill_order = {uuid5(run_id, f'fill:{i + 1}'): i for i in range(len(result.fills))}
+        trade_order = {uuid5(run_id, f'trade:{i + 1}'): i for i in range(len(result.trades))}
+        fills.sort(key=lambda row: fill_order[row['fill_id']])
+        trades.sort(key=lambda row: trade_order[row['trade_id']])
+    else:
+        ledger = result.portfolio.position
+        if (ledger is None) != (position is None) or (ledger and ledger.quantity != position['quantity']):
+            raise ValueError('POSITION_LEDGER_MISMATCH')
+        if position:
+            position.update(remaining_entry_cost=ledger.remaining_entry_cost,
+                            unrealized_pnl=result.equity_history[-1].snapshot.unrealized_pnl)
+            if result.position_details: position['strategy_details'] = dict(result.position_details)
     history = [{'trading_date': point.trading_date, **point.snapshot.__dict__,
                 'margin_breach': point.snapshot.equity < point.snapshot.required_margin}
                for point in result.equity_history]
@@ -130,12 +176,17 @@ def contract_result_to_dict(run_id, data, result, *, input_hash, policy_hash, ac
                 'signals': signals, 'orders': orders, 'fills': fills, 'trades': trades,
                 'open_position': position, 'equity_history': history,
                 'summary': {**result.summary.__dict__, 'total_fees': result.portfolio.fees}}
+    if multi:
+        response['open_positions'] = list(positions.values())
     if result.evaluations:
-        response['evaluations'] = result.evaluations
-        missing = sum(row['status'] == 'UNEVALUABLE' for row in result.evaluations)
-        response['evaluation_status'] = {'status': 'UNEVALUABLE' if missing == len(result.evaluations)
+        response['evaluations'] = tuple({**row, 'position_id': uuid5(run_id, f"position:{row['position_id']}")
+                                        if row.get('position_id') else None} for row in result.evaluations) if multi else result.evaluations
+        times = {row['time'] for row in result.evaluations}
+        missing = len({row['time'] for row in result.evaluations if row['status'] == 'UNEVALUABLE'})
+        missing_evaluations = sum(row['status'] == 'UNEVALUABLE' for row in result.evaluations)
+        response['evaluation_status'] = {'status': 'UNEVALUABLE' if missing_evaluations == len(result.evaluations)
                                           else 'PARTIALLY_EVALUABLE' if missing else 'EVALUABLE',
-                                          'unevaluable_bars': missing, 'evaluated_bars': len(result.evaluations) - missing}
+                                          'unevaluable_bars': missing, 'evaluated_bars': len(times) - missing}
     return exact_json(response)
 
 

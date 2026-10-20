@@ -8,6 +8,12 @@ test('labels, metrics and live messages use either language while raw values sta
     assert.equal(translate('Tải JSON dữ liệu thị trường', 'en'), 'Upload market data JSON');
     assert.equal(translate('Lấy dữ liệu tự động (VN30F1M và VNINDEX, 5 phút)', 'en'), 'Fetch data automatically (VN30F1M and VNINDEX, 5 minutes)');
     assert.equal(translate('Chế độ khớp theo phiên', 'en'), 'Session matching model');
+    assert.equal(translate('Mô hình khớp lệnh', 'en'), 'Matching model');
+    assert.equal(translate('Loại lệnh', 'en'), 'Order type');
+    assert.equal(translate('Biểu thức giá giới hạn', 'en'), 'Limit price expression');
+    assert.equal(translate('Entry: A'), 'Mở lệnh: A');
+    assert.equal(translate('Exit: TIME'), 'Đóng lệnh: TIME');
+    assert.equal(translate('Entry: A', 'en'), 'Entry: A');
     assert.equal(translate('Giới hạn khớp mỗi đợt đấu giá', 'en'), 'Auction fill limit');
     assert.equal(translate('Theo phiên HNX: ATO, LO và ATC', 'en'), 'HNX sessions: ATO, LO and ATC');
     assert.equal(translate('ATO lúc 09:00', 'en'), 'ATO at 09:00');

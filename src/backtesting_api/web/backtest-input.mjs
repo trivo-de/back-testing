@@ -59,8 +59,7 @@ const general = [
     ['report.start_date', 'Ngày bắt đầu báo cáo', 'date'],
     ['report.end_date', 'Ngày kết thúc báo cáo', 'date'],
     ['strategy.warmup_bars', 'Số nến khởi tạo chỉ báo', 'integer'],
-    ['execution.matching_model', 'Chế độ khớp theo phiên', ['hnx_sessions_v1']],
-    ['execution.entry_fill_policy', 'Thời điểm khớp lệnh', ['next_open', 'limit', 'ato'], true],
+    ['execution.matching_model', 'Mô hình khớp lệnh', ['next_open', 'hnx_sessions_v1'], false, 'next_open'],
     ['execution.auction_match_quantity', 'Giới hạn khớp mỗi đợt đấu giá', 'nonnegative_integer'],
     ['execution.slippage_rate', 'Tỷ lệ trượt giá', 'decimal', true],
 ];
@@ -76,7 +75,7 @@ const sizingFields = {
     fixed_fractional: [['risk_fraction', 'Tỷ lệ vốn chịu rủi ro', 'decimal', true], ['stop_loss_fraction', 'Tỷ lệ dừng lỗ', 'decimal', true]],
     risk_and_margin: [['risk_fraction', 'Tỷ lệ vốn chịu rủi ro', 'decimal', true], ['stop_points', 'Khoảng dừng lỗ', 'decimal', true],
         ['margin_buffer', 'Hệ số dự phòng ký quỹ', 'decimal', true], ['max_contracts', 'Số hợp đồng tối đa', 'integer', true],
-        ['pyramiding', 'Thêm vị thế cùng hướng', ['false'], true]],
+        ['pyramiding', 'Thêm vị thế cùng hướng', ['false', 'true'], true]],
 };
 const indicatorTypes = ['SMA', 'EMA', 'BB', 'MACD', 'MFI', 'HIGHEST', 'LOWEST'];
 const choiceLabels = {
@@ -85,6 +84,7 @@ const choiceLabels = {
     fixed_fractional: 'Theo tỷ lệ vốn và dừng lỗ', risk_and_margin: 'Theo rủi ro và ký quỹ',
     next_open: 'Giá mở cửa nến kế tiếp', false: 'Không', true: 'Có', ato: 'ATO lúc 09:00',
     limit: 'Lệnh giới hạn (LO)', hnx_sessions_v1: 'Theo phiên HNX: ATO, LO và ATC',
+    SIMULATED: 'Theo mô phỏng đã chọn', LO: 'Lệnh giới hạn (LO)', ATO: 'ATO lúc 09:00', ATC: 'ATC lúc 14:45',
 };
 const get = (value, path) => path.split('.').reduce((parent, key) => parent?.[key], value);
 function put(value, path, item) {
@@ -92,6 +92,16 @@ function put(value, path, item) {
     let target = value;
     for (const key of keys) target = target[key] ??= {};
     if (item === undefined) delete target[last]; else target[last] = item;
+}
+
+function effectiveOrder(config, group, name, entry) {
+    const legacy = entry ? config.execution?.entry_fill_policy : group.fill_policy;
+    const order = clone(group.actions?.[name]?.order ?? group.order ?? {
+        type: ({next_open: 'SIMULATED', limit: 'LO', ato: 'ATO', atc: 'ATC'})[legacy] ?? 'SIMULATED',
+        ...(group.limit_price ? {limit_price: group.limit_price} : {}),
+    });
+    if (config.strategy?.entry?.pending) order.pending = clone(config.strategy.entry.pending);
+    return order;
 }
 
 export function mountInputForm(form, getJSON) {
@@ -103,7 +113,7 @@ export function mountInputForm(form, getJSON) {
         $('#input-market').disabled = autoFetch.checked;
     }
     autoFetch.onchange = syncDataMode;
-    let state = {config: {}, data: {}}, bindings = [], ruleBindings = [], indicatorRows = [];
+    let state = {config: {}, data: {}}, bindings = [], ruleBindings = [], indicatorRows = [], orderRefreshers = [];
     let operation = 0, pending = false;
     const notice = (text, error = false) => {$('#input-status').textContent = text; $('#input-status').className = `${error ? 'error' : 'muted'} input-wide`;};
     const node = (tag, text) => {const element = document.createElement(tag); if (text !== undefined) element.textContent = text; return element;};
@@ -154,6 +164,82 @@ export function mountInputForm(form, getJSON) {
         input.rows = 8; input.spellcheck = false; input.required = required; input.value = text;
         input.oninput = () => input.setCustomValidity(''); wrapper.append(input); container.append(wrapper);
         ruleBindings.push({path, input, label});
+        return input;
+    }
+    function orderEditor(container, input, entry) {
+        const body = node('div'); body.className = 'input-grid'; container.append(body);
+        let drafts = [];
+        function refresh(force = false) {
+            if (!force && drafts.some(input => input.validationMessage)) return;
+            drafts = [];
+            body.replaceChildren();
+            let root;
+            try {root = JSON.parse(input.value);} catch {return;}
+            const group = entry ? root : root?.bar_close;
+            if (!object(group)) return;
+            const source = clone(state.config);
+            try {source.strategy.entry = JSON.parse(ruleBindings.find(binding => binding.path === 'strategy.entry').input.value);} catch {}
+            const effective = name => effectiveOrder(source, group, name, entry);
+            const names = group.any ?? [];
+            function update(name, patch, refreshControls = true) {
+                // Migrate only when edited; untouched historical JSON round-trips exactly.
+                const config = read(false);
+                const groups = [[config.strategy.entry, true], [config.strategy.exit?.bar_close, false]];
+                for (const [value, isEntry] of groups) {
+                    if (!value) continue;
+                    value.actions = Object.fromEntries(value.any.map(key => [key, {
+                        ...value.actions?.[key], ...(isEntry ? {side: value.actions?.[key]?.side ?? key} : {}),
+                        order: effectiveOrder(config, value, key, isEntry),
+                    }]));
+                }
+                patch((entry ? config.strategy.entry : config.strategy.exit.bar_close).actions[name].order);
+                for (const [value] of groups) if (value) {
+                    delete value.limit_price; delete value.pending; delete value.fill_policy;
+                }
+                delete state.config.execution.entry_fill_policy;
+                for (const binding of ruleBindings.filter(binding => ['strategy.entry', 'strategy.exit'].includes(binding.path))) {
+                    binding.input.value = JSON.stringify(get(config, binding.path), null, 2);
+                    binding.input.setCustomValidity('');
+                }
+                if (refreshControls) orderRefreshers.forEach(refresh => refresh());
+            }
+            for (const name of names) {
+                const box = node('fieldset'); box.append(node('legend', `${entry ? 'Entry' : 'Exit'}: ${name}`));
+                const order = effective(name);
+                const model = bindings.find(binding => binding.path === 'execution.matching_model')?.input.value || 'next_open';
+                const choices = model === 'hnx_sessions_v1' ? ['SIMULATED', 'LO', entry ? 'ATO' : 'ATC'] : ['SIMULATED'];
+                const type = control(box, 'Loại lệnh', order.type, choices, true);
+                const price = control(box, 'Biểu thức giá giới hạn', order.limit_price == null ? '' : JSON.stringify(order.limit_price));
+                const age = control(box, 'Số nến chờ khớp tối đa', order.pending?.max_execution_bars, 'integer');
+                drafts.push(price.input, age.input);
+                const change = action => {try {action(); notice('Đã cập nhật lệnh trong JSON chiến lược.');} catch (error) {notice(error.message, true);}};
+                type.input.onchange = () => change(() => update(name, value => {value.type = type.input.value;}));
+                price.input.oninput = price.input.onchange = () => change(() => {
+                    price.input.setCustomValidity('');
+                    let value;
+                    try {value = price.input.value.trim() ? JSON.parse(price.input.value) : undefined;}
+                    catch {price.input.setCustomValidity('Biểu thức giá giới hạn: JSON không hợp lệ.'); throw Error(price.input.validationMessage);}
+                    update(name, order => {if (value === undefined) delete order.limit_price; else order.limit_price = value;}, false);
+                });
+                age.input.oninput = age.input.onchange = () => change(() => {
+                    age.input.setCustomValidity('');
+                    const value = readControl(age);
+                    update(name, order => {
+                        if (value === undefined) delete order.pending;
+                        else order.pending = {cross_lunch: false, cross_cutoff: false, cross_session: false,
+                            ...order.pending, max_execution_bars: value};
+                    }, false);
+                });
+                body.append(box);
+            }
+            if (names.length) {
+                const help = node('p', 'LO cần biểu thức giá; ATO/ATC không nhận giá giới hạn hoặc số nến chờ. Đổi loại lệnh không tự xóa tham số.');
+                help.className = 'input-wide muted'; body.append(help);
+            }
+        }
+        input.oninput = () => {input.setCustomValidity(''); refresh(true);};
+        refresh();
+        return refresh;
     }
     function group(selector, path, choices, specs) {
         const container = $(selector);
@@ -197,14 +283,21 @@ export function mountInputForm(form, getJSON) {
     function render() {
         autoFetch.checked = state.config.auto_fetch_data === true;
         syncDataMode();
-        bindings = []; ruleBindings = []; indicatorRows = [];
+        bindings = []; ruleBindings = []; indicatorRows = []; orderRefreshers = [];
         for (const selector of ['#general-fields', '#accounting-fields', '#sizing-fields', '#indicator-fields', '#rule-fields']) $(selector).replaceChildren();
         for (const spec of general) field($('#general-fields'), ...spec);
         group('#accounting-fields', 'accounting.model', ['normalized', 'contract'], accountingFields);
         group('#sizing-fields', 'strategy.sizing.type', ['fixed_fractional', 'risk_and_margin'], sizingFields);
         for (const [name, spec] of Object.entries(state.config.strategy?.indicators || {})) indicator(name, spec);
-        rules($('#rule-fields'), 'strategy.entry', 'Điều kiện vào lệnh (entry)', true);
-        rules($('#rule-fields'), 'strategy.exit', 'Điều kiện thoát lệnh (exit)', true);
+        const entryGroup = node('div'), exitGroup = node('div');
+        entryGroup.className = exitGroup.className = 'input-wide';
+        $('#rule-fields').append(entryGroup, exitGroup);
+        const entry = rules(entryGroup, 'strategy.entry', 'Điều kiện vào lệnh (entry)', true);
+        const refreshEntry = orderEditor(entryGroup, entry, true);
+        const exit = rules(exitGroup, 'strategy.exit', 'Điều kiện thoát lệnh (exit)', true);
+        const refreshExit = orderEditor(exitGroup, exit, false);
+        orderRefreshers = [refreshEntry, refreshExit];
+        bindings.find(binding => binding.path === 'execution.matching_model').input.onchange = () => {refreshEntry(); refreshExit();};
         rules($('#rule-fields'), 'strategy.daily_limits', 'Giới hạn trong ngày (daily_limits)');
         for (const key of ['trade_data', 'market_data']) {
             const container = $(`#${key}-fields`); container.replaceChildren();
@@ -267,6 +360,22 @@ export function mountInputForm(form, getJSON) {
             let value;
             try {value = JSON.parse(input.value);} catch {input.setCustomValidity(`${label}: JSON không hợp lệ.`); throw Error(input.validationMessage);}
             put(config, path, value);
+        }
+        if (check) {
+            for (const [group, entry] of [[config.strategy?.entry, true], [config.strategy?.exit?.bar_close, false]]) {
+                for (const name of group?.any ?? []) {
+                    const order = effectiveOrder(config, group, name, entry);
+                    if ((config.execution?.matching_model || 'next_open') === 'next_open' && order.type !== 'SIMULATED') {
+                        throw Error('LO/ATO/ATC cần mô hình khớp theo phiên HNX.');
+                    }
+                    if ((order.type === 'LO') !== (order.limit_price != null)) {
+                        throw Error('LO cần biểu thức giá; loại lệnh khác không nhận giá giới hạn.');
+                    }
+                    if (['ATO', 'ATC'].includes(order.type) && order.pending && !config.strategy.entry.pending) {
+                        throw Error('ATO/ATC không nhận số nến chờ; hãy xóa tham số này.');
+                    }
+                }
+            }
         }
         if (config.report && !Object.keys(config.report).length) delete config.report;
         if (config.report && (!config.report.start_date || !config.report.end_date)) throw Error('Kỳ báo cáo cần cả ngày bắt đầu và ngày kết thúc.');

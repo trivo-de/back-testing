@@ -11,6 +11,28 @@ hình thanh khoản và nghiệm thu dữ liệu thật chưa thực hiện.
 
 ## 1. Bật chế độ
 
+Cấu hình mới đặt lệnh trong `strategy.entry.order` hoặc
+`strategy.entry.actions.<nhãn>.order`, và tương tự dưới `exit.bar_close`.
+Ví dụ mở LO dùng `{"type":"LO","limit_price":{"ref":"trade_data.close"}}`,
+mở ATO dùng `{"type":"ATO"}`, đóng ATC dùng `{"type":"ATC"}`.
+`execution.matching_model` vẫn là `hnx_sessions_v1`. Các trường
+`entry_fill_policy`, `fill_policy`, `limit_price` ở cấp nhóm trong ví dụ cũ
+bên dưới tiếp tục được đọc qua lớp tương thích; khai báo cũ/mới mâu thuẫn bị
+từ chối. Xem [hướng dẫn chuyển đổi](strategy-payload-guide.md#91-chọn-lệnh-trong-chiến-lược).
+
+`sizing.pyramiding: true` cho phép nhiều nhánh LO/ATO theo `entry.priority`.
+Hạn mức gồm lượng đang giữ và mở đang chờ; mỗi lần mở có giá vốn và bảo vệ
+riêng. `remaining` đóng phần đang xét; bảo vệ chỉ hủy lệnh đóng chờ cùng
+`position_id`. Đường `next_open` và lệnh mở SIMULATED không bật chế độ này.
+
+Trong chế độ nhiều phần, thứ tự mỗi nến là: lệnh chờ khớp tại Open, bảo vệ
+tại Open, LO chạm giá được ghi tại Close, rồi bảo vệ trong nến tại Close.
+Cùng thời điểm dùng thứ tự gửi lệnh/thứ tự phần vị thế. Vì vậy TP đã đạt
+ngay tại Open không bị thay bằng stop do Low/High xuất hiện sau đó; trailing
+chỉ cập nhật sau Close. Lệnh đóng đã khớp tại Open có ưu tiên trước bảo vệ
+cùng Open. Đường một vị thế giữ thứ tự bảo vệ trước đây. Các giả định này
+được ghi trong metadata; OHLC không xác định thứ tự chạm giá thật trong nến.
+
 Giữ `accounting.model: "contract"`, `trade_data.resolution: "5"`,
 `trade_data.timezone: "Asia/Ho_Chi_Minh"`. Nhập dữ liệu thì dùng
 `auto_fetch_data: false`; khớp liên tục cũng hỗ trợ `auto_fetch_data: true`.

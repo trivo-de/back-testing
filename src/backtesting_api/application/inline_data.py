@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from ..domain.market import StrategyBar
 from ..domain.session_matching import AuctionEvent
 from ..infrastructure.market_snapshot import normalize_raw_source
+from .order_config import order_configuration
 
 
 @dataclass(frozen=True)
@@ -168,6 +169,7 @@ def resolve_inline(payload, policy=None, *, derive_contract_dates=False):
         'symbol': payload['trade_data'].get('symbol'), 'timezone': payload['trade_data']['timezone'],
         'price_unit': payload['trade_data'].get('price_unit'),
         'indicator_specs': payload['strategy'].get('indicators', {}),
+        'order_configuration': order_configuration(payload),
         'resolution': payload['trade_data']['resolution'],
         'contract_map': mapping, 'data_gaps': gaps,
         'warmup_bars': {'trade_data': sum(bar.trading_date.date() < start for bar in trade),
@@ -194,4 +196,10 @@ def resolve_inline(payload, policy=None, *, derive_contract_dates=False):
             ato_sizing='quantity frozen at 08:45 from the latest completed continuous Close; margin rechecked at 09:00 Open',
             auction_remainder='unmatched quantity expires at the auction match time',
             auction_availability='ATO Open is available at 09:00; ATC Close uses the 14:45 bar available_at')
+        if payload['strategy']['sizing'].get('pyramiding'):
+            metadata['matching_rules_version'] = 'hnx-sessions-v3-multi-lot'
+            metadata['assumptions'].update(
+                multi_position='independent entry lots; reduce-only close per position_id; held plus pending opens reserve max_contracts',
+                multi_bar_order='pending Open fills, Open protections, pending Close-time touches, Close-time protections; submission/lot order breaks ties',
+                multi_protection='Open targets precede later intrabar stops; trailing updates after Close; one-position legacy precedence unchanged')
     return InlineData(trade, market, start, end, metadata, tuple(auctions))

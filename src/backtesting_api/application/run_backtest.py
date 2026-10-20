@@ -10,6 +10,7 @@ from .inline_results import inline_result_to_dict
 from .ports import RunRepository
 from ..infrastructure.auto_fetch_data import AutoFetchError
 from .inline_strategy import check_runtime
+from .order_config import strategy_orders
 
 def _warmup_bars(strategy):
     periods = {}
@@ -70,7 +71,9 @@ class BacktestService:
                     date.fromisoformat(mapping_policy['rollover'][0]['expiry']).replace(day=1).isoformat())
             report = payload.get('report')
             if report:
-                warmup = max(_warmup_bars(payload['strategy']), int(payload['execution']['entry_fill_policy'] == 'ato'))
+                entry_actions, _ = strategy_orders(payload)
+                warmup = max(_warmup_bars(payload['strategy']),
+                             int(any(action['order']['type'] == 'ATO' for action in entry_actions.values())))
                 calendar_policy = policy or (json.loads(self.inline_policy_path.read_bytes()) if warmup else None)
                 resolved, fetch_metadata = self.data_fetcher.fetch_by_range(
                     report['start_date'], report['end_date'], warmup_bars=warmup,

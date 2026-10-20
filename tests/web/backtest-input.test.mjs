@@ -51,6 +51,50 @@ function editor(getJSON = () => {throw Error('Không được tự tải dữ li
 const files = ['payload-hpg-canslim-v0-daily.json', 'payload-vn30f1m-canslim-v0.json', 'payload.json', 'payload_raw.json', 'payload_continuous_lo.json', 'payload_continuous_lo_auto.json', 'payload_ato_atc_partial_auto.json'];
 const payload = name => JSON.parse(readFileSync(new URL(`../../data/payload_examples/${name}`, import.meta.url), 'utf8'));
 const sample = () => JSON.parse(readFileSync(new URL('../../src/backtesting_api/web/canslim-v1-example.json', import.meta.url), 'utf8'));
+
+test('order controls migrate legacy settings, preserve parameters and synchronize JSON', () => {
+    const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
+    try {
+        const ui = editor(), value = sample();
+        value.execution.matching_model = 'hnx_sessions_v1';
+        value.strategy.entry.pending.max_execution_bars = 4;
+        ui.input.setPayload(value);
+        assert.deepEqual(ui.input.read(), value);
+        assert.ok(!ui.walk().some(element => element.textContent === 'Thời điểm khớp lệnh'));
+        ui.field('Loại lệnh').value = 'LO'; ui.field('Loại lệnh').onchange();
+        assert.throws(() => ui.input.read(), /LO cần biểu thức giá/);
+        ui.field('Biểu thức giá giới hạn').value = '{"ref":"trade_data.close"}';
+        ui.field('Biểu thức giá giới hạn').oninput();
+        const edited = ui.input.read(), name = edited.strategy.entry.any[0];
+        assert.equal(edited.execution.entry_fill_policy, undefined);
+        assert.equal(edited.strategy.entry.pending, undefined);
+        assert.equal(edited.strategy.entry.actions[name].order.type, 'LO');
+        assert.equal(edited.strategy.entry.actions[name].order.pending.max_execution_bars, 4);
+        assert.ok(Object.values(edited.strategy.exit.bar_close.actions).every(action => action.order.pending.max_execution_bars === 4));
+        ui.field('Loại lệnh').value = 'ATO'; ui.field('Loại lệnh').onchange();
+        assert.deepEqual(ui.input.read(false).strategy.entry.actions[name].order.limit_price, {ref: 'trade_data.close'});
+        assert.throws(() => ui.input.read(), /không nhận giá giới hạn/);
+        ui.field('Biểu thức giá giới hạn').value = ''; ui.field('Biểu thức giá giới hạn').onchange();
+        ui.field('Số nến chờ khớp tối đa').value = ''; ui.field('Số nến chờ khớp tối đa').onchange();
+        assert.equal(ui.input.read().strategy.entry.actions[name].order.type, 'ATO');
+        const entry = JSON.parse(ui.field('Điều kiện vào lệnh (entry)').value);
+        entry.actions[name].order = {type: 'SIMULATED'};
+        ui.field('Điều kiện vào lệnh (entry)').value = JSON.stringify(entry);
+        ui.field('Điều kiện vào lệnh (entry)').oninput();
+        assert.equal(ui.field('Loại lệnh').value, 'SIMULATED');
+        ui.field('Mô hình khớp lệnh').value = 'next_open'; ui.field('Mô hình khớp lệnh').onchange();
+        assert.equal(ui.input.read().execution.matching_model, 'next_open');
+        ui.field('Số nến chờ khớp tối đa').value = '1';
+        ui.field('Số nến chờ khớp tối đa').oninput();
+        assert.deepEqual(ui.input.read().strategy.entry.actions[name].order.pending,
+            {max_execution_bars: 1, cross_lunch: false, cross_cutoff: false, cross_session: false});
+        ui.field('Biểu thức giá giới hạn').value = '{';
+        ui.field('Biểu thức giá giới hạn').oninput();
+        ui.field('Mô hình khớp lệnh').value = 'hnx_sessions_v1'; ui.field('Mô hình khớp lệnh').onchange();
+        assert.equal(ui.field('Biểu thức giá giới hạn').value, '{');
+        assert.throws(() => ui.input.read());
+    } finally {globalThis.document = previous;}
+});
 const raw = key => {
     const path = new URL(key === 'trade_data'
         ? '../../data/trade/vn30f1m-5m-20260316-20260915.json'
@@ -66,7 +110,9 @@ test('all supplied payloads fill the form and round-trip exactly without candles
     // setPayload creates controls after the editor has mounted.
     globalThis.document = {createElement: tag => new Element(tag)};
     try {
-        const values = [sample(), ...files.filter(name => existsSync(new URL(`../../data/payload_examples/${name}`, import.meta.url))).map(payload)];
+        const examples = ['lo-auto.json', 'ato-atc-partial-auto.json'].map(name =>
+            JSON.parse(readFileSync(new URL(`../../docs/examples/orders/${name}`, import.meta.url), 'utf8')));
+        const values = [sample(), ...examples, ...files.filter(name => existsSync(new URL(`../../data/payload_examples/${name}`, import.meta.url))).map(payload)];
         for (const value of values) {
             const ui = editor();
             ui.input.setPayload(value);

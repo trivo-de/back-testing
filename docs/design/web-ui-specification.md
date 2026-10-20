@@ -60,6 +60,13 @@ Giao diện không tính lại chiến lược, chỉ báo hoặc tiền; dữ l
 - Chỉ báo có tên, loại, nguồn và tham số; có thể thêm/xóa. Điều kiện `entry`,
   `exit`, `daily_limits` và bảng đáo hạn `contract_map` giữ các ô JSON riêng,
   mỗi ô tối đa 65.536 ký tự. Đây là giới hạn trình soạn trên web, không đổi giới hạn API.
+- Ô **Mô hình khớp lệnh** chọn next_open hoặc HNX. Dưới JSON mở/đóng có
+  ô loại lệnh, biểu thức giá LO và thời hạn chờ riêng cho từng nhánh. Chỉnh ô
+  cập nhật JSON, chỉnh JSON cập nhật ô. Đổi loại không âm thầm xóa giá/thời hạn
+  không tương thích; người dùng sửa hoặc xóa và kiểm tra lại trước khi gửi.
+  Nạp JSON cũ rồi không chỉnh giữ nguyên cấu trúc; lần chỉnh lệnh đầu tiên
+  chuyển cả hai nhóm sang `actions`, bảo toàn thời hạn kế thừa cũ.
+  `pyramiding` cho phép chọn nhiều lần mở theo ràng buộc tại đặc tả API.
 - Tải payload đầy đủ sẽ thay cấu hình và dữ liệu trên form. Tải JSON vào từng nguồn
   chỉ thay nguồn đó, giữ cấu hình và nguồn còn lại. Dữ liệu nhận dạng danh sách nến,
   object `bars`, OHLCV dạng `t/o/h/l/c/v` hoặc phần tương ứng trong payload đầy đủ.
@@ -91,7 +98,7 @@ Giao diện không tính lại chiến lược, chỉ báo hoặc tiền; dữ l
 | Chỉ báo | `evaluations` và dữ liệu market của run | Dùng giá trị máy chủ; chỉ hiển thị khi có |
 | Marker | `fills` | Giá khớp thật; không dùng signal làm giao dịch |
 | Giao dịch đóng | `trades` | Hiển thị quantity, phí và lãi/lỗ đã chốt |
-| Vị thế mở | `open_position` | Hiển thị lãi/lỗ chưa chốt riêng |
+| Vị thế mở | `open_positions` khi có, nếu không dùng `open_position` | Hiển thị từng phần và lãi/lỗ chưa chốt riêng, liên kết bằng position_id |
 | Audit | `signals`, `orders` | Giữ trạng thái rejected/pending/filled riêng |
 | Equity | `equity_history` | Điểm tại Close, trục riêng với giá nến |
 

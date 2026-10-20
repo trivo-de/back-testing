@@ -301,12 +301,83 @@ Cấu trúc chi tiết ở mục 5.
 
 | Trường              | Kiểu                  | Bắt buộc | Giá trị hỗ trợ   | Ý nghĩa                                                                                                                                                                                     |
 | --------------------- | ---------------------- | ---------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `entry_fill_policy` | string                 | Có        | `"next_open"`, `"limit"`, `"ato"` | Quy định vào vị thế tại Open kế tiếp, bằng LO hoặc ATO Open 09:00; `ato` chỉ dùng với `hnx_sessions_v1` |
+| `entry_fill_policy` | string/null | Không | `"next_open"`, `"limit"`, `"ato"` | Trường tương thích cũ; cấu hình mới đặt loại lệnh trong `strategy.entry.order` hoặc `actions.<nhãn>.order` |
 | `slippage_rate`     | số/chuỗi thập phân | Có        | Từ 0 đến dưới 1 | Tỷ lệ trượt giá mô phỏng mức bất lợi giữa giá tham chiếu và giá khớp. Với normalized, giá mua = giá mở cửa × (1 + tỷ lệ), giá bán = giá mở cửa × (1 − tỷ lệ) |
-| `matching_model` | string/null | Không | `"hnx_sessions_v1"` | Bật khớp theo phiên cho contract 5 phút, trượt giá 0 |
+| `matching_model` | string/null | Không | `"next_open"`, `"hnx_sessions_v1"` | Bỏ trống tương đương `next_open`; HNX chỉ dùng contract 5 phút, trượt giá 0 |
 | `auction_match_quantity` | integer/null | Không | Số nguyên ≥ 0 | Giới hạn cố định lượng khớp mỗi lệnh ATO/ATC; bỏ để giả định khớp đủ; đây không phải mô hình thanh khoản thật |
 
 Stop/target trong nến có quy tắc tại mục 5.3.
+
+#### 3.4.1. Lệnh thuộc hành động của chiến lược
+
+`strategy.entry.order` dùng chung cho các nhánh mở; `entry.actions.<nhãn>`
+chứa `side` (`BUY` cho normalized, `LONG`/`SHORT` cho contract) và `order`
+ghi đè cấu hình chung. Khi có `actions`, tên nhánh phải khớp đúng `conditions`.
+Nhóm đóng `strategy.exit.bar_close` dùng `order` và `actions.<nhãn>.order`
+tương tự, hướng đóng được suy ra từ mô hình tiền và vị thế.
+
+| Trường trong `order` | Quy tắc |
+| --- | --- |
+| `type` | `SIMULATED`, `LO`, `ATO` hoặc `ATC` |
+| `limit_price` | Cây biểu thức số, bắt buộc riêng cho LO; chốt khi gửi, dương và đúng bước 0,1 |
+| `pending.max_execution_bars` | Số nguyên dương; ATO/ATC không nhận cấu hình chờ này |
+| `pending.cross_lunch`, `pending.cross_cutoff`, `pending.cross_session` | Khi có pending phải khai báo cả ba là false; không cho lệnh vượt ranh giới này |
+
+`SIMULATED` biểu diễn yêu cầu thực thi tại Open kế tiếp của đường chạy cũ;
+không phải tuyên bố hỗ trợ lệnh Market trên sàn.
+
+| Mô hình tiền / khớp | Mở | Đóng theo điều kiện |
+| --- | --- | --- |
+| normalized / next_open | SIMULATED | SIMULATED |
+| contract / next_open | SIMULATED | SIMULATED |
+| contract / hnx_sessions_v1 | SIMULATED, LO, ATO | SIMULATED, LO, ATC |
+| contract / hnx_sessions_v1, pyramiding=true | LO, ATO | SIMULATED, LO, ATC |
+
+Ánh xạ tương thích: `next_open → SIMULATED`, `limit → LO`, `ato → ATO`,
+`atc → ATC`. `entry_fill_policy` là nguồn cũ cho nhóm mở;
+`bar_close.fill_policy` là nguồn cũ cho nhóm đóng; `limit_price` cũ đi theo
+nhóm tương ứng. `entry.pending` cũ áp dụng cho cả hai nhóm như trước.
+Thứ tự chọn là `actions.<nhãn>.order`, rồi `order` chung, rồi cấu hình cũ.
+Nếu đồng thời khai báo cũ/mới mâu thuẫn về loại, giá hoặc thời hạn thì từ chối.
+Giữ `hnx_sessions_v1` khi chuyển cấu hình cũ dùng `next_open` trong phiên;
+không đổi model chỉ vì ánh xạ loại lệnh thành `SIMULATED`.
+
+#### 3.4.2. Nhiều nhánh và nhiều phần vị thế
+
+`strategy.sizing.pyramiding: true` chỉ dùng với contract, HNX và các lệnh mở
+LO/ATO. Phải có `entry.priority` liệt kê đủ nhánh; không dùng `on_conflict`,
+`require_flat: true` hoặc `require_no_pending: true` cùng chế độ này.
+Nhánh đúng được duyệt theo `priority`: lượng đang giữ cộng lượng mở đang chờ
+không vượt `max_contracts`; lượng đặt của nhánh sau được giảm theo hạn mức còn lại.
+Chỉ bổ sung cùng hướng, không mở hướng ngược với vị thế hoặc lệnh đang chờ.
+
+Mỗi lần mở có `position_id`, giá vốn, phí mở còn lại, stop/TP và số nến giữ
+riêng. Nhóm đóng được xét trên từng phần; `position.*` thuộc phần đang xét,
+còn `account.*` và giới hạn ngày thuộc toàn tài khoản. `quantity: "remaining"`
+đóng phần còn lại của chính phần đó, không phân bổ FIFO giữa các lần mở.
+Mỗi phần chỉ có một lệnh đóng theo điều kiện đang chờ; khi bảo vệ làm thay đổi
+lượng, lệnh đóng chờ của phần đó bị hủy bằng `POSITION_CHANGED`.
+
+Với một vị thế, `on_conflict: "SIGNAL_CONFLICT"` giữ hành vi cũ: nhiều nhánh
+đúng thì không mở. Nếu chỉ khai báo `priority`, chọn nhánh đúng đầu tiên.
+
+#### 3.4.3. Cấu hình lưu và chạy lại
+
+`metadata.order_configuration` ghi model có hiệu lực, cấu hình từng nhánh mở/
+đóng và `source` là đường dẫn trường được chọn; `pending_source` ghi nguồn
+`strategy.entry.pending` khi dùng cấu hình chờ cũ. Payload gốc vẫn được ghim
+cùng policy và metadata; hash tính trên toàn bộ tài liệu ghim này. Đầu vào mới
+có thêm metadata nên hash có thể khác đầu vào trước đây, dù giao dịch giống nhau.
+Không sửa payload, hash hoặc kết quả của lượt đã lưu. Chạy lại dùng payload và
+policy đã ghim; không tải lại dữ liệu.
+
+Chế độ nhiều phần trả `open_positions` và giữ `open_position: null` để tránh
+biểu diễn gộp sai giá vốn. `evaluations` có `position_id` cho lượt xét đóng;
+null cho lượt xét mở. `evaluation_status` đếm thời điểm phân biệt, không đếm
+số phần vị thế; thời điểm có ít nhất một lượt `UNEVALUABLE` được tính vào
+`unevaluable_bars`. Chi tiết từng lượt vẫn được giữ trong `evaluations`.
+Trạng thái chung chỉ là `UNEVALUABLE` khi mọi lượt đều thiếu dữ liệu; khi
+còn ít nhất một lượt đánh giá được thì là `PARTIALLY_EVALUABLE`.
 
 ### 3.5. accounting
 
@@ -607,13 +678,15 @@ Ví dụ một khai báo trong indicators:
 
 | Trường               | Kiểu             | Bắt buộc             | Ý nghĩa/giá trị hợp lệ                                                           |
 | ---------------------- | ----------------- | ---------------------- | -------------------------------------------------------------------------------------- |
-| `conditions`         | object            | Có                    | Nhánh BUY cho normalized; LONG/SHORT cho contract; mỗi nhánh là expression boolean |
+| `conditions`         | object            | Có                    | Nhãn → expression boolean; mặc định nhãn BUY/LONG/SHORT là hướng, hoặc khai báo `actions.<nhãn>.side` |
 | `any`                | array string      | Có                    | Đúng các nhánh conditions, không rỗng/trùng                                     |
 | `details`            | object            | Không; mặc định {} | Tên → expression số, lưu giá trị lúc tín hiệu mở                             |
 | `require_flat`       | boolean/null      | Không                 | Chỉ xét mở lệnh khi không giữ vị thế (flat)                                    |
 | `require_no_pending` | boolean/null      | Không                 | Chỉ xét mở lệnh khi không có lệnh chờ khớp (pending)                          |
 | `signal_windows`     | array cặp string | Không                 | Khoảng HH:MM gồm hai đầu, tăng dần, không chồng nhau                           |
-| `on_conflict`        | string/null       | Khi có nhiều nhánh  | Chỉ SIGNAL_CONFLICT; nhiều hướng cùng đạt thì không mở                       |
+| `on_conflict`        | string/null       | Một vị thế, khi không dùng priority | Chỉ SIGNAL_CONFLICT; nhiều nhánh cùng đạt thì không mở |
+| `priority` | array string/null | Bắt buộc khi pyramiding=true | Đủ nhãn trong any, không trùng; duyệt theo thứ tự |
+| `order`, `actions` | object | Khi không có cấu hình lệnh cũ | Loại lệnh dùng chung hoặc riêng theo mục 3.4.1 |
 | `reentry`            | string/null       | Không                 | Chỉ next_bar_close_after_exit; ngăn vào lại tại Close nến vừa thoát            |
 | `pending`            | object/null       | Không                 | Quy tắc lệnh mở chờ                                                                |
 
@@ -621,7 +694,7 @@ Khi có pending, cần đủ bốn trường:
 
 | Trường               | Giá trị hỗ trợ |
 | ---------------------- | ------------------ |
-| `max_execution_bars` | Số nguyên 1      |
+| `max_execution_bars` | Số nguyên dương với HNX; next_open chỉ nhận 1 |
 | `cross_lunch`        | false              |
 | `cross_cutoff`       | false              |
 | `cross_session`      | false              |
@@ -705,10 +778,10 @@ thuộc [đặc tả thực thi](canslim-v1-execution-accounting.md).
 | `any`         | array string | Có        | Đúng các nhãn conditions, không trùng   |
 | `priority`    | array string | Có        | Đúng các nhãn any theo thứ tự ưu tiên |
 | `quantity`    | string       | Có        | Chỉ "remaining"                              |
-| `fill_policy` | string       | Có        | Chỉ "next_open"                              |
+| `fill_policy` | string/null | Không | Tương thích cũ: next_open/limit/atc; cấu hình mới dùng `order` hoặc `actions` theo mục 3.4.1 |
 
 Chọn điều kiện đầu tiên đạt theo priority, tạo một lệnh đóng phần còn lại ở
-Open kế tiếp: contract dùng CLOSE, normalized dùng SELL. Xét sau thoát trong
+theo cấu hình lệnh đã chọn (SIMULATED dùng Open kế tiếp): contract dùng CLOSE, normalized dùng SELL. Xét sau thoát trong
 nến nếu còn vị thế. Nến mở là nến giữ thứ nhất; nghỉ trưa không tính thành nến.
 
 flat_by là hạn thực thi, không tự tạo tín hiệu đóng. Cần điều kiện thoát đủ
@@ -722,7 +795,7 @@ Không mặc định mở một hợp đồng. Type chọn bộ trường bắt 
 | type                 | Trường bắt buộc                                                  | Ràng buộc                                                                                                       |
 | -------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `fixed_fractional` | risk_fraction, stop_loss_fraction                                    | 0 < risk_fraction <= 1; 0 < stop_loss_fraction < 1                                                                |
-| `risk_and_margin`  | risk_fraction, stop_points, margin_buffer, max_contracts, pyramiding | 0 < risk_fraction <= 1; stop_points > 0; margin_buffer >= 1; max_contracts nguyên dương; pyramiding chỉ false |
+| `risk_and_margin`  | risk_fraction, stop_points, margin_buffer, max_contracts, pyramiding | 0 < risk_fraction <= 1; stop_points > 0; margin_buffer >= 1; max_contracts nguyên dương; pyramiding=true theo mục 3.4.2 |
 
 Normalized chọn số lượng nguyên theo ngân sách rủi ro và tiền đủ mua sau phí.
 Stop_loss_fraction dùng tính lượng mua, **không tự tạo điều kiện stop**;

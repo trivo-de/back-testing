@@ -24,6 +24,21 @@ flowchart LR
 
 ### 1.1. Một yêu cầu POST /api/backtests đi qua hàm nào?
 
+Loại lệnh thuộc `strategy.entry`/`strategy.exit.bar_close`, còn
+`execution.matching_model` chọn bộ khớp. `application/order_config.py` đọc
+cấu hình cũ/mới tại một điểm; `domain/orders.py` giữ yêu cầu lệnh bất biến và
+kết quả lệnh. `domain/matching.py` trả giá, lượng và thời điểm khớp;
+`engine.py`/`session_matching.py` điều phối thời gian, lệnh chờ và vòng đời.
+`execution.py` áp dụng lần khớp và bảo vệ, sổ tiền cập nhật phí, ký quỹ, P/L.
+Thêm loại lệnh cần cập nhật schema/kiểm tra tham số, khả năng hỗ trợ của bộ
+khớp, biểu mẫu và kiểm thử; không cần hệ thống plugin.
+
+Chế độ nhiều lần mở dùng `MultiContractExecution` và `ContractBook`:
+cùng tài khoản nhưng mỗi `position_id` giữ trạng thái bảo vệ riêng, tái sử
+dụng bộ thực thi một vị thế qua `LotAccount`. Không bình quân giá vốn hoặc
+phân bổ đóng sang phần vị thế khác. Chế độ một vị thế và next_open giữ đường
+chạy cũ. Hợp đồng cấu hình và kết quả ở mục 3.4 của đặc tả API.
+
 Sơ đồ dưới đây đối chiếu với source hiện tại. Đây là lời gọi đồng bộ: API
 chờ chạy và lưu xong mới trả HTTP 201. Khi khởi động, `main.build_service()`
 nối `BacktestService` với `FileRunRepository` và đặt
