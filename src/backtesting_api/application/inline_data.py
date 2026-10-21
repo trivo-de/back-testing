@@ -1,15 +1,16 @@
 """Resolve validated inline data without selecting a strategy by symbol."""
 from bisect import bisect_left
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 from ..domain.market import StrategyBar
-from ..domain.session_matching import AuctionEvent
+from ..domain.session_matching import AuctionEvent, phase_at
 from ..infrastructure.market_snapshot import normalize_raw_source
-from .order_config import order_configuration
+from .order_config import order_configuration, strategy_orders
 
 
+# Carry a strategy candle with volume, availability, and contract identity.
 @dataclass(frozen=True)
 class InputBar(StrategyBar):
     volume: Decimal | None
@@ -18,6 +19,7 @@ class InputBar(StrategyBar):
     data_gap_before: bool = False
 
 
+# Carry resolved candles, report bounds, and source metadata into execution.
 @dataclass(frozen=True)
 class InlineData:
     bars: tuple[InputBar, ...]
@@ -26,8 +28,10 @@ class InlineData:
     end_date: date
     metadata: dict
     auction_events: tuple[AuctionEvent, ...] = ()
+    price_limits: dict = field(default_factory=dict)
 
 
+# Convert Unix seconds or milliseconds into the source timezone.
 def _timestamp(value, unit, zone):
     # Integer arithmetic preserves Unix millisecond precision.
     scale = 1000 if unit == 'ms' else 1
@@ -35,6 +39,7 @@ def _timestamp(value, unit, zone):
             timedelta(seconds=value // scale, milliseconds=value % scale if scale == 1000 else 0)).astimezone(zone)
 
 
+# Convert source rows into immutable candles without filling missing values.
 def _bars(source):
     zone = ZoneInfo(source['timezone'])
     unit = source['timestamp_unit']
@@ -50,6 +55,7 @@ def _bars(source):
     return tuple(rows)
 
 
+# Detect missing session slots and mark indicator continuity boundaries.
 def _session_gaps(bars, source, name, policy, first, last, report_start):
     if source['resolution'] != '5':
         return bars, []
@@ -73,7 +79,7 @@ def _session_gaps(bars, source, name, policy, first, last, report_start):
         observed.add(stamp)
     expected = sorted(datetime.combine(day, time.fromisoformat(label), zone)
                       for day in calendar if first <= day <= last for label in required)
-    # Lịch sử có thể bắt đầu giữa phiên; kỳ báo cáo vẫn được kiểm tra trọn phiên.
+        # History may start mid-session; report dates still require full-session checks.
     required_from = datetime.combine(report_start, time.min, zone)
     if bars: required_from = min(required_from, bars[0].trading_date.astimezone(zone))
     gaps = [stamp for stamp in expected if stamp >= required_from and stamp not in observed]
@@ -163,6 +169,31 @@ def resolve_inline(payload, policy=None, *, derive_contract_dates=False):
             raise ValueError('ATC_CONTRACT_MISMATCH')
         auctions.append(AuctionEvent(row['contract_code'], matched, available, row['status'],
                                      Decimal(row['price']) if row.get('price') is not None else None, row['source']))
+    price_limits = {}
+    previous_limit = None
+    for row in source.get('price_limits', []):
+        key = (date.fromisoformat(row['trading_date']), row['contract_code'])
+        if previous_limit is not None and key <= previous_limit:
+            raise ValueError('INVALID_PRICE_LIMITS')
+        previous_limit = key
+        try:
+            available = _timestamp(row['available_at'], 's', zone)
+        except (OverflowError, ValueError, OSError):
+            raise ValueError('INVALID_PRICE_LIMITS') from None
+        if key[0] != available.date() or (session and codes.get(key[0]) != key[1]):
+            raise ValueError('INVALID_PRICE_LIMITS')
+        price_limits[key] = (Decimal(row['floor_price']), Decimal(row['ceiling_price']), available, row['source'])
+    entry_orders, close_orders = strategy_orders(payload)
+    uses_market = any(a['order']['type'] in ('MTL', 'MOK', 'MAK') for a in (*entry_orders.values(), *close_orders.values()))
+    if uses_market:
+        if start < date(2025, 5, 5) or end > date(2026, 10, 20):
+            raise ValueError('MARKET_RULES_OUTSIDE_VERIFIED_RANGE')
+        for bar in trade:
+            if not start <= bar.trading_date.date() <= end or not phase_at(bar.trading_date).startswith('CONTINUOUS'):
+                continue
+            key = (bar.trading_date.date(), bar.contract_code)
+            if key not in price_limits: raise ValueError('MISSING_PRICE_LIMITS')
+            if price_limits[key][2] > bar.trading_date: raise ValueError('INVALID_PRICE_LIMITS')
     metadata = {
         'report_range': {'start': start.isoformat(), 'end': end.isoformat()},
         'available_range': {'start': report_dates[0].isoformat(), 'end': report_dates[-1].isoformat()},
@@ -202,4 +233,15 @@ def resolve_inline(payload, policy=None, *, derive_contract_dates=False):
                 multi_position='independent entry lots; reduce-only close per position_id; held plus pending opens reserve max_contracts',
                 multi_bar_order='pending Open fills, Open protections, pending Close-time touches, Close-time protections; submission/lot order breaks ties',
                 multi_protection='Open targets precede later intrabar stops; trailing updates after Close; one-position legacy precedence unchanged')
-    return InlineData(trade, market, start, end, metadata, tuple(auctions))
+        continuous_quantity = payload['execution'].get('continuous_match_quantity')
+        if continuous_quantity is not None:
+            metadata.update(matching_rules_version='hnx-sessions-v4-market-orders',
+                            continuous_match_quantity=continuous_quantity, price_limits=source.get('price_limits', []))
+            metadata['assumptions'].update(
+                quantity_fill=f'fixed shared cap of {continuous_quantity} contracts per bar/contract across Open and Close; submission order within each event',
+                market_price='next continuous bar Open; quantity frozen from completed signal Close; margin rechecked at fill',
+                mtl_remainder='LO from last fill +/- 0.1 within supplied daily limits; eligible from following bar',
+                price_limit_check='supplied daily floor/ceiling required for MTL/MOK/MAK; no inferred bounds',
+                repeated_entry='same order only: weighted cost basis; first fill anchors protection/holding time; one daily entry count',
+                protective_quantity='existing stop/TP fills bypass the fixed cap; auctions retain their per-order cap')
+    return InlineData(trade, market, start, end, metadata, tuple(auctions), price_limits)

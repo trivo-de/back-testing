@@ -1,10 +1,9 @@
 # Mẫu chiến lược CANSLIM v1 — giao dịch phái sinh
 
-Quy tắc bên dưới được biểu diễn trong
-[mẫu JSON](../../src/backtesting_api/web/canslim-v1-example.json) và thực thi
-bằng `run_inline_strategy`. API không nhận strategy ID hoặc tự áp dụng mẫu
-theo tên symbol. Các giá trị này thuộc mẫu v1, không phải mặc định cho mọi JSON.
-Không tự thay ngưỡng để cải thiện kết quả backtest.
+- Quy tắc bên dưới được biểu diễn trong [mẫu JSON](../../src/backtesting_api/web/canslim-v1-example.json) và thực thi bằng `run_inline_strategy`.
+- API không nhận strategy ID hoặc tự áp dụng mẫu theo tên symbol.
+- Các giá trị này thuộc mẫu v1, không phải mặc định cho mọi JSON.
+- Không tự thay ngưỡng để cải thiện kết quả backtest.
 
 Đã có kiểm thử tổng hợp; nghiệm thu bộ dữ liệu thật sáu tháng chưa được xác nhận.
 
@@ -26,10 +25,10 @@ Tài liệu liên quan:
 
 ## 2. Indicator
 
-SMA20, EMA5, BB, MACD và MFI14 dùng OHLCV 5 phút VNINDEX trong market_data.
-Chỉ dùng nến đã đóng và khả dụng; warm-up tối thiểu 150 nến VNINDEX tính cả t.
-Chuỗi chỉ báo VNINDEX không khởi tạo lại khi hợp đồng giao dịch chuyển kỳ.
-Mức chốt lời tính trực tiếp từ giá khớp hợp đồng như mục 5.
+- SMA20, EMA5, BB, MACD và MFI14 dùng OHLCV 5 phút VNINDEX trong market_data.
+- Chỉ dùng nến đã đóng và khả dụng; warm-up tối thiểu 150 nến VNINDEX tính cả t.
+- Chuỗi chỉ báo VNINDEX không khởi tạo lại khi hợp đồng giao dịch chuyển kỳ.
+- Mức chốt lời tính trực tiếp từ giá khớp hợp đồng như mục 5.
 
 | Indicator | Input                    | Công thức/window đã chốt                                 |
 | --------- | ------------------------ | ------------------------------------------------------------- |
@@ -56,11 +55,10 @@ Không dùng Signal Line trong entry.
 
 ## 3. Entry — R01
 
-Đánh giá sau Close t, chỉ khi flat, đủ input và trong khung giờ entry.
-Close, BB, SMA, EMA, MACD và MFI trong R01 đều là của VNINDEX, không trộn
-Close hợp đồng với chỉ báo chỉ số. Tín hiệu mở vị thế VN30F1M; giá khớp,
-stop, trailing và P/L dùng trade_data của hợp đồng. Chỉ xét khi nến VNINDEX
-đã khả dụng.
+- Đánh giá sau Close t, chỉ khi flat, đủ input và trong khung giờ entry.
+- Close, BB, SMA, EMA, MACD và MFI trong R01 đều là của VNINDEX, không trộn Close hợp đồng với chỉ báo chỉ số.
+- Tín hiệu mở vị thế VN30F1M; giá khớp, stop, trailing và P/L dùng trade_data của hợp đồng.
+- Chỉ xét khi nến VNINDEX đã khả dụng.
 
 ```text
 LONG:
@@ -181,11 +179,11 @@ test case.
 | Case ID      | Điều kiện                                                                                                          | Kết quả bắt buộc                                                                                                                                                                       |
 | ------------ | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `V1-EX-01` | Thiếu warm-up hoặc giá trị indicator bắt buộc tại thời điểm`t`                                            | `UNEVALUABLE`; không tạo entry và không coi điều kiện thiếu là đạt.                                                                                                           |
-| `V1-EX-02` | VNINDEX chưa khả dụng tại`t`, dữ liệu công bố sau thời điểm quyết định, hoặc chuyển kỳ hợp đồng | Chỉ dùng record có`available_at <= t`; không trộn giá hợp đồng vào indicator, không khởi tạo lại chuỗi VNINDEX và không dùng dữ liệu tương lai.                    |
+| `V1-EX-02` | VNINDEX chưa khả dụng tại `t` hoặc chuyển kỳ hợp đồng | Dùng mẫu có `available_at <= t`; giữ chỉ báo VNINDEX độc lập với giá hợp đồng và giữ lịch sử khi chuyển kỳ. |
 | `V1-EX-03` | LONG và SHORT cùng đúng trong một lần đánh giá                                                               | Không giao dịch; ghi reason`SIGNAL_CONFLICT`.                                                                                                                                          |
 | `V1-EX-04` | Pending entry hết một nến hoặc đi qua nghỉ trưa, cutoff hay phiên khác                                       | Hủy pending; không tạo fill ngoài một nến thực thi hợp lệ.                                                                                                                        |
 | `V1-EX-05` | Gap qua stop/target, stop và target cùng chạm, hoặc TP1/TP2 cùng chạm                                           | Gap stop fill tại Open; gap target fill tại target; stop ưu tiên; TP1 xử lý trước TP2.                                                                                             |
 | `V1-EX-06` | Initial quantity bằng 1, từ 2 trở lên, hoặc TP1 trùng TP2                                                       | Quantity 1: TP1 đóng hết. Quantity từ 2: TP1 đóng`floor(initial_qty/2)`, TP2 đóng phần còn lại; nếu trùng mức thì vẫn xử lý TP1 rồi TP2 tại cùng giá.              |
 | `V1-EX-07` | TP1 vừa khớp, trailing cùng stop, hoặc margin breach/forced exit/time-stop đồng thời                           | Trailing chỉ áp dụng phần còn lại, không dùng High/Low của chính nến TP1 để seed và không nới stop; tại Close ưu tiên`MARGIN_BREACH`, `FORCED_EXIT`, `TIME_STOP`. |
-| `V1-EX-08` | Đến cutoff, cuối report hoặc thiếu Open thực thi để forced exit/time-stop/margin breach                       | Pending cuối report hủy với`END_OF_REPORT`; nếu vị thế cần thoát mà không có Open hợp lệ thì run/data `INVALID`; không chế giá và không giữ qua đêm.             |
+| `V1-EX-08` | Cutoff, cuối kỳ hoặc thiếu Open thoát bắt buộc | Hủy pending cuối kỳ với `END_OF_REPORT`; thiếu Open thoát thì run/data `INVALID`. |
 | `V1-EX-09` | Quantity tính ra nhỏ hơn 1, không đủ buffer margin, đạt giới hạn lỗ/ngày hoặc 3 entry fill               | Từ chối entry hoặc ngừng entry mới; vị thế đang mở vẫn được quản trị và đóng theo rule. Không pyramiding.                                                               |

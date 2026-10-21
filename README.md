@@ -39,8 +39,7 @@ Hai endpoint POST nhận dữ liệu nhập tay hoặc `"auto_fetch_data": true`
 Khi bật tự lấy, API ưu tiên tải VN30F1M và VNINDEX 5 phút từ VNDIRECT. Nếu có
 `report`, khoảng tải bắt đầu từ sáu tháng trước `start_date` và kết thúc tại
 `end_date`; nếu không có thì lấy sáu tháng gần nhất đến hiện tại. Chỉ dùng nến
-đã đóng. Tải lỗi thì dừng, không dùng dữ liệu nhập tay.
-Chi tiết lựa chọn nguồn và giới hạn lịch hợp đồng tại
+đã đóng. Chi tiết lựa chọn nguồn và giới hạn lịch hợp đồng tại
 [đặc tả API](docs/design/backtest-api-specification.md#3-cấu-trúc-request).
 
 ## Kiểm thử

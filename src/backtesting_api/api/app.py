@@ -12,6 +12,7 @@ from .backtest_routes import create_backtest_router
 class WebStaticFiles(StaticFiles):
     """Serve JavaScript modules with a browser-valid MIME type on every OS."""
 
+    # Serve static assets with the correct MIME type for JavaScript modules.
     async def get_response(self, path, scope):
         response = await super().get_response(path, scope)
         if path.lower().endswith('.mjs') and response.status_code == 200:
@@ -19,11 +20,14 @@ class WebStaticFiles(StaticFiles):
         return response
 
 
+# Serve preview assets with the preview theme substituted.
 class PreviewStaticFiles(WebStaticFiles):
+    # Route theme requests to the preview theme module.
     async def get_response(self, path, scope):
         return await super().get_response("preview-theme.mjs" if path == "theme.mjs" else path, scope)
 
 
+# Build the API and mount the packaged web interface.
 def create_app(service: BacktestService | None = None, *, preview: bool = False) -> FastAPI:
     app = FastAPI(title=API.title, version=API.version)
     if service is not None:
@@ -33,6 +37,7 @@ def create_app(service: BacktestService | None = None, *, preview: bool = False)
     static_files = PreviewStaticFiles if preview else WebStaticFiles
     app.mount("/static", static_files(directory=web), name="static")
 
+    # Read a page and inject preview styles when requested.
     def page(filename):
         if not preview:
             return FileResponse(web / filename)

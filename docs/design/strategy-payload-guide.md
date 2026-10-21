@@ -1,13 +1,12 @@
 # Hướng dẫn điền cây công thức và payload chiến lược
 
-Đọc cùng [đặc tả API](backtest-api-specification.md)
-và [payload minh họa](../../src/backtesting_api/web/canslim-v1-example.json).
-`POST /api/backtests/validate` kiểm tra cấu trúc, dữ liệu và tổ hợp thực thi.
-Bộ chạy JSON đã nối vào engine và kho file; trạng thái `STRUCTURE_VALID` không có nghĩa
-đã đủ lịch sử. Khi chạy, thiếu chỉ báo tại nến nào thì nến đó không tạo entry.
-Các giá trị v1 lấy từ [quy tắc đã chốt](../strategies/canslim-v1-rules.md).
-Không phải ngôn ngữ biểu diễn mọi chiến lược chứng khoán: chỉ sử dụng các
-chỉ báo, phép toán và hành động được liệt kê dưới đây.
+Soạn chiến lược bằng các chỉ báo, phép toán và hành động trong tài liệu này.
+
+- [Đặc tả API](backtest-api-specification.md): cấu trúc request và kết quả.
+- [Payload minh họa](../../src/backtesting_api/web/canslim-v1-example.json): mẫu JSON để điền.
+- [CANSLIM v1](../strategies/canslim-v1-rules.md): giá trị và quy tắc của mẫu.
+- `POST /api/backtests/validate` kiểm tra cấu trúc, dữ liệu và tổ hợp thực thi.
+- Khi chạy, nến thiếu chỉ báo được ghi chưa đánh giá được và bỏ mở lệnh.
 
 ## 1. Đọc bảng và điền theo thứ tự nào?
 
@@ -16,15 +15,14 @@ chỉ báo, phép toán và hành động được liệt kê dưới đây.
 - **Tùy chọn**: có thể bỏ; bảng ghi cách xử lý khi bỏ.
 - Keyword phân biệt hoa/thường. `true`/`false`là boolean JSON, không viết`"true"`/`"false"`. Tên tự đặt khác với keyword cố định.
 
-Điền dữ liệu → khai báo chỉ báo → viết điều kiện entry → viết exit → điền
-sizing/giới hạn ngày → cấu hình khớp và tiền. Sau đó đối chiếu mọi `ref` và
-tên điều kiện. Không cần lưu mẫu hoặc cung cấp strategy_id trước.
+1. Điền dữ liệu và khai báo chỉ báo.
+2. Viết điều kiện mở, đóng và sizing.
+3. Điền giới hạn ngày, khớp lệnh và cách tính tiền.
+4. Đối chiếu mọi `ref` và tên điều kiện.
 
 ## 2. Tham chiếu
 
-**Tham chiếu là lấy giá trị từ phần dữ liệu hoặc chỉ báo đã khai báo trong
-payload.** Ví dụ đã nhập dữ liệu vào `trade_data`, muốn lấy cột`close` thì
-ghi `trade_data.close`: **tên nhóm dữ liệu + dấu chấm + tên cột**.
+`ref` đọc giá trị từ nguồn hoặc chỉ báo đã khai báo. Ví dụ: `trade_data.close` đọc cột Close trong `trade_data`.
 
 Ví dụ dữ liệu đã nhập:
 
@@ -57,30 +55,27 @@ Với chỉ báo cũng vậy: khai báo chỉ báo trong indicators rồi dùng 
 }
 ```
 
-Đọc là: tính SMA20 từ Close đã nhập, rồi so Close với kết quả SMA20. Thứ tự các khóa
-JSON không ảnh hưởng tham chiếu; chỉ cần có khai báo trong cùng payload.
+Ví dụ trên tính SMA20 rồi so Close với SMA20. Tham chiếu dựa vào tên khai báo, độc lập với thứ tự khóa JSON.
 
-Riêng `position`,`account`,`day`,`clock` trong bảng dưới là giá trị engine
-tính trong lúc chạy, không lấy trực tiếp từ field đã gửi. Ví dụ
-`position.entry_price` là giá khớp mở vị thế, chỉ có sau khi lệnh mở đã khớp.
+`position`, `account`, `day`, `clock` là trạng thái do bộ chạy tính. `position.entry_price` chỉ có sau khi lệnh mở khớp.
 
-| Tham chiếu được dùng                                      | Ý nghĩa                                    |
-| -------------------------------------------------------------- | -------------------------------------------- |
-| `trade_data.open`,`.high`,`.low`,`.close`,`.volume`  | OHLCV chuỗi giao dịch                      |
-| `market_data.open`,`.high`,`.low`,`.close`,`.volume` | OHLCV VNINDEX                                |
-| `sma20`,`ema5`,`mfi14`                                   | Một giá trị chỉ báo                     |
-| `bb.middle`,`bb.upper`,`bb.lower`                        | Ba đầu ra BB                               |
-| `macd.line`,`macd.signal`,`macd.histogram`               | Các đầu ra MACD                           |
-| `position.entry_price`                                       | Giá khớp vào thực tế                    |
-| `position.entry_<tên>`                                       | Giá trị lưu từ `entry.details.<tên>` khi tạo tín hiệu mở; ví dụ `position.entry_pivot` |
-| `position.initial_quantity`                                  | Số hợp đồng lúc mở vị thế            |
-| `position.held_bars`                                         | Số nến giữ vị thế                       |
-| `account.equity`                                             | Giá trị tài khoản tại thời điểm xét |
-| `account.required_margin`                                    | Ký quỹ yêu cầu hiện tại                |
-| `day.net_pnl`                                                | P/L ròng ngày theo quy tắc tài khoản v1 |
-| `day.start_equity`                                           | Giá trị tài khoản đầu ngày            |
-| `day.entry_fill_count`                                       | Số lần khớp mở vị thế trong ngày      |
-| `clock.local_time`                                           | Giờ tại thời điểm đánh giá           |
+| Tham chiếu được dùng                                      | Ý nghĩa                                                                                             |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `trade_data.open`,`.high`,`.low`,`.close`,`.volume`  | OHLCV chuỗi giao dịch                                                                               |
+| `market_data.open`,`.high`,`.low`,`.close`,`.volume` | OHLCV VNINDEX                                                                                         |
+| `sma20`,`ema5`,`mfi14`                                   | Một giá trị chỉ báo                                                                              |
+| `bb.middle`,`bb.upper`,`bb.lower`                        | Ba đầu ra BB                                                                                        |
+| `macd.line`,`macd.signal`,`macd.histogram`               | Các đầu ra MACD                                                                                    |
+| `position.entry_price`                                       | Giá khớp vào thực tế                                                                             |
+| `position.entry_<tên>`                                      | Giá trị lưu từ `entry.details.<tên>` khi tạo tín hiệu mở; ví dụ `position.entry_pivot` |
+| `position.initial_quantity`                                  | Số hợp đồng lúc mở vị thế                                                                     |
+| `position.held_bars`                                         | Số nến giữ vị thế                                                                                |
+| `account.equity`                                             | Giá trị tài khoản tại thời điểm xét                                                          |
+| `account.required_margin`                                    | Ký quỹ yêu cầu hiện tại                                                                         |
+| `day.net_pnl`                                                | P/L ròng ngày theo quy tắc tài khoản v1                                                          |
+| `day.start_equity`                                           | Giá trị tài khoản đầu ngày                                                                     |
+| `day.entry_fill_count`                                       | Số lần khớp mở vị thế trong ngày                                                               |
+| `clock.local_time`                                           | Giờ tại thời điểm đánh giá                                                                    |
 
 ### Phân biệt tên cố định và tên do khai báo quyết định
 
@@ -122,17 +117,12 @@ Mỗi object biểu thức chứa một phép toán, hoặc `ref`kèm`shift` tù
 | `ref`                         | Chuỗi tên trong bảng tham chiếu                        | Đọc giá trị, không thực thi mã               |
 | `shift`                       | Số nguyên >= 0, tùy chọn cùng ref                     | Lùi số mẫu; bỏ thì 0                           |
 
-Toán hạng số có thể là số hữu hạn JSON, một ref số hoặc một cây phép toán số.
-Chuỗi `"14:20"` dùng riêng khi so sánh với giờ, không dùng để cộng/trừ.
-Giá trong bars và các trường tiền có thể là chuỗi thập phân theo payload;
-trong cây công thức dùng số JSON như `6`,`0.01`. Bộ đọc phải giữ độ chính xác
-thập phân, không đi qua float để tính tiền. Không chấp nhận chia 0 hoặc tự đổi
-kết quả không hợp lệ thành 0. Không dùng phép số học với boolean.
-
-Trong `all`/`any`, chuỗi tên chỉ hợp lệ khi có conditions trong nhóm bao ngoài
-để tra tên. Không tra sang nhóm entry/exit khác; không cho tham chiếu vòng.
-`eq`,`not`,`cross_over`, hàm Python hoặc chuỗi`"close > sma20"` chưa thuộc
-bộ keyword này; không tự hiểu chúng như phép toán đã hỗ trợ.
+- Toán hạng số: số JSON hữu hạn, `ref` số hoặc cây phép toán số.
+- Chuỗi giờ như `"14:20"` dùng để so sánh giờ.
+- Giá nến và trường tiền nhận chuỗi thập phân; công thức dùng số JSON như `6`, `0.01`.
+- Tính tiền giữ độ chính xác thập phân. Chia 0, kết quả sai hoặc phép số học với boolean bị từ chối.
+- Tên trong `all`/`any` được tra trong `conditions` của cùng nhóm. Tham chiếu vòng bị từ chối.
+- Phép toán được hỗ trợ liệt kê trong bảng trên; `eq`, `not`, `cross_over`, mã Python và chuỗi điều kiện bị từ chối.
 
 ### Ví dụ điền từ câu điều kiện
 
@@ -166,18 +156,13 @@ bộ keyword này; không tự hiểu chúng như phép toán đã hỗ trợ.
 
 ## 4. Params ngoài cùng của payload
 
-Dữ liệu có thể nhập trong JSON hoặc để API tự lấy bằng `auto_fetch_data: true`.
-Khi `auto_fetch_data: true`, API ưu tiên tự lấy và bỏ qua toàn bộ `trade_data`
-và `market_data` nhập tay, kể cả dữ liệu nhập tay chưa hợp lệ. Khi `false`
-hoặc bỏ trường này, API dùng và kiểm tra dữ liệu nhập tay như trước.
-Tải lỗi thì dừng; không tự chuyển sang dùng dữ liệu nhập tay.
-Nếu có `report`, API chỉ lấy thêm số nến khởi tạo cần dùng trước `start_date`
-theo `warmup_bars`, chỉ báo và `shift`, rồi tải đến hết `end_date`. Không có
-`report` thì lấy sáu tháng gần nhất đến hiện tại.
-Xem quy tắc nến đã đóng và giới hạn lịch hợp đồng trong
-[đặc tả API](backtest-api-specification.md#3-cấu-trúc-request).
+- `auto_fetch_data: true`: thay cả hai nguồn nhập tay bằng dữ liệu tự tải, kể cả nguồn nhập tay sai.
+- Bỏ cờ hoặc đặt `false`: kiểm tra và dùng dữ liệu nhập tay.
+- Có `report`: lấy thêm số nến khởi tạo trước `start_date` theo `warmup_bars`, chỉ báo và `shift`; tải đến hết `end_date`.
+- Bỏ `report`: lấy sáu tháng gần nhất đến hiện tại. Lỗi tải kết thúc yêu cầu.
+- Xem [đặc tả API](backtest-api-specification.md#3-cấu-trúc-request) về nến đã đóng và lịch hợp đồng.
 
-**Params bắt buộc:**
+**Trường bắt buộc:**
 
 - `strategy`: Quy tắc giao dịch: dùng chỉ báo nào, khi nào mở/đóng vị thế, vào bao nhiêu hợp đồng và giới hạn rủi ro.
 - `execution`: Cách mô phỏng khớp lệnh, gồm thời điểm khớp và mức trượt giá (chi tiết mục 9).
@@ -187,7 +172,7 @@ Xem quy tắc nến đã đóng và giới hạn lịch hợp đồng trong
 **Định dạng nhập:** trade_data, strategy, execution, accounting là object JSON;
 initial_cash là chuỗi số thập phân, ví dụ `"100000000"`.
 
-**Params tùy chọn:**
+**Trường tùy chọn:**
 
 - `auto_fetch_data`: Boolean, mặc định `false`. Đặt `true` để tự tải cả VN30F1M và VNINDEX 5 phút từ VNDIRECT; dữ liệu tự tải luôn được ưu tiên hơn cả hai nguồn nhập tay.
 - `trade_data`: Lịch sử giá và khối lượng giao dịch; bắt buộc khi không bật tự lấy.
@@ -195,20 +180,19 @@ initial_cash là chuỗi số thập phân, ví dụ `"100000000"`.
   hai ngày này đồng thời xác định khoảng tải cùng sáu tháng dữ liệu khởi tạo.
 - `market_data`: Lịch sử VNINDEX để đánh giá thị trường chung. Khi nhập tay và có source/ref trỏ tới nguồn này thì phải gửi; nếu tự lấy thì máy chủ cung cấp.
 
-**Chỉ báo v1 lấy dữ liệu ở đâu?** Theo quyết định cập nhật, SMA20, EMA5,
-BB và MACD lấy `market_data.close`; MFI14 lấy HLCV trong `market_data`.
-Các so sánh Close với SMA/BB ở entry cũng lấy VNINDEX. Vì vậy market_data
-bắt buộc khi chạy v1. Các ví dụ trade_data.close ở mục tham chiếu chỉ minh
-họa cú pháp chung, không phải nguồn của chỉ báo entry v1 nữa.
-TP1/TP2 cách giá khớp vào 6/12 điểm theo hướng vị thế;
-giá khớp, stop, trailing và P/L đều dùng giá hợp đồng.
+Nguồn cho mẫu v1:
+
+- SMA20, EMA5, BB và MACD: `market_data.close` của VNINDEX.
+- MFI14: HLCV trong `market_data`; nguồn này bắt buộc cho v1.
+- So sánh Close với SMA/BB ở entry dùng VNINDEX. Ví dụ `trade_data.close` ở mục tham chiếu chỉ minh họa cú pháp.
+- Khớp lệnh, stop, trailing và P/L dùng giá hợp đồng. TP1/TP2 cách giá khớp 6/12 điểm theo hướng vị thế.
 
 ### accounting — tính tiền, ký quỹ, thuế và phí
 
 **Vị trí:** `accounting` ngoài cùng, cùng cấp với `initial_cash` và `strategy`.
 Các field dưới đây chỉ nhập trong accounting, không lặp lại ở ngoài cùng.
 
-**Param bắt buộc để chọn cách tính tiền:**
+**Chọn mô hình tính tiền:**
 
 - `model`: `"normalized"` cho mô hình mua/bán theo đơn vị giá hoặc `"contract"` cho hợp đồng.
 
@@ -223,7 +207,7 @@ khớp. Với `model: "contract"`, các param bắt buộc là:
 - `broker_fee_per_contract`: Phí môi giới mỗi hợp đồng mỗi lượt, mẫu điền
   `"0"`. Giá trị 0 chỉ bỏ phí môi giới, không bỏ các phí/thuế khác.
 
-**Param tùy chọn:**
+**Trường tùy chọn:**
 
 - `contract_multiplier`: Hệ số quy đổi điểm giá sang tiền, dùng tính P/L,
   rủi ro và ký quỹ. Bỏ thì mặc định `"100000"`; không nhân vào OHLC/chỉ báo.
@@ -249,19 +233,16 @@ Lưu đầy đủ giá trị áp dụng, kể cả mặc định, cùng kết qu
 }
 ```
 
-Theo công thức v1: tax_base = giá khớp × contract_multiplier × số hợp đồng
-× margin_rate / 2; PIT = tax_base × pit_rate. Mỗi khoản phí theo hợp đồng
-nhân với số hợp đồng khớp trong lượt đó; mở và đóng là hai lượt riêng.
-Các mức trên là cấu hình mô phỏng lấy từ tài liệu v1 hiện tại.
-`account.equity` trong cây điều kiện vẫn là trạng thái engine tính ra;
-không đổi thành `accounting.equity`. Bộ chạy thực thi cây quy tắc và kho file
-lưu/đọc cùng kết quả hợp đồng.
+- `tax_base = giá khớp × contract_multiplier × số hợp đồng × margin_rate / 2`.
+- `PIT = tax_base × pit_rate`. Phí theo hợp đồng nhân với lượng khớp; mở và đóng tính riêng.
+- Các mức trong ví dụ là tham số mô phỏng v1.
+- `account.equity` đọc vốn do bộ chạy tính; kết quả hợp đồng được lưu và đọc qua kho file.
 
 ### trade_data / market_data
 
-các nến đầu vào; field bars[].close là close trong từng phần tử bars.
+`bars` chứa các nến đầu vào; `bars[].close` là Close của từng nến.
 
-**Params bắt buộc:**
+**Trường bắt buộc:**
 
 - `bars` : Mảng nến có thứ tự thời gian.
 - `bars[].time` : Số nguyên Unix tại lúc mở nến.
@@ -269,7 +250,7 @@ các nến đầu vào; field bars[].close là close trong từng phần tử ba
 - `bars[].volume` (khi dùng mfi/quy tắc khối lượng): Số không âm.
 - `trade_data.contract_map` (khi tách hợp đồng v1): Bảng ánh xạ theo data contract, không tự suy từ OHLCV.
 
-**Params tùy chọn:**
+**Trường tùy chọn:**
 
 - `resolution`: Khung thời gian, mặc định `"5"` (5 phút); `"D"` là nến ngày.
 - `bars[].close_time`,`bars[].available_at` (tùy chọn với quy ước 5 phút đã chốt): Bỏ thì open+300 giây và available=close; không áp dụng mặc định này cho daily.
@@ -286,28 +267,27 @@ payload. Cách đọc ngày và chuyển kỳ theo [data contract v1](../data/vn
 **Vị trí:** `strategy`; các khai báo chỉ báo nằm trong`strategy.indicators`.
 **Mô tả:** chỉ báo cần tính và các nhóm quy tắc dùng kết quả đó.
 
-**Params bắt buộc (trường hợp áp dụng ghi tại từng field):**
+**Trường bắt buộc theo từng trường hợp:**
 
 - `entry`,`exit` : Theo mục 6–7.
 - `indicators` (khi quy tắc dùng chỉ báo): Object chứa các khai báo như sma20, ema5, bb
 - `sizing`: Bắt buộc; v1 dùng risk_and_margin, không có quy tắc ngầm mua 1 hợp đồng.
 
-**Params tùy chọn:**
+**Trường tùy chọn:**
 
-- `warmup_bars`: Số nến lịch sử tối thiểu của chuỗi chỉ báo (VNINDEX đối với v1) mà chiến lược yêu cầu trước khi được xét mở vị thế, tính cả nến đang xét đã đóng. V1 điền 150. Nếu bỏ, không áp thêm ngưỡng số nến riêng từ field này; chỉ xét khi các chỉ báo được dùng đã có giá trị hợp lệ.
+- `warmup_bars`: Số nến lịch sử tối thiểu của chuỗi chỉ báo (VNINDEX đối với v1) mà chiến lược yêu cầu trước khi được xét mở vị thế, tính cả nến đang xét đã đóng. Nếu bỏ, không áp thêm ngưỡng số nến riêng từ field này; chỉ xét khi các chỉ báo được dùng đã có giá trị hợp lệ.
 - `daily_limits`.
 
-Mọi chỉ báo cần `type`và`source`. Dưới đây là các loại đã có schema kiểm tra;
-SMA/EMA/BB/MACD/MFI/HIGHEST/LOWEST đã có hàm tính trong `domain/indicators.py`:
+Mỗi chỉ báo cần `type`, `source` và tham số theo bảng. Hàm tính nằm trong `domain/indicators.py`.
 
-| type (keyword cố định) | source được dùng                              | Tham số phải điền                                                                                        | Đầu ra để ref                          |
-| ------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------ |
-| `SMA`                   | Một cột số OHLCV của trade_data/market_data   | `period`: số nguyên dương                                                                              | Tên chỉ báo                             |
-| `HIGHEST` / `LOWEST`    | Một cột số OHLCV của trade_data/market_data   | `period`: số nguyên dương                                                                              | Tên chỉ báo                             |
-| `EMA`                   | Một cột giá của trade_data/market_data        | `period`: số nguyên dương                                                                              | Tên chỉ báo                             |
-| `BB`                    | Một cột giá của trade_data/market_data        | `period`,`stddev_multiplier` > 0                                                                         | tên.middle, tên.upper, tên.lower        |
-| `MACD`                  | Một cột giá của trade_data/market_data        | `fast_period`,`slow_period`,`signal_period`: fast < slow;`histogram`: chỉ`"line"` trong mẫu này | tên.line, tên.signal, tên.histogram     |
-| `MFI`                   | `"trade_data"`hoặc`"market_data"`, đủ HLCV | `period`: nguyên dương                                                                                  | Tên chỉ báo                             |
+| type (keyword cố định) | source được dùng                              | Tham số phải điền                                                                                        | Đầu ra để ref                      |
+| ------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------- |
+| `SMA`                   | Một cột số OHLCV của trade_data/market_data   | `period`: số nguyên dương                                                                              | Tên chỉ báo                         |
+| `HIGHEST` / `LOWEST`  | Một cột số OHLCV của trade_data/market_data   | `period`: số nguyên dương                                                                              | Tên chỉ báo                         |
+| `EMA`                   | Một cột giá của trade_data/market_data        | `period`: số nguyên dương                                                                              | Tên chỉ báo                         |
+| `BB`                    | Một cột giá của trade_data/market_data        | `period`,`stddev_multiplier` > 0                                                                         | tên.middle, tên.upper, tên.lower    |
+| `MACD`                  | Một cột giá của trade_data/market_data        | `fast_period`,`slow_period`,`signal_period`: fast < slow;`histogram`: chỉ`"line"` trong mẫu này | tên.line, tên.signal, tên.histogram |
+| `MFI`                   | `"trade_data"`hoặc`"market_data"`, đủ HLCV | `period`: nguyên dương                                                                                  | Tên chỉ báo                         |
 
 Ví dụ v1: SMA20, EMA5, BB(20,2), MACD(12,26,9), MFI14. Keyword
 `histogram: "line"` nghĩa là histogram bằng MACD line theo quyết định v1.
@@ -316,7 +296,7 @@ Ví dụ v1: SMA20, EMA5, BB(20,2), MACD(12,26,9), MFI14. Keyword
 
 Mô tả: điều kiện mở vị thế sau Close. Các giá trị bên dưới là của mẫu v1.
 
-**Params bắt buộc (trường hợp áp dụng ghi tại từng field):**
+**Trường bắt buộc theo từng trường hợp:**
 
 - `conditions`: Các nhánh `BUY` cho mô hình chuẩn hóa hoặc `LONG`,`SHORT` cho
   mô hình hợp đồng; mỗi nhánh là cây điều kiện.
@@ -339,7 +319,7 @@ Mô tả: điều kiện mở vị thế sau Close. Các giá trị bên dưới
 
 Mô tả: mức giá, điều kiện và thứ tự thoát vị thế.
 
-**Params bắt buộc (trường hợp áp dụng ghi tại từng field):**
+**Trường bắt buộc theo từng trường hợp:**
 
 - `allow_overnight`(cho v1):`false `.
 - `targets`(khi có target_touch): Với v1 có`LONG `và`SHORT `, mỗi hướng có`TP1 `,`TP2 ` là cây trả mức giá.
@@ -349,7 +329,7 @@ Mô tả: mức giá, điều kiện và thứ tự thoát vị thế.
 
 Trong mỗi nhóm intrabar/bar_close:
 
-**Params bắt buộc (trường hợp áp dụng ghi tại từng field):**
+**Trường bắt buộc theo từng trường hợp:**
 
 - `conditions` : Tên điều kiện → định nghĩa; tên thoát là nhãn để tham chiếu.
 - `any` : Danh sách tên có trong conditions, không rỗng.
@@ -362,7 +342,7 @@ MARGIN_BREACH → FORCED_EXIT → TIME_STOP.
 
 ### Hành động trong intrabar.conditions
 
-**Params bắt buộc (trường hợp áp dụng ghi tại từng field):**
+**Trường bắt buộc theo từng trường hợp:**
 
 - `type`: `"protective_stop"` hoặc`"target_touch"`.
 - `quantity`:`"remaining"` hoặc object chia số lượng dưới đây.
@@ -370,12 +350,12 @@ MARGIN_BREACH → FORCED_EXIT → TIME_STOP.
 - `level`(với target_touch):`"TP1"`hoặc`"TP2"`, phải có trong targets của hướng đang giữ.
 - `requires`(khi phụ thuộc khớp trước): Mẫu chỉ có`"TP1_filled"` ở TP2; TP1 bỏ trường này.
 
-**Params tùy chọn:**
+**Trường tùy chọn:**
 
 - `trailing` (tùy chọn cho stop).
 
 **Vị trí:** `strategy.exit.intrabar.conditions.TP1.quantity`.
-**Params:** cả ba trường đều bắt buộc khi chọn quantity dạng object:
+**Trường:** cả ba trường đều bắt buộc khi chọn quantity dạng object:
 
 | Trường                   | Điền gì?                   |
 | -------------------------- | ----------------------------- |
@@ -383,32 +363,32 @@ MARGIN_BREACH → FORCED_EXIT → TIME_STOP.
 | `then`                   | `"remaining"`               |
 | `else`                   | Cây trả số lượng nguyên |
 
-Không phải cú pháp if tổng quát.
+Cấu trúc này chỉ chọn lượng TP theo số hợp đồng ban đầu.
 
 ### Các trường trailing khi khai báo
 
 **Vị trí:** `strategy.exit.intrabar.conditions.PROTECTIVE_STOP.trailing`.
-**Params bắt buộc:**
+**Trường bắt buộc:**
 
-| Trường                                                                           | Keyword / giá trị v1         |
-| ---------------------------------------------------------------------------------- | ------------------------------ |
-| `activate_after`                                                                 | Chỉ`"TP1_fill"`             |
-| `distance_points`                                                                | Số dương, v1`6`           |
-| `seed`                                                                           | Chỉ`"TP1_price"`            |
-| `extrema_from`                                                                   | Chỉ`"bar_after_TP1"`        |
-| `update_at`                                                                      | Chỉ`"bar_close"`            |
-| `effective_from`                                                                 | Chỉ`"next_bar"`             |
-| `combine`                                                                        | Chỉ`"tightest"`             |
-| `allow_widening`                                                                 | `false`trong thiết kế này |
+| Trường            | Keyword / giá trị v1         |
+| ------------------- | ------------------------------ |
+| `activate_after`  | Chỉ`"TP1_fill"`             |
+| `distance_points` | Số dương, v1`6`           |
+| `seed`            | Chỉ`"TP1_price"`            |
+| `extrema_from`    | Chỉ`"bar_after_TP1"`        |
+| `update_at`       | Chỉ`"bar_close"`            |
+| `effective_from`  | Chỉ`"next_bar"`             |
+| `combine`         | Chỉ`"tightest"`             |
+| `allow_widening`  | `false`trong thiết kế này |
 
-Các trường không tự thay thế cho nhau. Trailing không lấy High/Low của chính nến TP1.
+Trailing bắt đầu lấy cực trị từ nến sau TP1.
 
 ## 8. sizing và daily_limits
 
 **Vị trí:** `strategy.sizing`và`strategy.daily_limits`.
 **Mô tả:** tính số hợp đồng và giới hạn mở mới trong ngày.
 
-**Params bắt buộc (trường hợp áp dụng ghi tại từng field):**
+**Trường bắt buộc theo từng trường hợp:**
 
 - `type`: `"risk_and_margin"` cho mô hình hợp đồng hoặc `"fixed_fractional"`
   cho mô hình chuẩn hóa.
@@ -422,24 +402,21 @@ Với `fixed_fractional`, điền `risk_fraction` và `stop_loss_fraction`. Số
 bằng phần nguyên của vốn chịu rủi ro chia rủi ro trên một đơn vị, sau đó giới
 hạn tiếp bởi số lượng mua được sau phí.
 
-V1 dùng any của P/L ròng ngày <= −2% equity đầu ngày và số lần khớp mở >= 3.
-Đạt giới hạn chỉ ngừng mở mới, vẫn quản trị vị thế đang giữ. Không cần gửi
-`manage_existing_position` để bật hành vi này.
+- V1 ngừng mở mới khi P/L ròng ngày ≤ −2% vốn đầu ngày hoặc đã có 3 lần khớp mở.
+- Vị thế đang giữ tiếp tục được quản trị theo quy tắc thoát.
 
 ## 9. execution — cách khớp lệnh
 
 Mô tả: cách khớp lệnh mở và trượt giá.
 
-| Trường execution | Yêu cầu trong mẫu |
-| ------------------ | -------------------- |
-| `entry_fill_policy`  | Tương thích JSON cũ; cấu hình mới dùng `strategy.entry.order`/`actions` |
-| `slippage_rate`  | Bắt buộc           |
-| `matching_model` | `next_open` (mặc định khi bỏ trống) hoặc `hnx_sessions_v1` cho ATO/LO/ATC |
+| Trường execution         | Yêu cầu trong mẫu                                                                   |
+| -------------------------- | -------------------------------------------------------------------------------------- |
+| `entry_fill_policy`      | Tương thích JSON cũ; cấu hình mới dùng `strategy.entry.order`/`actions`    |
+| `slippage_rate`          | Bắt buộc                                                                             |
+| `matching_model`         | `next_open` (mặc định khi bỏ trống) hoặc `hnx_sessions_v1` cho ATO/LO/ATC    |
 | `auction_match_quantity` | Không bắt buộc; số nguyên không âm, giới hạn cố định lượng khớp ATO/ATC |
 
-Chưa có keyword để tự chọn mọi loại lệnh/thời điểm khớp. Định nghĩa hiện tại
-vẫn phải thực thi đúng thứ tự xử lý, giá gap stop/target, làm tròn bước giá,
-phí/ký quỹ và lịch trong [tài liệu thực thi v1](canslim-v1-execution-accounting.md).
+Thứ tự xử lý, giá gap, bước giá, phí/ký quỹ và lịch theo [tài liệu thực thi v1](canslim-v1-execution-accounting.md).
 
 **Ví dụ:**
 
@@ -447,31 +424,23 @@ phí/ký quỹ và lịch trong [tài liệu thực thi v1](canslim-v1-execution
 {"execution": {"entry_fill_policy": "next_open", "slippage_rate": "0"}}
 ```
 
-Trong JSON cũ, ATO dùng `entry_fill_policy: "ato"`; điều kiện vào được xét lúc 08:45 từ dữ liệu
-đã hoàn tất, lượng đặt chốt theo Close liên tục gần nhất và khớp tại Open 09:00.
-ATC dùng `strategy.exit.bar_close.fill_policy: "atc"` và khớp tại Close bản ghi
-14:45. Bỏ `auction_match_quantity` để giả định khớp đủ; đặt `2` để kiểm tra tối đa
-2 hợp đồng được khớp trong mỗi đợt. Đây là giới hạn mô phỏng, không phải thanh
-khoản suy ra từ volume. Xem [khớp theo phiên HNX](hnx-session-matching.md).
+- ATO theo JSON cũ: `entry_fill_policy: "ato"`; xét lúc 08:45, tính lượng từ Close liên tục gần nhất, khớp Open 09:00.
+- ATC theo JSON cũ: `strategy.exit.bar_close.fill_policy: "atc"`; khớp Close bản ghi 14:45.
+- Bỏ `auction_match_quantity`: giả định khớp đủ. Đặt `2`: mỗi lệnh khớp tối đa 2 hợp đồng.
+- Giới hạn lượng là tham số mô phỏng. Xem [khớp theo phiên HNX](hnx-session-matching.md).
 
 ### 9.1. Chọn lệnh trong chiến lược
 
-Hai payload đầy đủ để nạp lên web hoặc gửi API:
-[LO tự lấy dữ liệu](../examples/orders/lo-auto.json) và
-[ATO/ATC giới hạn lượng khớp](../examples/orders/ato-atc-partial-auto.json).
-Các mẫu giữ điều kiện và tham số của ví dụ tương ứng trước đây, chỉ chuyển
-nơi khai báo lệnh. Mẫu ATO/ATC dùng thời hạn cố định của phiên đấu giá.
-Đây là cấu hình minh họa; kiểm tra schema không thay nghiệm thu dữ liệu thật.
+Payload đầy đủ để nạp lên web hoặc gửi API:
 
-Các đoạn dưới đây thay phần tương ứng trong payload, không phải yêu cầu API
-đầy đủ. Giữ nguyên điều kiện, ngưỡng, dữ liệu và cách tính tiền khi chuyển đổi.
+- [LO tự lấy dữ liệu](../examples/orders/lo-auto.json).
+- [ATO/ATC giới hạn lượng khớp](../examples/orders/ato-atc-partial-auto.json): thời hạn theo phiên đấu giá.
 
-Với normalized hoặc contract dùng `next_open`, thay
-`execution.entry_fill_policy: "next_open"` bằng
-`strategy.entry.order: {"type":"SIMULATED"}`. Với nhóm đóng, thay
-`bar_close.fill_policy: "next_open"` bằng `bar_close.order` cùng giá trị.
-`execution.matching_model: "next_open"` chỉ chọn cách khớp; `SIMULATED`
-giữ yêu cầu mô phỏng cũ, chưa phải loại lệnh Market của sàn.
+Các đoạn dưới là phần cấu hình để thay trong payload hiện có. Giữ điều kiện, ngưỡng, dữ liệu và cách tính tiền.
+
+- Với `next_open`, thay `execution.entry_fill_policy: "next_open"` bằng `strategy.entry.order: {"type":"SIMULATED"}`.
+- Nhóm đóng: thay `bar_close.fill_policy: "next_open"` bằng `bar_close.order` cùng giá trị.
+- `execution.matching_model` chọn cách khớp; `SIMULATED` giữ cơ chế mô phỏng tại Open kế tiếp.
 
 Ví dụ LO: chọn `execution.matching_model: "hnx_sessions_v1"`, bỏ
 `entry_fill_policy: "limit"` và chuyển `entry.limit_price` vào `order`:
@@ -488,9 +457,8 @@ giữ các điều kiện và thứ tự ưu tiên đã được chọn:
 {"order":{"type":"ATC"},"quantity":"remaining"}
 ```
 
-Không gắn `limit_price` hoặc `pending` vào ATO/ATC. Nếu JSON cũ dùng
-HNX cùng `next_open`, vẫn giữ model HNX và chuyển riêng loại lệnh sang
-SIMULATED; kiểm tra phiên và lệnh ATC tiếp tục áp dụng.
+- ATO/ATC dùng thời hạn cố định của phiên; cấu hình chỉ chứa loại lệnh.
+- JSON cũ dùng HNX cùng `next_open`: giữ model HNX và đổi loại lệnh sang `SIMULATED`.
 
 Để nhánh A/B chọn lệnh riêng, thêm vào nhóm `entry`:
 
@@ -505,17 +473,33 @@ SIMULATED; kiểm tra phiên và lệnh ATC tiếp tục áp dụng.
 }
 ```
 
-`conditions` phải có đúng nhãn A/B. Mỗi nhánh dùng điều kiện `all`/`any`
-hiện có; không cần thêm `if` để chọn loại lệnh theo nhánh. ATO chỉ được xét
-lúc 08:45, LO trong phiên liên tục. Chưa có Market/MTL/MOK/MAK.
+- `conditions` cần đúng nhãn A/B; mỗi nhánh dùng `all`/`any`.
+- ATO xét lúc 08:45; LO trong phiên liên tục.
+- MTL/MOK/MAK xem mục 9.2.
 
-Nếu muốn đặt nhiều nhánh cùng đúng, đặt `sizing.pyramiding: true`, dùng
-contract/HNX và chỉ LO/ATO cho lệnh mở; bỏ `on_conflict` và các cờ
-`require_flat: true`/`require_no_pending: true`. Hạn mức tính cả lượng đang
-giữ và lượng mở đang chờ; nhánh sau được giảm lượng theo phần còn đủ.
-Chỉ bổ sung cùng hướng. Mỗi lần mở giữ giá vốn, stop/TP và thời gian riêng;
-lệnh đóng `remaining` áp dụng cho phần vị thế đang xét. Xem hợp đồng đầy đủ
-tại [đặc tả API, mục 3.4](backtest-api-specification.md#34-execution).
+Để đặt nhiều nhánh cùng đúng:
+
+- Dùng contract/HNX, `sizing.pyramiding: true` và lệnh mở LO/ATO/MTL/MOK/MAK.
+- Bỏ `on_conflict`, `require_flat: true`, `require_no_pending: true`.
+- Hạn mức gồm lượng đang giữ và mở đang chờ; nhánh sau nhận phần còn đủ.
+- Chỉ bổ sung cùng hướng. Mỗi lần mở giữ giá vốn, stop/TP và thời gian riêng.
+- Lệnh đóng `remaining` áp dụng cho phần đang xét. Xem [API mục 3.4](backtest-api-specification.md#34-execution).
+
+### 9.2. MTL/MOK/MAK với lượng đối ứng cố định
+
+[market-fixed.json](../examples/orders/market-fixed.json) dùng dữ liệu tổng hợp:
+
+- MTL đặt mở 5, khớp 2+2+1.
+- Hai tín hiệu MAK đóng lần lượt 2 và 2; còn 1 hợp đồng cuối kỳ.
+- Mỗi MAK hủy dư ngay sau lần thử khớp.
+- Chọn `execution.matching_model: "hnx_sessions_v1"`, `execution.continuous_match_quantity: 2` và accounting contract.
+- Cung cấp `trade_data.price_limits` có nguồn; dữ liệu tự lấy hiện thiếu bảng này.
+- Mở/đóng khai báo `order.type`: `MAK`, `MOK` hoặc `MTL`.
+- MTL có `pending` cho LO dư; đổi sang MAK/MOK phải xóa `pending`. Giá khớp do bộ khớp xác định.
+- Giá dự kiến tính lượng là Close đã hoàn tất; thử khớp ở Open liên tục kế tiếp cùng buổi.
+- MTL chuyển dư sang LO nhưng chỉ xét LO từ nến sau chuyển đổi.
+- Lượng cố định dùng chung mỗi nến/hợp đồng, không phải volume thị trường.
+- Xem [quy tắc phiên](hnx-session-matching.md#7-đặc-tả-mtlmokmak--a01).
 
 ## 10. Kiểm tra trước khi gửi
 
@@ -523,6 +507,6 @@ tại [đặc tả API, mục 3.4](backtest-api-specification.md#34-execution).
 2. Mỗi chỉ báo có type/source và đủ tham số theo type; mọi ref có nguồn rõ ràng.
 3. Mỗi phép toán đủ toán hạng và đúng kiểu; all/any không chứa cây trả số.
 4. Tên trong any/priority tồn tại; không dùng ref vị thế ở entry khi chưa có vị thế.
-5. Không đọc nến tương lai; đủ lịch sử VNINDEX và dữ liệu khớp đúng hợp đồng.
+5. Chỉ dùng dữ liệu đã khả dụng; đủ lịch sử VNINDEX và đúng mã hợp đồng.
 6. Mẫu v1 giữ 150 nến tính cả t và tối đa 5 hợp đồng; kỳ báo cáo phải nằm trong dữ liệu thực có.
-7. Hai nến minh họa chưa đủ lịch sử chạy thật; nghiệm thu dữ liệu thật sáu tháng là kiểm tra riêng.
+7. Bổ sung lịch sử cho mẫu hai nến trước khi chạy CANSLIM v1.

@@ -1,9 +1,7 @@
 # Màu sắc và bố cục giao diện
 
-Ứng dụng chính dùng `create_app(..., preview=True)`: nạp
-[preview.css](../../src/backtesting_api/web/preview.css) sau các CSS nền,
-và phục vụ `preview-theme.mjs` khi trình duyệt yêu cầu `theme.mjs`.
-Bảng dưới mô tả CSS đang dùng; không phải thiết kế cho một trang giới thiệu riêng.
+- Ứng dụng chính dùng `create_app(..., preview=True)`: nạp [preview.css](../../src/backtesting_api/web/preview.css) sau các CSS nền, và phục vụ `preview-theme.mjs` khi trình duyệt yêu cầu `theme.mjs`.
+- Bảng dưới mô tả CSS đang dùng; không phải thiết kế cho một trang giới thiệu riêng.
 
 ## 1. Màu giao diện
 
@@ -35,11 +33,11 @@ Chart lấy màu từ theme hiện tại.
 
 ## 3. Bố cục và điều khiển
 
-Nội dung rộng tối đa 1200 px. Mục lục dọc xuất hiện từ 1200 px,
-cửa sổ nhỏ dùng nút mở mục lục. CSS riêng tại
-[backtest-navigation.css](../../src/backtesting_api/web/backtest-navigation.css).
-Form nhập tham số dùng [backtest-input.css](../../src/backtesting_api/web/backtest-input.css).
-Các bảng cuộn theo trang; equity có nút thu gọn riêng.
+- Nội dung rộng tối đa 1200 px.
+- Mục lục dọc xuất hiện từ 1200 px, cửa sổ nhỏ dùng nút mở mục lục.
+- CSS riêng tại [backtest-navigation.css](../../src/backtesting_api/web/backtest-navigation.css).
+- Form nhập tham số dùng [backtest-input.css](../../src/backtesting_api/web/backtest-input.css).
+- Các bảng cuộn theo trang; equity có nút thu gọn riêng.
 
 VN / ENG và nút sáng/tối cùng nằm ở đầu trang. Ngôn ngữ hiện chọn được đánh
 dấu bằng chữ đậm/gạch chân; chọn ngôn ngữ hoặc theme không chạy lại backtest.
@@ -47,4 +45,4 @@ Chi tiết lưu lựa chọn, trạng thái, chart và khả năng truy cập t�
 [đặc tả giao diện](web-ui-specification.md).
 
 `theme.css`/`theme.mjs` vẫn phục vụ khi tạo app không bật preview.
-Không xóa các tài nguyên này chỉ vì ứng dụng chính dùng bảng màu preview.
+Giữ tài nguyên nền để phục vụ cấu hình này.

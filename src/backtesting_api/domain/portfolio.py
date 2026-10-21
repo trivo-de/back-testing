@@ -21,6 +21,7 @@ class Position:
     entry_price: Decimal
     entry_fee: Decimal
 
+    # Return the position's entry notional including its entry fee.
     @property
     def cost_basis(self) -> Decimal:
         # Return entry value including the entry fee.

@@ -52,6 +52,31 @@ const files = ['payload-hpg-canslim-v0-daily.json', 'payload-vn30f1m-canslim-v0.
 const payload = name => JSON.parse(readFileSync(new URL(`../../data/payload_examples/${name}`, import.meta.url), 'utf8'));
 const sample = () => JSON.parse(readFileSync(new URL('../../src/backtesting_api/web/canslim-v1-example.json', import.meta.url), 'utf8'));
 
+test('market order controls preserve sourced bounds and reject unsupported pending or models', () => {
+    const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
+    try {
+        const ui = editor(), value = sample();
+        value.execution = {matching_model: 'hnx_sessions_v1', slippage_rate: 0, continuous_match_quantity: 2};
+        delete value.strategy.entry.pending;
+        delete value.strategy.exit.bar_close.fill_policy;
+        value.strategy.entry.order = {type: 'MTL'};
+        value.strategy.exit.bar_close.order = {type: 'MAK'};
+        value.trade_data.price_limits = [{trading_date: '2026-03-25', contract_code: 'VN30F2604',
+            floor_price: '900', ceiling_price: '1100', available_at: 1774403100, source: 'synthetic'}];
+        ui.input.setPayload(value);
+        assert.deepEqual(ui.input.read(), value);
+        assert.ok(ui.walk().some(e => e.value === 'MOK'));
+        ui.field('Số nến chờ khớp tối đa').value = '3'; ui.field('Số nến chờ khớp tối đa').onchange();
+        ui.field('Loại lệnh').value = 'MAK'; ui.field('Loại lệnh').onchange();
+        assert.throws(() => ui.input.read(), /MAK\/MOK không nhận số nến chờ/);
+        ui.field('Số nến chờ khớp tối đa').value = ''; ui.field('Số nến chờ khớp tối đa').onchange();
+        assert.equal(ui.input.read().strategy.entry.actions[value.strategy.entry.any[0]].order.type, 'MAK');
+        ui.field('Mô hình khớp lệnh').value = 'next_open'; ui.field('Mô hình khớp lệnh').onchange();
+        assert.throws(() => ui.input.read(), /cần mô hình khớp theo phiên HNX/);
+        assert.equal(ui.field('Loại lệnh').value, 'MAK');
+    } finally {globalThis.document = previous;}
+});
+
 test('order controls migrate legacy settings, preserve parameters and synchronize JSON', () => {
     const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
     try {

@@ -1,37 +1,33 @@
 # Khớp lệnh theo phiên HNX trên nến 5 phút
 
-Chế độ `hnx_sessions_v1` hỗ trợ ATO mở vị thế, LO trong phiên liên tục và ATC
-đóng vị thế. Đây là mô phỏng OHLC; `execution.auction_match_quantity` có thể giới
-hạn lượng khớp mỗi lệnh ATO/ATC để kiểm tra khớp một phần. Cấu hình này không tái
-dựng sổ lệnh, hàng đợi hoặc thanh khoản thật. Không đổi mẫu CANSLIM v1 hiện hành.
+`hnx_sessions_v1` mô phỏng ATO mở, LO liên tục và ATC đóng trên OHLC. `execution.auction_match_quantity` giới hạn lượng khớp từng lệnh đấu giá.
 
-Checklist mở rộng ATO/ATC theo quy ước OHLCV đã chốt ngày 14/10/2026 nằm ở
-mục 6. Trạng thái trong checklist phân biệt cơ chế đã kiểm thử tổng hợp với mô
-hình thanh khoản và nghiệm thu dữ liệu thật chưa thực hiện.
+MTL/MOK/MAK và LO khớp nhiều lần với ngân sách đối ứng cố định được mô tả
+riêng ở [mục 7](#7-đặc-tả-mtlmokmak--a01); phải bật cấu hình mới để sử dụng.
+
+Mục 6 ghi yêu cầu ATO/ATC chốt ngày 14/10/2026 và trạng thái kiểm thử từng phần.
 
 ## 1. Bật chế độ
 
-Cấu hình mới đặt lệnh trong `strategy.entry.order` hoặc
-`strategy.entry.actions.<nhãn>.order`, và tương tự dưới `exit.bar_close`.
-Ví dụ mở LO dùng `{"type":"LO","limit_price":{"ref":"trade_data.close"}}`,
-mở ATO dùng `{"type":"ATO"}`, đóng ATC dùng `{"type":"ATC"}`.
-`execution.matching_model` vẫn là `hnx_sessions_v1`. Các trường
-`entry_fill_policy`, `fill_policy`, `limit_price` ở cấp nhóm trong ví dụ cũ
-bên dưới tiếp tục được đọc qua lớp tương thích; khai báo cũ/mới mâu thuẫn bị
-từ chối. Xem [hướng dẫn chuyển đổi](strategy-payload-guide.md#91-chọn-lệnh-trong-chiến-lược).
+- Khai báo lệnh tại `strategy.entry.order` hoặc `strategy.entry.actions.<nhãn>.order`; nhóm đóng dùng `exit.bar_close` tương tự.
+- Ví dụ: LO `{"type":"LO","limit_price":{"ref":"trade_data.close"}}`, ATO `{"type":"ATO"}`, ATC `{"type":"ATC"}`.
+- Chọn `execution.matching_model: "hnx_sessions_v1"`.
+- Cấu hình cũ vẫn được đọc; cũ/mới mâu thuẫn bị từ chối. Xem [hướng dẫn chuyển đổi](strategy-payload-guide.md#91-chọn-lệnh-trong-chiến-lược).
 
-`sizing.pyramiding: true` cho phép nhiều nhánh LO/ATO theo `entry.priority`.
-Hạn mức gồm lượng đang giữ và mở đang chờ; mỗi lần mở có giá vốn và bảo vệ
-riêng. `remaining` đóng phần đang xét; bảo vệ chỉ hủy lệnh đóng chờ cùng
-`position_id`. Đường `next_open` và lệnh mở SIMULATED không bật chế độ này.
+- `sizing.pyramiding: true`: xử lý nhiều nhánh LO/ATO theo `entry.priority`.
+- Hạn mức gồm lượng đang giữ và mở đang chờ. Mỗi lần mở có giá vốn và bảo vệ riêng.
+- `remaining` đóng phần đang xét; bảo vệ hủy lệnh đóng chờ cùng `position_id`.
+- `next_open` và lệnh mở `SIMULATED` dùng chế độ một vị thế.
 
-Trong chế độ nhiều phần, thứ tự mỗi nến là: lệnh chờ khớp tại Open, bảo vệ
-tại Open, LO chạm giá được ghi tại Close, rồi bảo vệ trong nến tại Close.
-Cùng thời điểm dùng thứ tự gửi lệnh/thứ tự phần vị thế. Vì vậy TP đã đạt
-ngay tại Open không bị thay bằng stop do Low/High xuất hiện sau đó; trailing
-chỉ cập nhật sau Close. Lệnh đóng đã khớp tại Open có ưu tiên trước bảo vệ
-cùng Open. Đường một vị thế giữ thứ tự bảo vệ trước đây. Các giả định này
-được ghi trong metadata; OHLC không xác định thứ tự chạm giá thật trong nến.
+Thứ tự mỗi nến khi có nhiều phần vị thế:
+
+1. Khớp lệnh chờ tại Open, rồi xử lý bảo vệ tại Open.
+2. Ghi LO chạm giá tại Close, rồi xử lý bảo vệ trong nến.
+3. Cập nhật trailing sau Close.
+
+- Cùng thời điểm: theo thứ tự gửi lệnh và phần vị thế.
+- Lệnh đóng tại Open ưu tiên trước bảo vệ cùng Open. TP đạt tại Open được giữ dù nến chạm stop sau đó.
+- Một vị thế giữ thứ tự bảo vệ cũ. Các giả định được ghi trong metadata vì OHLC chỉ cho biết các mức giá của nến.
 
 Giữ `accounting.model: "contract"`, `trade_data.resolution: "5"`,
 `trade_data.timezone: "Asia/Ho_Chi_Minh"`. Nhập dữ liệu thì dùng
@@ -49,34 +45,32 @@ Khai báo:
 }
 ```
 
-`auction_match_quantity` là số nguyên không âm và không bắt buộc. Bỏ trường này
-để giả định khớp đủ; đặt `2` nghĩa là mỗi lệnh đấu giá khớp tối đa 2 hợp đồng;
-đặt `0` để kiểm tra trường hợp không khớp. Chỉ dùng trường này khi có lệnh ATO
-hoặc ATC. Giá trị được ghim trong đầu vào và metadata kết quả.
+`auction_match_quantity` là số nguyên không âm, dùng khi có ATO/ATC:
 
-Không khai báo `matching_model` thì giữ đường chạy cũ; `normalized` không dùng
-chế độ này. Dữ liệu nhập tay cần nguồn và mã hợp đồng theo ngày. Khi tự lấy,
-service tải VN30F1M/VNINDEX 5 phút như luồng hiện có, tạo `contract_dates` từ bảng
-đáo hạn đã cung cấp theo giả định giữ mã đến hết ngày đáo hạn, chuyển từ ngày sau đó.
-Giả định này đã được người dùng đồng ý và được lưu cùng nguồn dữ liệu; không xác
-minh lịch chuyển mã của nhà cung cấp. Các kiểm tra lịch phiên và độ phủ bảng hợp
-đồng vẫn áp dụng. Không tự đổi mô hình tiền, trượt giá, ngưỡng hoặc giờ thoát CANSLIM.
+- Bỏ trường: giả định khớp đủ.
+- Đặt `2`: tối đa 2 hợp đồng mỗi lệnh đấu giá.
+- Đặt `0`: thử trường hợp hết hiệu lực mà chưa khớp.
+- Giá trị được ghim cùng đầu vào và metadata.
 
-Trên web có thể bật lấy dữ liệu tự động khi chọn khớp theo phiên HNX. `/validate`
-trả lại payload đầy đủ với `auto_fetch_data: false` để chạy lại đúng dữ liệu đã
-kiểm tra. ATO/ATC chỉ chạy khi dữ liệu trả về có bản ghi nhãn 09:00/14:45 cần
-thiết; thiếu bản ghi thì lượt chạy báo lỗi, không lấy giá gần nhất thay thế.
+- Bỏ `matching_model`: giữ bộ khớp cũ. Chế độ HNX áp dụng cho contract.
+- Nhập tay: cung cấp nguồn và mã hợp đồng theo ngày.
+- Tự lấy: tải VN30F1M/VNINDEX 5 phút, tạo `contract_dates` với giả định chuyển mã sau ngày đáo hạn. Giả định và nguồn được lưu cùng lượt chạy.
+- Lịch chuyển mã cần đối chiếu riêng với nhà cung cấp; lịch phiên và độ phủ bảng hợp đồng vẫn được kiểm tra.
+- Mô hình tiền, trượt giá, ngưỡng và giờ thoát lấy từ cấu hình chiến lược.
 
-ATO mở vị thế dùng `execution.entry_fill_policy: "ato"`. Engine xét điều kiện lúc
-08:45 bằng dữ liệu đã hoàn tất trước thời điểm đó, chốt lượng đặt theo Close liên
-tục gần nhất và kiểm tra lại ký quỹ tại Open 09:00. Vì vậy dữ liệu phải có lịch sử
-trước ngày cần vào ATO; Open 09:00 không được dùng để quyết định hoặc tính lượng.
+- Web hỗ trợ tự lấy khi chọn HNX.
+- `/validate` trả payload đầy đủ với `auto_fetch_data: false` để chạy đúng dữ liệu đã kiểm tra.
+- ATO/ATC cần bản ghi nhãn 09:00/14:45 tương ứng; thiếu bản ghi làm lượt chạy lỗi.
 
-LO mở khai báo `strategy.entry.limit_price` bằng biểu thức số hiện có, ví dụ
-`{"ref":"trade_data.close"}` hoặc `{"sub":[{"ref":"trade_data.close"},0.5]}`.
-Giá và số lượng được chốt tại thời điểm tín hiệu, không tính lại theo nến tương lai.
-Giá giới hạn phải dương và đúng bước 0,1 điểm; sai thì lệnh bị từ chối.
-`next_open` vẫn dùng được và giữ cách tính khối lượng tại Open.
+ATO theo cấu hình cũ dùng `execution.entry_fill_policy: "ato"`:
+
+1. Xét điều kiện lúc 08:45 bằng dữ liệu đã hoàn tất.
+2. Chốt lượng theo Close liên tục gần nhất; cần lịch sử trước ngày vào lệnh.
+3. Kiểm tra ký quỹ tại Open 09:00 rồi khớp.
+
+- LO mở theo cấu hình cũ dùng `strategy.entry.limit_price`, ví dụ `{"ref":"trade_data.close"}` hoặc `{"sub":[{"ref":"trade_data.close"},0.5]}`.
+- Chốt giá và lượng tại thời điểm tín hiệu. Giá giới hạn phải dương, đúng bước 0,1 điểm.
+- `next_open` vẫn tính lượng tại Open thực thi.
 
 LO đóng dùng `strategy.exit.bar_close.fill_policy: "limit"` cùng `limit_price`;
 khối lượng là `remaining`, được chốt khi gửi lệnh. Nếu stop/target làm thay đổi vị thế
@@ -96,50 +90,38 @@ LO mua khớp tại Open nếu Open ≤ giá giới hạn; nếu không, Low ch�
 khớp tại giới hạn. LO bán áp dụng đối xứng bằng Open/High. Đóng LONG là bán,
 đóng SHORT là mua. Không dùng volume cuối nến để quyết định khớp tại Open.
 
-`strategy.entry.pending.max_execution_bars` mặc định 1, cho phép số nguyên ≥ 1
-ở chế độ mới; đây là thời hạn chờ cho các LO. Các cờ `cross_lunch`, `cross_cutoff`,
-`cross_session` vẫn chỉ nhận `false`. LO chưa khớp bị hủy trước nghỉ trưa, trước ATC
-hoặc khi qua giờ giới hạn mở vị thế. Hết số nến chờ thì `expired`.
-Hủy tại ranh giới phiên là chính sách gửi lệnh đã khai báo trước, được xử lý
-trước khi engine chuyển sang phiên tiếp theo; không phải lệnh hủy gửi trong ATC.
+- `strategy.entry.pending.max_execution_bars` là số nguyên ≥ 1, mặc định 1, quy định số nến chờ LO.
+- `cross_lunch`, `cross_cutoff`, `cross_session` chỉ nhận `false`.
+- LO hết số nến chờ chuyển `expired`; hủy khi đến nghỉ trưa, ATC hoặc hạn mở.
+- Hủy tại ranh giới là chính sách gửi lệnh đã khai báo, xử lý trước khi chuyển phiên.
 
-LO mở tại Open dùng thứ tự stop/target hiện có. LO mở giữa nến được ghi thời điểm
-khớp tại Close của nến đó và giữ `bar_time` là Open chứa khớp. Stop có thể đóng
-ngay trong nến này; mục tiêu chốt lời chỉ xét từ nến kế tiếp. Thứ tự giá trong nến
-không được biết: stop có thể bị ghi nhận theo giả định bảo thủ dù thực tế giá chạm
-stop trước lúc mở vị thế. Tất cả giả định được lưu trong kết quả.
+- LO mở tại Open dùng thứ tự stop/target hiện có.
+- LO chạm trong nến: ghi khớp tại Close, `bar_time` là Open của nến chứa khớp.
+- Stop có thể đóng ngay nến mở; target xét từ nến kế tiếp.
+- Giả định bảo thủ có thể ghi stop dù mức stop xuất hiện trước lúc mở trong thực tế. Giả định được lưu cùng kết quả.
 
-Khối lượng LO mở tính bằng công thức rủi ro/ký quỹ hiện có, lấy giá giới hạn làm
-giá dự kiến. ATO dùng Close liên tục gần nhất đã khả dụng trước 08:45. Khi khớp,
-kiểm tra lại ký quỹ sau phí ở giá thực hiện; thiếu thì từ chối toàn bộ, không tự
-giảm số hợp đồng. Không mô phỏng đảo chiều. Nếu ATC chỉ đóng được một phần,
-`allow_overnight: false` làm lượt chạy lỗi `END_OF_DAY_POSITION_REQUIRES_EXIT`;
-không khai báo cờ này thì kết quả giữ vị thế còn lại để đối chiếu.
+- LO tính lượng theo rủi ro/ký quỹ tại giá giới hạn; ATO dùng Close liên tục đã khả dụng trước 08:45.
+- Khi khớp, kiểm tra ký quỹ sau phí tại giá thực hiện. Thiếu tiền thì từ chối toàn bộ lượng định khớp.
+- ATC đóng một phần và `allow_overnight: false`: trả `END_OF_DAY_POSITION_REQUIRES_EXIT`.
+- Bỏ cờ này: kết quả giữ phần vị thế còn lại.
 
 ## 3. Dữ liệu bổ sung bắt buộc
 
-`trade_data.contract_dates` là danh sách tăng dần, mỗi ngày một mã hợp đồng,
-bao phủ cả lịch sử khởi tạo chỉ báo và kỳ báo cáo. Với dữ liệu nhập tay, khai báo
-ánh xạ theo nguồn hoặc giả định đã được đồng ý. Với tự lấy để khớp liên tục, service
-tạo danh sách theo giả định đáo hạn đã nêu ở mục 1, chỉ trong phạm vi dữ liệu được
-dùng đến cuối kỳ báo cáo. Không coi ánh xạ này là lịch chuyển mã đã xác minh với
-nhà cung cấp.
+- `trade_data.contract_dates`: tăng dần, một mã mỗi ngày, phủ lịch sử khởi tạo và kỳ báo cáo.
+- Nhập tay: dùng ánh xạ từ nguồn hoặc giả định đã được đồng ý.
+- Tự lấy: tạo theo bảng đáo hạn ở mục 1, trong phạm vi dữ liệu đến cuối kỳ. Đây là giả định chuyển mã của mô hình.
 
-`trade_data.bars` giữ bản ghi nhãn 09:00 cho ATO và nhãn 14:45 cho ATC. ATO lấy
-`open` của bản ghi 09:00; ATC lấy `close` của bản ghi 14:45. Giá phải dương và
-đúng bước 0,1 điểm. `contract_dates` và `provenance` vẫn là dữ liệu bắt buộc khi
-nhập tay. Thiếu bản ghi đang cần, sai ngày hoặc sai mã hợp đồng làm lượt chạy lỗi.
+- ATO lấy `open` bản ghi nhãn 09:00; ATC lấy `close` bản ghi nhãn 14:45 trong `trade_data.bars`.
+- Giá phải dương, đúng bước 0,1 điểm.
+- Nhập tay phải có `contract_dates` và `provenance`. Thiếu bản ghi cần khớp, sai ngày hoặc mã làm lượt chạy lỗi.
 
-Trường `trade_data.auctions` cũ vẫn được đọc để chạy lại input ATC đã lưu trước
-thay đổi này. Lượt chạy mới ưu tiên bản ghi OHLCV 14:45 khi cả hai cùng tồn tại.
-Bản ghi cũ vẫn phải có `match_time` 14:45, `available_at`, `status`, `price` và
-`source` hợp lệ như hợp đồng trước đây.
+- Trường `trade_data.auctions` cũ vẫn được đọc để chạy lại input ATC đã lưu trước thay đổi này.
+- Lượt chạy mới ưu tiên bản ghi OHLCV 14:45 khi cả hai cùng tồn tại.
+- Bản ghi cũ vẫn phải có `match_time` 14:45, `available_at`, `status`, `price` và `source` hợp lệ như hợp đồng trước đây.
 
-Lịch giao dịch lấy từ `runtime-policy-v1.json` và được lưu cùng đầu vào. `trade_data`
-và `market_data` vẫn được kiểm tra theo lịch riêng. Engine tách bản ghi ATO/ATC ra
-khỏi chuỗi nến dùng cho chỉ báo và quyết định. Không lấy giá gần nhất, Open kế tiếp
-hoặc nến ngày khác thay dữ liệu thiếu. Đợt này chưa kiểm tra trần/sàn, giá thanh
-toán hằng ngày hoặc ngày đáo hạn.
+- Lịch từ `runtime-policy-v1.json` được ghim cùng đầu vào; hai nguồn dùng lịch riêng.
+- Bản ghi ATO/ATC được tách khỏi chuỗi chỉ báo và quyết định.
+- Dữ liệu khớp bắt buộc bị thiếu làm lượt chạy lỗi. Giá thanh toán hằng ngày và đáo hạn thuộc phạm vi kiểm chứng riêng.
 
 ## 4. Đóng ATC và kết quả
 
@@ -156,47 +138,34 @@ Khai báo `strategy.exit.bar_close.fill_policy: "atc"`, `quantity: "remaining"`.
 }
 ```
 
-Không dùng giá ATC trong điều kiện gửi lệnh. Nếu có `flat_by`, giờ này không được
-sớm hơn 14:45. Mẫu CANSLIM có giờ thoát cũ được giữ nguyên; muốn dùng ATC phải
-khai báo thành một cấu hình chiến lược riêng.
+- Điều kiện gửi lệnh dùng dữ liệu khả dụng trước ATC.
+- Nếu có `flat_by`, giờ phải từ 14:45 trở đi.
+- Dùng ATC trong một cấu hình riêng; mẫu CANSLIM giữ giờ thoát đã chốt.
 
-Thiếu bản ghi khi cần khớp báo `MISSING_ATO_MATCH_BAR` hoặc
-`MISSING_ATC_MATCH_BAR`. Lượng khớp bằng 0 làm lệnh hết hiệu lực; còn vị thế cuối
-ngày với `allow_overnight: false` thì báo `END_OF_DAY_POSITION_REQUIRES_EXIT`,
-không tự đóng. Không có API sửa/hủy lệnh ATO/ATC. Giá đấu giá không tham gia chuỗi
-chỉ báo. Thời điểm khớp là nhãn 09:00/14:45; `available_at` của fill ATO là 09:00,
-còn ATC dùng thời điểm khả dụng của bản ghi 14:45.
+- Thiếu bản ghi: `MISSING_ATO_MATCH_BAR` hoặc `MISSING_ATC_MATCH_BAR`.
+- Lượng khớp 0: lệnh hết hiệu lực. Còn vị thế cuối ngày với `allow_overnight: false`: `END_OF_DAY_POSITION_REQUIRES_EXIT`.
+- Lệnh ATO/ATC dùng thời hạn phiên cố định. Giá đấu giá được tách khỏi chỉ báo.
+- Thời điểm khớp: nhãn 09:00/14:45. `available_at` của fill ATO là 09:00; ATC theo thời điểm khả dụng của bản ghi.
 
-Kết quả vẫn dùng `schema_version: 2`, thêm `metadata.matching_model`,
-`matching_rules_version`, nguồn dữ liệu và giả định. Mỗi lệnh có `order_type`,
-`quantity`, `filled_quantity`, `expired_quantity`, `remaining_quantity`,
-`limit_price`, `submitted_time`, `completed_time`, `events`.
-Trạng thái cuối gồm `filled`, `rejected`, `canceled`, `expired`; lịch sự kiện ghi
-`submitted`, có thể có `partially_filled`, rồi trạng thái kết thúc. Lệnh khớp một
-phần kết thúc là `expired` nhưng vẫn liên kết tới fill đã tạo; lượng chưa khớp
-không tạo fill hoặc phí. Fill bổ sung `phase`, `order_type`, `time_precision`;
-ATO/ATC có thêm nguồn và
-`available_at`. ID nối tín hiệu/lệnh/lần khớp tiếp tục được lưu và kiểm tra.
+- Kết quả dùng `schema_version: 2`; metadata thêm `matching_model`, `matching_rules_version`, nguồn và giả định.
+- Lệnh ghi loại, lượng đặt/khớp/hết hiệu lực/còn chờ, giá giới hạn, thời điểm gửi/kết thúc và `events`.
+- Trạng thái cuối: `filled`, `rejected`, `canceled`, `expired`. Sự kiện gồm `submitted`, có thể có `partially_filled`, rồi trạng thái cuối.
+- Lệnh khớp một phần có thể kết thúc `expired` và vẫn liên kết fill. Chỉ lượng đã khớp phát sinh phí.
+- Fill thêm `phase`, `order_type`, `time_precision`; ATO/ATC thêm nguồn và `available_at`. ID tín hiệu/lệnh/fill được lưu và kiểm tra.
 
-Kho file lưu toàn bộ dữ liệu nến, nguồn, lịch và cấu hình trong snapshot
-có dấu kiểm. Web tải các trường này cùng dữ liệu giao dịch, hiển thị loại lệnh,
-khối lượng đặt/khớp/hết hiệu lực/còn chờ và thời điểm kết thúc. Biểu đồ dùng
-Open 09:00 hoặc Close 14:45 để kiểm tra vị trí mũi tên; bản ghi ATC cũ vẫn dùng
-điểm trắng và đường giá riêng, không tạo nến OHLC giả.
+- Kho file lưu toàn bộ dữ liệu nến, nguồn, lịch và cấu hình trong snapshot có dấu kiểm.
+- Web tải các trường này cùng dữ liệu giao dịch, hiển thị loại lệnh, khối lượng đặt/khớp/hết hiệu lực/còn chờ và thời điểm kết thúc.
+- Biểu đồ dùng Open 09:00 hoặc Close 14:45 để kiểm tra vị trí mũi tên; bản ghi ATC cũ vẫn dùng điểm trắng và đường giá riêng, không tạo nến OHLC giả.
 
 ## 5. Kiểm chứng
 
-`tests/test_session_matching.py` kiểm tra phiên, ATO/ATC khớp đủ/một phần/không
-khớp, LO hai hướng và LO đóng,
-thời hạn/hủy lệnh, stop/target bảo thủ, khối lượng chốt trước, kiểm tra ký quỹ,
-ATC thiếu/không khớp/sai hợp đồng, tính độc lập với giá tương lai,
-API, snapshot, tải lại kết quả và dữ liệu biểu đồ.
-`tests/web/backtest-input.test.mjs` và `backtest-chart.test.mjs` kiểm tra dữ liệu
-ATO/ATC không bị mất khi tải JSON và mũi tên không cần nến giả.
+Kiểm thử tổng hợp:
 
-Các kiểm thử trên dùng dữ liệu tổng hợp. Chưa nghiệm thu giá ATO/ATC thật hoặc độ đúng
-của lịch chuyển hợp đồng từ nhà cung cấp; phải cung cấp/xác nhận trước khi kết luận
-kết quả ATC trên dữ liệu thị trường là đáng tin cậy.
+- `tests/test_session_matching.py`: phiên, ATO/ATC khớp đủ/một phần/0; LO mở/đóng, thời hạn và hủy lệnh.
+- Cùng file kiểm tra stop/target, chốt lượng, ký quỹ, dữ liệu thiếu/sai mã, dữ liệu tương lai, API và lưu/đọc.
+- `tests/web/backtest-input.test.mjs`, `backtest-chart.test.mjs`: giữ bản ghi ATO/ATC khi tải JSON và đặt mũi tên biểu đồ.
+
+Giá đấu giá thực tế và lịch chuyển mã của nhà cung cấp cần nghiệm thu riêng trên dữ liệu thị trường.
 
 Trạng thái triển khai và nghiệm thu:
 
@@ -320,10 +289,137 @@ Căn cứ mã hiện tại: `FixedSignal`/`OrderResult` trong
 - [X] Cập nhật hợp đồng dữ liệu, đặc tả API, hướng dẫn JSON, tài liệu khớp theo
   phiên và danh mục kiểm thử khi từng giai đoạn được triển khai.
 
+## 7. Đặc tả MTL/MOK/MAK — A01
+
+A01 chốt đặc tả; A02–A07 triển khai ngày 20/10/2026 cho lượng đối ứng cố định và biên giá có nguồn.
+
+### 7.1. Quy tắc sàn và phạm vi hiệu lực
+
+- [Quyết định 21/QĐ-HĐTV ngày 18/04/2025 của VNX](https://stream.vnx.vn/VNX/Legal/2025042314515227121.QD.HDTV.pdf) thay Quyết định 20/QĐ-HĐTV ngày 20/05/2022 khi hệ thống mới vận hành.
+- [Danh mục quy chế VNX](https://www.vnx.vn/vi/van-ban-phap-ly/6) ghi hiệu lực 05/05/2025. Lần tra ngày 20/10/2026 tìm thấy hai văn bản trên.
+- Phạm vi A01 đã đối chiếu: 05/05/2025–20/10/2026. Kỳ ngoài phạm vi cần đối chiếu quy chế trước khi dùng loại lệnh mới.
+
+| Căn cứ trong Quy chế kèm Quyết định | Quy tắc sàn được sử dụng |
+| --- | --- |
+| Điều 21 khoản 2; Điều 22 khoản 2 điểm a–c | Lệnh thị trường mua/bán theo giá đối ứng đang có, chỉ nhập trong phiên liên tục; không có đối ứng thì hủy ngay. |
+| Điều 22 khoản 2 điểm d | MOK khớp toàn bộ hoặc hủy toàn bộ; MAK khớp phần có thể khớp và hủy dư; MTL chuyển dư sang LO sau khi có khớp. |
+| Điều 22 khoản 2 điểm d, mục (i)–(iii) của MTL | LO mua dư cao hơn giá khớp cuối một bước, bán dư thấp hơn một bước; nếu đã ở trần/sàn thì giữ trần/sàn. LO chuyển đổi theo quy định sửa/hủy LO. |
+| Điều 22 khoản 1 điểm b; Điều 24 | LO có thể tồn tại đến hết ngày hoặc bị hủy; việc sửa/hủy chỉ tác động phần chưa khớp, không cho sửa/hủy trong phiên định kỳ. |
+| Điều 15–16 | Biên độ theo mẫu hợp đồng; trần/sàn dựa vào giá tham chiếu, có trường hợp điều chỉnh. Không suy trần/sàn từ High/Low của nến. |
+
+- Số trang in 7–10 của Quy chế tương ứng trang PDF 9–12; định nghĩa MTL/MOK/MAK ở trang in 8, trang PDF 10.
+- [Thông tin sản phẩm VN30 của VSDC](https://vsdc.vn/vi/thong-tin-san-pham) ghi bước giá 0,1 điểm và đơn vị 1 hợp đồng.
+- Project giữ bước giá này; không lấy tỷ lệ biên độ công bố chung thay bảng trần/sàn từng ngày/hợp đồng.
+
+Quy tắc sàn không quy định khớp tại Open nến 5 phút. Giá Open, độ trễ tới
+nến kế tiếp, thời điểm ghi nhận và hủy sớm bên dưới đều là giả định project.
+
+### 7.2. D01 — Hành động và mô hình hợp lệ
+
+Cả ba loại đều dùng được trong bốn hành động sau, ở chế độ một vị thế hoặc
+`sizing.pyramiding: true`; một lần khớp tiếp theo thuộc cùng lệnh và
+`position_id`, không phải tín hiệu mở mới. A03 chốt quản trị giá vốn/bảo vệ.
+
+| Hành động | Hướng vị thế | Chiều giao dịch | Loại mở/đóng theo điều kiện |
+| --- | --- | --- | --- |
+| Mở LONG | LONG | BUY | MTL, MOK, MAK |
+| Mở SHORT | SHORT | SELL | MTL, MOK, MAK |
+| Đóng LONG | LONG | SELL | MTL, MOK, MAK |
+| Đóng SHORT | SHORT | BUY | MTL, MOK, MAK |
+
+- Yêu cầu: contract, `hnx_sessions_v1`, nến 5 phút, `Asia/Ho_Chi_Minh`, `slippage_rate: 0` và đúng mã hợp đồng.
+- `next_open` và normalized từ chối MTL/MOK/MAK. Ba loại dùng đúng tên, theo bốn hành động ở bảng trên.
+- Nhiều phần chỉ bổ sung cùng hướng theo `priority` và hạn mức. Lệnh đóng giảm đúng phần được chỉ định, tối đa lượng còn lại.
+
+### 7.3. D02 — Thời điểm, giá và lượng chốt trước
+
+1. Sau Close `t`, đánh giá dữ liệu có `available_at <= decision_time`.
+2. Trong phiên liên tục, chốt lượng mở và giữ chỗ theo Close vừa hoàn tất, sau khi áp hạn mức.
+3. Thử khớp tại Open nến liên tục kế tiếp, cùng buổi, ngày và hợp đồng.
+4. Cùng nhãn giờ: Close → quyết định/gửi → Open kế, giả định độ trễ 0.
+5. Giá mô phỏng BUY/SELL là Open, chênh lệch mua/bán bằng 0. Các giá cuối nến chỉ khả dụng khi nến hoàn tất.
+6. Kiểm tra giá, phiên, mã, lượng và tài khoản trước fill, phí hoặc trừ đối ứng. Lượng đối ứng cố định theo A02.
+7. Thiếu ký quỹ: từ chối toàn bộ lượng định khớp, kết thúc dư, giữ fill trước đó. Lượng đã nhận đặt giữ nguyên.
+
+Chi tiết tiền tại [mục 6 kế toán](canslim-v1-execution-accounting.md#6-hợp-đồng-kế-toán-mtlmokmak).
+
+- Khi triển khai, ghim phiên bản quy tắc mới và các giả định trên vào cấu hình đã chuẩn bị/metadata: Close dùng tính lượng, thứ tự Close → Open, giá Open, LO dư từ nến sau, thời hạn và nguồn biên giá.
+- Không ghi đè phiên bản hoặc hash của lượt cũ; chạy lại dùng đúng dữ liệu/quy tắc đã ghim.
+
+- Close 11:30/14:30 nằm ngoài khoảng gửi lệnh liên tục.
+- Lệnh chưa khớp kết thúc khi vượt hạn mở, hết buổi, đổi ngày/mã hoặc hết kỳ báo cáo.
+- Thiếu nến cùng buổi là lỗi dữ liệu thực thi; lượng đối ứng 0 là trường hợp riêng.
+- `flat_by` và `allow_overnight: false` vẫn được kiểm tra.
+
+### 7.4. D03 — MTL chuyển dư thành LO
+
+Chỉ chuyển khi `0 < lượng đã khớp < lượng đã nhận`. Gọi `P` là giá khớp cuối
+của chính lệnh MTL, `U`/`D` là trần/sàn của ngày và hợp đồng đó:
+
+```text
+BUY:  giá LO dư = min(P + 0,1; U)
+SELL: giá LO dư = max(P - 0,1; D)
+```
+
+- MTL khớp 0: hủy toàn bộ. Khớp đủ: kết thúc lệnh.
+- Khớp một phần: chuyển dư theo giá P, trần U, sàn D đã cung cấp. Các giá phải hữu hạn, dương, đúng bước 0,1 và `D <= P <= U`.
+- Thiếu hoặc sai biên giá: lỗi dữ liệu trước khi ghi fill. Xem [API mục 3.4.4](backtest-api-specification.md#344-lệnh-mtlmokmak).
+
+- Giữ yêu cầu gốc MTL và lượng nhận đặt; ghi sự kiện chuyển loại với giá, lượng và thời điểm.
+- LO dư chỉ xét từ **nến liên tục kế tiếp sau nến chuyển đổi**, nhằm giữ đúng thứ tự thông tin.
+- Các nến sau dùng giá LO ở mục 2 và ngân sách A02. Giá chưa đạt điều kiện thì giữ ngân sách.
+
+- LO dư dùng `order.pending` của MTL; mặc định `max_execution_bars=1`.
+- Đếm từ nến đầu được thử LO dư; mỗi nến tính một lần, kể cả lượng đối ứng 0.
+- Ba cờ `cross_*` là `false`; hủy dư tại nghỉ trưa, hạn mở, ATC, đổi ngày/mã hoặc hết kỳ.
+- Chính sách hủy sớm của dự án ngắn hơn thời hạn tối đa hết ngày của sàn.
+- MAK/MOK kết thúc sau lần thử đầu và từ chối `pending` riêng.
+
+### 7.5. Ma trận lượng và trường hợp biên
+
+Giả sử lệnh đã được nhận **5 hợp đồng**, đủ tiền và dữ liệu hợp lệ. Lượng
+khả dụng là 0/2/5 hợp đồng cố định, không phải volume của nến:
+
+| Loại | Khả dụng 0 | Khả dụng 2 | Khả dụng 5 hoặc lớn hơn |
+| --- | --- | --- | --- |
+| MOK | Hủy 5 | Hủy 5, giữ ngân sách | Khớp 5 |
+| MAK | Hủy 5 | Khớp 2, hủy 3 | Khớp 5 |
+| MTL | Hủy 5, không sinh LO | Khớp 2, chuyển LO 3 | Khớp 5, không sinh LO |
+
+- Open=1300, sàn=1200, trần=1400: MTL BUY khớp 2 ở 1300, dư LO mua 3 ở 1300,1; SELL dư LO bán 3 ở 1299,9.
+- BUY tại P=1400 giữ LO=1400; SELL tại P=1200 giữ LO=1200. BUY P=1399,9 và SELL P=1200,1 cũng cho LO tại biên.
+- Ví dụ áp dụng cả lệnh mở và đóng theo mục 7.2.
+- Hạn mức nhận 3 từ lượng mong muốn 5: MOK kiểm tra đủ 3. Đã nhận 5 mà chỉ có đối ứng 2: hủy cả lệnh.
+
+| Trường hợp | Hành vi bắt buộc khi triển khai |
+| --- | --- |
+| Lượng yêu cầu/sizing bằng 0 | Từ chối đặt, không có fill/phí hoặc giữ chỗ; không nhầm với lượng đối ứng 0. |
+| Lượng đối ứng âm, phân số, boolean hoặc thiếu | Lỗi đầu vào cấp lượng; không đổi thành 0 hoặc khớp đủ. |
+| Open thiếu, sai giá trị/bước giá hoặc ngoài biên | Lỗi dữ liệu, kể cả lượng đối ứng 0. |
+| Thiếu bảng biên giá, sai ngày/mã hoặc biên chưa khả dụng | Lỗi dữ liệu; không lấy Close/High/Low suy ra hoặc dùng ngày/mã khác. |
+| Gửi/thử trong ATO, nghỉ trưa, ATC hoặc ngoài phiên | Không khớp; gửi sai phiên bị từ chối, lệnh chờ được kết thúc tại ranh giới đã khai báo. |
+| Bộ khớp trả lượng âm/phân số, vượt lượng còn chờ/ngân sách, sai chiều/mã/thời điểm hoặc sai giá | Lỗi hợp đồng nội bộ, dừng lượt chạy trước khi hạch toán; không chặn số hoặc công bố kết quả một phần là thành công. |
+| Thiếu ký quỹ sau phí tại giá khớp | Từ chối toàn bộ phần định khớp, kết thúc dư và giữ ngân sách. |
+
+### 7.6. Cấu hình và bằng chứng cơ chế
+
+- `execution.continuous_match_quantity`: số nguyên không âm, dùng chung LO/MTL/MOK/MAK trong một nến và mã hợp đồng.
+- Ngân sách dùng chung mua/bán và Open/Close; nến mới cấp lại lượng cố định.
+- Thứ tự: Open trước Close, cùng sự kiện theo thứ tự gửi.
+- Giá chưa đạt, MOK thiếu lượng hoặc tài khoản từ chối: giữ ngân sách.
+- Đây là cấu hình D05 của mục 2; lượng đối ứng được cung cấp cố định.
+
+- SIMULATED và các lệnh bảo vệ giữ cách khớp cũ, không chịu ngân sách cố định; ATO/ATC vẫn dùng `auction_match_quantity` riêng mỗi lệnh.
+- Bỏ cấu hình mới giữ LO khớp đủ như trước, MTL/MOK/MAK bị từ chối vì chưa có lượng đối ứng.
+- Kết quả ghi `hnx-sessions-v4-market-orders`, lượng cố định, biên giá có nguồn và các giả định.
+- D04 được mô tả tại mục 6 kế toán.
+
+[Hồ sơ kiểm thử cơ chế](../testing/market-orders-partial-matching.md) đối chiếu các bảng trên. [Ví dụ MTL mở, MAK đóng](../examples/orders/market-fixed.json) dùng sáu nến và biên giá tổng hợp có nhãn nguồn.
+
 ## Nguồn quy tắc
 
 - [Giờ phiên và loại lệnh phái sinh — ACBS](https://acbs.com.vn/blog/gio-giao-dich-phai-sinh).
-- [Quyết định 21/QĐ-HĐTV ngày 18/04/2025 của VNX](https://vts.com.vn/upload/files/VBPL/2025042314515227121_QD_HDTV.pdf).
+- [Quyết định 21/QĐ-HĐTV ngày 18/04/2025 — bản gốc VNX](https://stream.vnx.vn/VNX/Legal/2025042314515227121.QD.HDTV.pdf), đối chiếu Điều 15–16, 21–22, 24 ngày 20/10/2026.
 - [Lịch và loại lệnh phái sinh — Shinhan](https://shinhansec.com.vn/vi/ho-tro-khach-hang/chung-khoan-phai-sinh.html).
 - [Hướng dẫn giao dịch phái sinh — SHS](https://www.shs.com.vn/Sites/QuoteVN/SiteRoot/documents/2025/HDnhadautugiaodichchungkhoanphaisinh.pdf).
 

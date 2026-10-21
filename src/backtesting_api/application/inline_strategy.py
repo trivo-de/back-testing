@@ -40,6 +40,7 @@ def check_runtime(payload):
 
 class IndicatorData:
     """Data structure for storing indicator values."""
+    # Prepare indicator series and segment boundaries for each supplied source.
     def __init__(self, data, payload):
         self.rows, self.times, self.values, self.starts = {}, {}, {}, {}
         for source, rows in (('trade_data', data.bars), ('market_data', data.market_bars)):
@@ -89,7 +90,9 @@ class IndicatorData:
         return values, {source: counts[source] - starts[source] for source in counts}, counts
 
 
+# Apply JSON strategy sizing and session rules to contract execution.
 class InlineExecution(ContractExecution):
+    # Configure contract accounting and strategy execution state from the payload.
     def __init__(self, cash, payload):
         self.spec = payload['strategy']
         self.session_matching = payload['execution'].get('matching_model') == 'hnx_sessions_v1'
@@ -126,6 +129,7 @@ class InlineExecution(ContractExecution):
             raise InvalidExecution('FLAT_DEADLINE_MISSED')
         self.current_open = stamp
 
+    # Size a contract entry using its reference price, risk budget, and margin.
     def quantity_for(self, side, price):
         sizing = self.spec['sizing']
         accounting = self.portfolio.accounting
@@ -139,7 +143,13 @@ class InlineExecution(ContractExecution):
         if quantity < 1: raise ValueError('INSUFFICIENT_RISK_OR_MARGIN_BUDGET')
         return quantity
 
+    # Resolve order quantity using only the order's permitted reference price.
     def prepare_order(self, signal, reference_price=None):
+        if signal.order.type in ('MTL', 'MOK', 'MAK'):
+            if reference_price is None: raise ValueError('MARKET_REFERENCE_PRICE_MISSING')
+            quantity = (self.portfolio.position.quantity if signal.side == 'CLOSE'
+                        else self.quantity_for(signal.side, decimal(reference_price)))
+            return replace(signal, quantity=quantity, requested_quantity=quantity, reference_price=decimal(reference_price))
         if signal.order.result_type == 'LO':
             price = signal.order.limit_price
             if price is None or price <= 0 or price != self.level(price, True):
@@ -154,7 +164,7 @@ class InlineExecution(ContractExecution):
             return replace(signal, quantity=self.quantity_for(signal.side, decimal(reference_price)))
         return signal
 
-    def execute(self, signal, signal_date, fill_date, raw_open):
+    def execute(self, signal, signal_date, fill_date, raw_open, *, continuation=False, order_quantity=None):
         """
         Execute a trade based on a signal.
 
@@ -163,7 +173,7 @@ class InlineExecution(ContractExecution):
         if is_market and signal.side == 'CLOSE' and signal.order.result_type == 'NEXT_OPEN':
             expected = signal_date.replace(hour=13, minute=0) if signal_date.strftime('%H:%M') == '11:30' else signal_date
             if fill_date != expected: raise InvalidExecution('MISSING_REQUIRED_EXIT_BAR')
-        if signal.side != 'CLOSE':
+        if signal.side != 'CLOSE' and not continuation:
             if not self.session_matching and signal.order.max_execution_bars is not None and fill_date != signal_date:
                 raise ValueError('PENDING_EXPIRED')
             windows = self.spec['entry'].get('signal_windows')
@@ -173,7 +183,7 @@ class InlineExecution(ContractExecution):
                 raise ValueError('ENTRY_OUTSIDE_SESSION_OR_CUTOFF')
             price = decimal(raw_open)
             sign = 1 if signal.side == 'LONG' else -1
-            quantity = (signal.quantity if signal.order.result_type in ('LO', 'ATO')
+            quantity = (signal.quantity if signal.order.result_type != 'NEXT_OPEN'
                         else self.quantity_for(signal.side, price))
             signal = replace(signal, quantity=quantity)
             self.bracket = None
@@ -187,14 +197,16 @@ class InlineExecution(ContractExecution):
                     target = evaluate_expression(self.spec['exit']['targets'][signal.side][action['level']], {'position.entry_price': price})
                     q = action['quantity']
                     if isinstance(q, dict):
-                        q = 'remaining' if quantity == q['if_initial_quantity_eq'] else evaluate_expression(q['else'], {'position.initial_quantity': quantity})
+                        initial = order_quantity or quantity
+                        q = 'remaining' if initial == q['if_initial_quantity_eq'] else evaluate_expression(q['else'], {'position.initial_quantity': initial})
                     if q != 'remaining' and (q != int(q) or q < 1): raise ValueError('INVALID_TARGET_QUANTITY')
                     targets.append((sign * (target - price), None if q == 'remaining' else int(q)))
                     if q == 'remaining': break
                 self.bracket = Bracket(decimal(stop['distance_points']), tuple(targets),
                                        decimal(stop['trailing']['distance_points']) if stop.get('trailing') else None)
-        fill, trade = super().execute(signal, signal_date, fill_date, raw_open)
-        if signal.side != 'CLOSE':
+        fill, trade = super().execute(signal, signal_date, fill_date, raw_open,
+                                     continuation=continuation, order_quantity=order_quantity)
+        if signal.side != 'CLOSE' and not continuation:
             self.entry_count += 1
             self.entry_open = self.current_open
             self.entry_details = dict(signal.details)
@@ -204,27 +216,34 @@ class InlineExecution(ContractExecution):
         return fill, trade
 
 
+# Apply JSON strategy day limits across independently tracked contract lots.
 class InlineMultiExecution(MultiContractExecution):
+    # Initialize shared-cash execution and daily strategy counters.
     def __init__(self, cash, payload):
+        # Create each lot executor with the same strategy payload and its assigned cash.
         super().__init__(cash, lambda amount: InlineExecution(amount, payload))
         self.day = None
         self.day_start = decimal(cash)
         self.entry_count = 0
         self.last_exit_open = None
 
+    # Advance lot executors and reset counters when the trading day changes.
     def before_open(self, stamp):
         super().before_open(stamp)
         if self.day != stamp.date():
             self.day, self.day_start, self.entry_count = stamp.date(), self.portfolio.cash, 0
 
-    def execute(self, signal, signal_date, fill_date, raw_open):
-        result = super().execute(signal, signal_date, fill_date, raw_open)
-        if signal.side != 'CLOSE':
+    # Execute a lot order and update entry or final-exit counters.
+    def execute(self, signal, signal_date, fill_date, raw_open, *, continuation=False, order_quantity=None):
+        result = super().execute(signal, signal_date, fill_date, raw_open,
+                                 continuation=continuation, order_quantity=order_quantity)
+        if signal.side != 'CLOSE' and not continuation:
             self.entry_count += 1
         elif self.portfolio.lot(signal.position_id) is None:
             self.last_exit_open = self.current_open
         return result
 
+    # Apply intrabar lot exits and record when a position becomes flat.
     def intrabar(self, bar, *, intrabar_entries=(), phase=None):
         events = super().intrabar(bar, intrabar_entries=intrabar_entries, phase=phase)
         if any(self.portfolio.lot(signal.position_id) is None for signal, _, _ in events):
@@ -234,6 +253,7 @@ class InlineMultiExecution(MultiContractExecution):
 
 class InlineNormalizedExecution(NormalizedExecution):
     """Run BUY/SELL payloads with the existing normalized ledger."""
+    # Configure normalized sizing and daily execution state from the payload.
     def __init__(self, cash, payload):
         self.spec = payload['strategy']
         self.current_open = self.entry_open = self.last_exit_open = None
@@ -243,6 +263,7 @@ class InlineNormalizedExecution(NormalizedExecution):
         self.entry_details = {}
         sizing = self.spec['sizing']
 
+        # Bound normalized quantity by the risk budget, cash, and position fraction.
         def size(context):
             risk = context.fill_price * decimal(sizing['stop_loss_fraction'])
             by_risk = int(context.cash * decimal(sizing['risk_fraction']) // risk)
@@ -252,11 +273,13 @@ class InlineNormalizedExecution(NormalizedExecution):
         super().__init__(cash, decimal(payload['accounting']['fee_rate']),
                          decimal(payload['execution']['slippage_rate']), size)
 
+    # Reset normalized daily counters before advancing to the next bar.
     def before_open(self, stamp):
         if self.day != stamp.date():
             self.day, self.day_start, self.entry_count = stamp.date(), self.portfolio.cash, 0
         self.current_open = stamp
 
+    # Execute a normalized fill and update entry or exit timing state.
     def execute(self, signal, signal_date, fill_date, raw_open):
         fill, trade = super().execute(signal, signal_date, fill_date, raw_open)
         if signal.side == 'BUY':
@@ -269,6 +292,7 @@ class InlineNormalizedExecution(NormalizedExecution):
         return fill, trade
 
 
+# Evaluate the supplied JSON strategy and run its selected execution model.
 def run_inline_strategy(data, payload):
     check_runtime(payload)
     spec = payload['strategy']
@@ -287,6 +311,7 @@ def run_inline_strategy(data, payload):
                  for source, stamps in data.metadata['data_gaps'].items()}
     required_sources = {i['source'].split('.')[0] for i in spec.get('indicators', {}).values()}
     warmup_sources = required_sources.copy()
+    # Collect data sources referenced by nested strategy expressions.
     def collect(value):
         if isinstance(value, dict):
             if value.get('ref', '').startswith(('trade_data.', 'market_data.')): required_sources.add(value['ref'].split('.')[0])
@@ -295,11 +320,14 @@ def run_inline_strategy(data, payload):
             for child in value: collect(child)
     collect(spec['entry'])
 
+    # Build order intent with an evaluated limit price when required.
     def request(action, values):
         order = action['order']
         limit = evaluate_expression(order['limit_price'], values) if order['type'] == 'LO' else None
-        return OrderRequest(order['type'], limit, order.get('pending', {}).get('max_execution_bars'))
+        return OrderRequest(order['type'], limit, order.get('pending', {}).get('max_execution_bars')
+                            if order['type'] not in ('MAK', 'MOK') else None)
 
+    # Evaluate strategy rules using the current decision context and available values.
     def evaluate(context, lot_executor=None):
         nonlocal position_sequence
         bar = context.bars[-1]
@@ -391,6 +419,7 @@ def run_inline_strategy(data, payload):
                 evaluations[-1]['position_id'] = context.portfolio.position_id if lot_executor else None
         return signal
 
+    # Evaluate exits for each open lot and then consider a new entry.
     def evaluate_all(context):
         signals = []
         closing = {signal.position_id for signal in context.pending_signals if signal.side == 'CLOSE'}
@@ -407,6 +436,7 @@ def run_inline_strategy(data, payload):
 
     result = run_engine(data.bars, evaluate_all if multi else evaluate, initial_cash=payload['initial_cash'], fee_rate=0, slippage_rate=0,
                         support_bars=data.market_bars, record_start=data.start_date, trade_start=data.start_date,
+                        # Reuse the executor already configured for this request.
                         execution=lambda cash: executor, on_open=executor.before_open,
                         matching_model=payload['execution'].get('matching_model') or 'next_open',
                         auction_events=data.auction_events,
@@ -414,6 +444,8 @@ def run_inline_strategy(data, payload):
                         entry_cutoff=spec['entry']['signal_windows'][-1][1] if spec['entry'].get('signal_windows') else None,
                         auction_entry=any(action['order']['type'] == 'ATO' for action in entry_actions.values()),
                         auction_match_quantity=payload['execution'].get('auction_match_quantity'),
+                        continuous_match_quantity=payload['execution'].get('continuous_match_quantity'),
+                        price_limits=data.price_limits,
                         require_end_flat=spec['exit'].get('allow_overnight') is False)
     holding = bool(result.portfolio.quantity) if multi else result.portfolio.position is not None
     if spec['exit'].get('allow_overnight') is False and holding:

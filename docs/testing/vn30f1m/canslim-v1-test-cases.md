@@ -57,7 +57,7 @@ Source kiểm thử: [test_inline_runtime.py](../../../tests/test_inline_runtime
 node --test tests/web/*.test.mjs
 ```
 
-Kết quả đạt chỉ xác nhận các trường hợp trong lần chạy test tương ứng.
-Test notebook kiểm tra cấu trúc ô mã; không thay việc chạy notebook với API thật.
-Test giao diện không thay kiểm tra thao tác, bố cục và khả năng truy cập trong
-trình duyệt. Docker và bộ dữ liệu thật có phạm vi kiểm chứng riêng.
+- Kết quả đạt xác nhận các trường hợp đã chạy trong từng bộ test.
+- Notebook: kiểm tra cấu trúc ô mã.
+- Giao diện: kiểm tra dữ liệu và hành vi trong test.
+- Chạy notebook với API, thao tác trình duyệt, Docker và dữ liệu thị trường cần nghiệm thu riêng.

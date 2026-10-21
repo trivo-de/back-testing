@@ -41,10 +41,10 @@ backtesting_api.main:app
   → infrastructure/file_repository.py
 ```
 
-`main.build_service()` nối `run_inline_strategy` vào `BacktestService`.
-Khi tự lấy dữ liệu, service gọi `AutoDataFetcher` trước khi ánh xạ nến.
-Không chọn chiến lược theo tên symbol; mọi điều kiện phải có trong JSON.
-[Sơ đồ tuần tự](system-design.md) mô tả thứ tự lời gọi và xử lý lỗi.
+- `main.build_service()` nối `run_inline_strategy` vào `BacktestService`.
+- Khi tự lấy dữ liệu, service gọi `AutoDataFetcher` trước khi ánh xạ nến.
+- Không chọn chiến lược theo tên symbol; mọi điều kiện phải có trong JSON.
+- [Sơ đồ tuần tự](system-design.md) mô tả thứ tự lời gọi và xử lý lỗi.
 
 ## 3. Ranh giới module
 
@@ -70,19 +70,16 @@ nghiệp vụ. `engine.py` xử lý thời gian; `execution.py` xử lý khớp;
 | `INLINE_POLICY_PATH` | Mặc định `docs/data/vn30f1m/runtime-policy-v1.json` |
 | `AUTO_FETCH_POLICY_PATH` | Mặc định `docs/data/vn30f1m/runtime-policy.json` |
 
-Đầu vào/chính sách/metadata nằm trong `inputs/<input_hash>.json`;
-trạng thái và kết quả nằm trong `runs/<run_id>.json`. Một tiến trình ghi,
-công bố từng tệp bằng thay thế nguyên tử. Nhánh đọc kết quả phiên bản 1
-vẫn dùng dataset/Parquet đã ghim; yêu cầu JSON mới không đăng ký dataset.
+- Đầu vào/chính sách/metadata nằm trong `inputs/<input_hash>.json`; trạng thái và kết quả nằm trong `runs/<run_id>.json`.
+- Một tiến trình ghi, công bố từng tệp bằng thay thế nguyên tử.
+- Nhánh đọc kết quả phiên bản 1 vẫn dùng dataset/Parquet đã ghim; yêu cầu JSON mới không đăng ký dataset.
 
 ## 5. Tài nguyên giao diện
 
-`index.html` nạp `backtest-input.mjs`, `backtest-app.mjs`,
-`backtest-data.mjs`, `backtest-chart.mjs` và `language.mjs`.
-CSS nhập liệu/điều hướng nằm trong `backtest-input.css` và
-`backtest-navigation.css`; `theme.css`/`theme.mjs` cung cấp giao diện nền.
-Ứng dụng chính dùng `preview=True` để nạp `preview.css` và thay module theme
-bằng `preview-theme.mjs`. Tài nguyên được đóng gói qua `pyproject.toml`.
+- `index.html` nạp `backtest-input.mjs`, `backtest-app.mjs`, `backtest-data.mjs`, `backtest-chart.mjs` và `language.mjs`.
+- CSS nhập liệu/điều hướng nằm trong `backtest-input.css` và `backtest-navigation.css`; `theme.css`/`theme.mjs` cung cấp giao diện nền.
+- Ứng dụng chính dùng `preview=True` để nạp `preview.css` và thay module theme bằng `preview-theme.mjs`.
+- Tài nguyên được đóng gói qua `pyproject.toml`.
 
 ## 6. Dữ liệu và tài liệu cục bộ
 

@@ -10,6 +10,7 @@ class InvalidExecution(ValueError):
     """Abort a run when a required execution event cannot be simulated faithfully."""
 
 
+# Provide cash, fill price, and fees to normalized position sizing.
 @dataclass(frozen=True)
 class BuyContext:
     cash: Decimal
@@ -19,6 +20,7 @@ class BuyContext:
 
 class NormalizedExecution:
     """Preserve v0 calculations and event ordering."""
+    # Initialize normalized execution costs, sizing, and entry tracking.
     def __init__(self, initial_cash, fee_rate, slippage_rate, size_buy=None):
         self.portfolio = Portfolio.open(initial_cash)
         self.fee_rate = fee_rate
@@ -26,6 +28,7 @@ class NormalizedExecution:
         self.size_buy = size_buy
         self.entry_fill = None
 
+    # Require a supported normalized action and a compatible position state.
     def validate(self, signal):
         position = self.portfolio.position
         if signal.side not in ('BUY', 'SELL'):
@@ -38,9 +41,11 @@ class NormalizedExecution:
             if type(signal.quantity) is not int or signal.quantity != position.quantity:
                 raise ValueError('partial SELL is unsupported; exit the full position')
 
+    # Build the normalized sell signal used to close a position.
     def close_signal(self, reason):
         return FixedSignal('SELL', reason=reason)
 
+    # Apply normalized slippage, fees, sizing, and trade accounting to a signal.
     def execute(self, signal, signal_date, fill_date, raw_open):
         portfolio = self.portfolio
         price = raw_open * (1 + self.slippage_rate) if signal.side == 'BUY' else raw_open * (1 - self.slippage_rate)
@@ -65,10 +70,12 @@ class NormalizedExecution:
         self.portfolio = updated
         return fill, trade
 
+    # Return no intrabar actions for normalized execution.
     def intrabar(self, bar):
         return ()
 
 
+# Extend a fill with contract costs, direction, and source-bar timing.
 @dataclass(frozen=True)
 class ContractFill(Fill):
     costs: Costs
@@ -77,6 +84,7 @@ class ContractFill(Fill):
     position_id: str | None = None
 
 
+# Extend a closed trade with direction, allocated entry costs, and lot identity.
 @dataclass(frozen=True)
 class ContractTrade(Trade):
     direction: str
@@ -91,6 +99,7 @@ class Bracket:
     targets: tuple[tuple[Decimal, int | None], ...] = ()
     trailing_distance: Decimal | None = None
 
+    # Normalize and validate stop, target, quantity, and trailing distances.
     def __post_init__(self):
         object.__setattr__(self, 'stop_distance', decimal(self.stop_distance))
         object.__setattr__(self, 'targets', tuple((decimal(d), q) for d, q in self.targets))
@@ -103,7 +112,9 @@ class Bracket:
             raise ValueError('INVALID_BRACKET')
 
 
+# Execute contract fills and manage protective stops and target exits.
 class ContractExecution:
+    # Initialize the contract portfolio, execution limits, and bracket state.
     def __init__(self, initial_cash, accounting, *, margin_buffer=Decimal('1.1'),
                  max_contracts=5, bracket=None):
         self.portfolio = ContractPortfolio.open(initial_cash, accounting)
@@ -116,46 +127,64 @@ class ContractExecution:
         self.active_stop = None
         self.target_index = 0
         self.extreme = None
+        self.entry_order_quantity = None
 
-    def validate(self, signal):
+    # Validate contract direction, position state, and explicit quantities.
+    def validate(self, signal, *, continuation=False):
         p = self.portfolio.position
         if signal.side not in ('LONG', 'SHORT', 'CLOSE'):
             raise ValueError('signal side must be LONG, SHORT or CLOSE')
-        if signal.side in ('LONG', 'SHORT') and p is not None:
+        if signal.side in ('LONG', 'SHORT') and p is not None and not continuation:
             raise ValueError('ENTRY_REQUIRES_FLAT_PORTFOLIO')
+        if continuation and (signal.side == 'CLOSE' or p is None or p.direction != signal.side
+                             or p.quantity != p.initial_quantity or self.entry_order_quantity is None
+                             or type(signal.quantity) is not int
+                             or p.initial_quantity + signal.quantity > self.entry_order_quantity):
+            raise ValueError('ENTRY_CONTINUATION_EXCEEDS_ORDER')
         if signal.side == 'CLOSE' and p is None:
             raise ValueError('EXIT_REQUIRES_POSITION')
         if signal.quantity is not None and (type(signal.quantity) is not int or signal.quantity < 1
                 or (signal.side == 'CLOSE' and signal.quantity > p.quantity)):
             raise ValueError('INVALID_QUANTITY')
 
+    # Build the contract signal used to close a position.
     def close_signal(self, reason):
         return FixedSignal('CLOSE', reason=reason)
 
+    # Round a price upward or downward to the contract tick size.
     @staticmethod
     def level(price, upward):
         return (price / Decimal('.1')).to_integral_value(
             rounding=ROUND_CEILING if upward else ROUND_FLOOR) * Decimal('.1')
 
-    def execute(self, signal, signal_date, fill_date, raw_open):
-        self.validate(signal)
+    # Apply a contract fill and preserve entry accounting across continuations.
+    def execute(self, signal, signal_date, fill_date, raw_open, *, continuation=False, order_quantity=None):
+        self.validate(signal, continuation=continuation)
+        if continuation and (signal_date != self.entry_fill.signal_date or
+                             order_quantity is not None and order_quantity != self.entry_order_quantity):
+            raise ValueError('ENTRY_CONTINUATION_EXCEEDS_ORDER')
         price = decimal(raw_open)
         if price != self.level(price, True): raise ValueError('FILL_OFF_TICK')
         p = self.portfolio.position
         if signal.side != 'CLOSE':
-            if self.bracket:
+            accepted = self.entry_order_quantity if continuation else (order_quantity or signal.quantity)
+            if type(accepted) is not int or accepted < signal.quantity:
+                raise ValueError('ENTRY_CONTINUATION_EXCEEDS_ORDER')
+            if self.bracket and not continuation:
                 if (any(d >= price for d, _ in self.bracket.targets) and signal.side == 'SHORT') or (
                         signal.side == 'LONG' and self.bracket.stop_distance >= price):
                     raise ValueError('NONPOSITIVE_BRACKET_LEVEL')
-                if signal.quantity is not None and sum(q or 0 for _, q in self.bracket.targets) > signal.quantity:
+                if sum(q or 0 for _, q in self.bracket.targets) > accepted:
                     raise ValueError('TARGET_QUANTITY_EXCEEDS_POSITION')
             updated, costs = self.portfolio.enter(signal.side, signal.quantity, price,
-                            margin_buffer=self.margin_buffer, max_contracts=self.max_contracts)
+                            margin_buffer=self.margin_buffer, max_contracts=self.max_contracts, continuation=continuation)
             fill = ContractFill(signal_date, fill_date, signal.side, price, signal.quantity, costs.total, costs, signal.side, fill_date)
-            self.entry_fill = fill
-            self.target_index, self.extreme = 0, None
-            self.active_stop = (self.level(price - updated.position.sign * self.bracket.stop_distance,
-                                          signal.side == 'SHORT') if self.bracket else None)
+            if not continuation:
+                self.entry_order_quantity = accepted
+                self.entry_fill = fill
+                self.target_index, self.extreme = 0, None
+                self.active_stop = (self.level(price - updated.position.sign * self.bracket.stop_distance,
+                                              signal.side == 'SHORT') if self.bracket else None)
             trade = None
         else:
             quantity = p.quantity if signal.quantity is None else signal.quantity
@@ -168,6 +197,7 @@ class ContractExecution:
         self.portfolio = updated
         return fill, trade
 
+    # Evaluate protective stops and targets against the current candle.
     def intrabar(self, bar, *, entry_intrabar=False, phase=None):
         p = self.portfolio.position
         if p is None or self.bracket is None: return ()
@@ -183,7 +213,7 @@ class ContractExecution:
         if stop_hit:
             gap = phase != 'close' and not entry_intrabar and (opened <= self.active_stop if p.sign == 1 else opened >= self.active_stop)
             price = opened if gap else self.active_stop
-            initial_stop = self.level(p.entry_price - p.sign * self.bracket.stop_distance, p.sign == -1)
+            initial_stop = self.level(self.entry_fill.price - p.sign * self.bracket.stop_distance, p.sign == -1)
             reason = 'TRAILING_STOP' if self.active_stop != initial_stop else 'STOP_LOSS'
             signal = self.close_signal(reason)
             created = self.entry_fill.fill_date
@@ -194,7 +224,7 @@ class ContractExecution:
         trailing_was_active = self.extreme is not None and getattr(self, '_trailing_seed_bar', None) != bar.trading_date
         while self.target_index < len(self.bracket.targets) and self.portfolio.position is not None:
             distance, quantity = self.bracket.targets[self.target_index]
-            target = self.level(p.entry_price + p.sign * distance, p.sign == 1)
+            target = self.level(self.entry_fill.price + p.sign * distance, p.sign == 1)
             if not (high >= target if p.sign == 1 else low <= target): break
             quantity = min(quantity, self.portfolio.position.quantity) if quantity is not None else None
             signal = FixedSignal('CLOSE', quantity, reason=f'TP{self.target_index + 1}')

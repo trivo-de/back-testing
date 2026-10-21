@@ -12,6 +12,7 @@ from ..infrastructure.auto_fetch_data import AutoFetchError
 from .inline_strategy import check_runtime
 from .order_config import strategy_orders
 
+# Compute required history from indicator seeds, warm-up, and shifted references.
 def _warmup_bars(strategy):
     periods = {}
     for name, indicator in strategy.get('indicators', {}).items():
@@ -21,6 +22,7 @@ def _warmup_bars(strategy):
             periods[name] = indicator['period'] + (indicator['type'] == 'MFI')
     required = max(strategy.get('warmup_bars') or 0, max(periods.values(), default=0))
 
+    # Include nested reference shifts when calculating the required history.
     def collect(value):
         nonlocal required
         if isinstance(value, dict):
@@ -119,7 +121,7 @@ class BacktestService:
         """Use an explicit inline runner; never substitute a legacy strategy."""
         data, policy = self.validate_inline(payload)
         if self.inline_runner is None:
-            raise ValueError('INLINE_STRATEGY_RUNTIME_NOT_IMPLEMENTED: U08')
+            raise ValueError('INLINE_STRATEGY_RUNTIME_NOT_IMPLEMENTED')
         run_at = datetime.now(timezone.utc).isoformat()
         run_id, input_hash, policy_hash = self.repository.start_inline(payload, policy, data)
         try:
@@ -165,5 +167,6 @@ class BacktestService:
         """Read chart data without executing the strategy again."""
         return self.repository.get_chart(run_id)
 
+    # Read the saved input document through the configured repository.
     def get_input(self, run_id: UUID):
         return self.repository.get_input(run_id)

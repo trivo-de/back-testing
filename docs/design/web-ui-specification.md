@@ -2,35 +2,28 @@
 
 ## 1. Phạm vi hiện tại
 
-Trang `/` có form tham số, tải payload JSON để tự điền form, nút điền mẫu,
-kiểm tra và chạy. Điều kiện chiến lược dùng các ô JSON nhỏ, không chứa dữ liệu giá.
-Giao diện mở lại kết quả từ lịch sử, hiển thị summary, nến, khối lượng, chỉ báo,
-marker giao dịch, equity và bảng đối chiếu. Notebook dùng cùng API.
-Giao diện không tính lại chiến lược, chỉ báo hoặc tiền; dữ liệu thuộc cùng một run.
+- Trang `/`: nhập tham số, điền mẫu hoặc tải payload JSON, kiểm tra và chạy.
+- Điều kiện chiến lược dùng ô JSON riêng với dữ liệu giá.
+- Kết quả: tổng quan, nến, khối lượng, chỉ báo, marker, equity và bảng đối chiếu.
+- Lịch sử mở lại kết quả đã lưu. Web và notebook dùng cùng API; mọi dữ liệu hiển thị thuộc cùng run.
 
 ## 2. Luồng người dùng
 
-1. Khi mở trang, hiện các trường nhưng chưa tự chọn chiến lược hoặc tải nến.
-   Điền mẫu CANSLIM v1 hoặc tải payload JSON để điền cấu hình; mẫu chỉ minh họa
-   cấu trúc và chứa 2 nến mỗi nguồn. Nếu đã nạp dữ liệu, điền mẫu giữ các nguồn đó.
-2. Kiểm tra bằng `POST /api/backtests/validate`; STRUCTURE_VALID không bảo đảm
-   mọi nến đã đủ lịch sử chỉ báo.
-3. Chạy bằng `POST /api/backtests`; submit khóa trong khi chờ để tránh gửi trùng.
-4. Hiển thị result và tải chart theo `metadata.run_id`; không tự tải lại lịch sử.
-5. Khi mở trang, lịch sử chỉ hiện bộ lọc, chưa tải danh sách hoặc kết quả cũ.
-6. Bấm Tìm lịch sử để lọc theo khoảng tỷ suất sinh lời (%) và vốn cuối kỳ
-   (`final_equity`). Các giới hạn không bắt buộc; hai khoảng kết hợp bằng AND,
-   có tính cả hai đầu khoảng. Vốn giữ đơn vị của từng lần chạy, không đổi VND
-   sang đơn vị giá của mô hình normalized.
-7. Danh sách chỉ tải 20 tóm tắt mỗi trang trong bảng, hiển thị symbol,
-   ngày bắt đầu và ngày kết thúc ở hai cột riêng, tỷ suất
-   sinh lời, vốn cuối kỳ và **Thời điểm chạy** (ngày, giờ/phút/giây theo UTC+7);
-   UUID chỉ hiện khi rê chuột lên dòng, không làm tên kết quả.
-   Vốn cuối kỳ chỉ hiển thị số, không thêm hậu tố đơn vị.
-   Trang tiếp giữ bộ lọc và thay trang hiện tại; bấm Tìm lịch sử để về trang đầu.
-8. Bấm dòng trong bảng hoặc nút Xem mới tải kết quả và chart bằng GET, không
-   chạy lại chiến lược. Nút Xem hỗ trợ điều khiển bằng bàn phím.
-   Chưa có bộ lọc nâng cao.
+1. Điền mẫu CANSLIM v1 hoặc tải payload JSON. Mẫu có 2 nến mỗi nguồn; dữ liệu đã nạp được giữ khi điền mẫu.
+2. Kiểm tra qua `POST /api/backtests/validate`.
+3. Chạy qua `POST /api/backtests`; khóa nút gửi trong khi chờ.
+4. Hiển thị kết quả và tải chart theo `metadata.run_id`.
+5. Bấm **Tìm lịch sử** để tải trang tóm tắt; chọn dòng hoặc **Xem** để đọc kết quả/chart bằng GET.
+
+**Lọc và xem lịch sử**
+
+- Khi mở trang, biểu mẫu và bộ lọc ở trạng thái chờ nhập.
+- Bộ lọc lợi nhuận (%) và vốn cuối (`final_equity`) là tùy chọn, kết hợp AND, gồm hai đầu khoảng.
+- Vốn giữ đơn vị của từng lượt chạy.
+- Mỗi trang có 20 dòng: symbol, ngày đầu/cuối, lợi nhuận, vốn cuối và thời điểm chạy đến giây theo UTC+7.
+- UUID hiện khi rê chuột; vốn cuối chỉ hiển thị số.
+- Trang tiếp giữ bộ lọc; **Tìm lịch sử** quay về trang đầu. Nút **Xem** hỗ trợ bàn phím.
+- `STRUCTURE_VALID` xác nhận đầu vào; độ đủ lịch sử được đánh giá khi chạy.
 
 ### Vùng nhập cấu hình và dữ liệu
 
@@ -40,46 +33,54 @@ Giao diện không tính lại chiến lược, chỉ báo hoặc tiền; dữ l
 
 - Form có vốn ban đầu, ngày bắt đầu/kết thúc báo cáo, số nến khởi tạo chỉ báo,
   thời điểm khớp lệnh và trượt giá. Hai ngày báo cáo cùng bỏ trống hoặc cùng có giá trị.
-- Checkbox **Lấy dữ liệu tự động** mặc định bỏ tick, tương ứng `auto_fetch_data=false`
-  (payload cũ có thể không có flag). Tick chọn thì khóa hai vùng nhập dữ liệu và
-  giữ lại nội dung trên form; bỏ tick sẽ mở lại, không mất dữ liệu hoặc tham số đã chỉnh.
-  Tải payload có `auto_fetch_data=true` sẽ tự tick; điền mẫu giữ lựa chọn hiện tại.
-- Khi tick, bấm **Kiểm tra payload** hoặc **Chạy backtest** gửi cùng endpoint đang có
-  với `auto_fetch_data=true`, bỏ `trade_data`/`market_data` khỏi request. API lấy cả
-  VN30F1M và VNINDEX từ VNDIRECT, ưu tiên dữ liệu tự lấy dù request bên ngoài có
-  gửi kèm dữ liệu nhập tay. Không gọi nguồn khi chỉ tick checkbox; không tách bước
-  lấy dữ liệu trên trình duyệt. Nguồn lỗi thì báo lỗi, không dùng lại dữ liệu nhập tay.
-  Người dùng có thể chỉ nhập hai ngày báo cáo rồi chạy, không cần nạp dữ liệu giá.
-  Khi có `report`, API chỉ lấy thêm số nến khởi tạo cần dùng trước ngày bắt đầu,
-  rồi tải đến hết ngày kết thúc;
-  khi bỏ `report`, API lấy sáu tháng gần nhất đến hiện tại theo
-  [quy tắc API](backtest-api-specification.md). Các phần cấu hình còn lại vẫn được kiểm tra.
+
+**Tự lấy dữ liệu**
+
+- **Lấy dữ liệu tự động** mặc định tắt, tương ứng `auto_fetch_data=false`.
+- Bật: khóa hai vùng dữ liệu, giữ nội dung đã nhập. Tắt: mở lại hai vùng.
+- Nạp payload có cờ `true`: tự bật. Điền mẫu: giữ lựa chọn hiện tại.
+- Bật tự lấy rồi bấm **Kiểm tra payload** hoặc **Chạy backtest**: gửi `auto_fetch_data=true`, bỏ hai nguồn nhập tay khỏi request.
+- API tải VN30F1M/VNINDEX từ VNDIRECT khi gửi yêu cầu. Lỗi nguồn kết thúc yêu cầu.
+- Có `report`: lấy lịch sử khởi tạo cần dùng trước ngày bắt đầu, tải đến hết ngày kết thúc.
+- Bỏ `report`: lấy sáu tháng gần nhất. Các cấu hình khác vẫn được kiểm tra theo [quy tắc API](backtest-api-specification.md).
+
+**Chiến lược và lệnh**
+
 - Chọn mô hình normalized/contract và cách tính khối lượng để hiện các tham số
   tương ứng. Khi đổi mô hình hoặc loại chỉ báo, nhập các tham số của lựa chọn mới;
   giao diện không tự đổi điều kiện BUY/LONG/SHORT hoặc ngưỡng chiến lược.
 - Chỉ báo có tên, loại, nguồn và tham số; có thể thêm/xóa. Điều kiện `entry`,
   `exit`, `daily_limits` và bảng đáo hạn `contract_map` giữ các ô JSON riêng,
   mỗi ô tối đa 65.536 ký tự. Đây là giới hạn trình soạn trên web, không đổi giới hạn API.
-- Ô **Mô hình khớp lệnh** chọn next_open hoặc HNX. Dưới JSON mở/đóng có
-  ô loại lệnh, biểu thức giá LO và thời hạn chờ riêng cho từng nhánh. Chỉnh ô
-  cập nhật JSON, chỉnh JSON cập nhật ô. Đổi loại không âm thầm xóa giá/thời hạn
-  không tương thích; người dùng sửa hoặc xóa và kiểm tra lại trước khi gửi.
-  Nạp JSON cũ rồi không chỉnh giữ nguyên cấu trúc; lần chỉnh lệnh đầu tiên
-  chuyển cả hai nhóm sang `actions`, bảo toàn thời hạn kế thừa cũ.
-  `pyramiding` cho phép chọn nhiều lần mở theo ràng buộc tại đặc tả API.
+- **Mô hình khớp lệnh** chọn `next_open` hoặc HNX.
+- Mỗi nhánh mở/đóng có ô loại lệnh, giá LO và thời hạn. Biểu mẫu và JSON cập nhật hai chiều.
+- Đổi loại giữ giá/thời hạn cũ; cấu hình xung đột cần sửa trước khi gửi.
+- JSON cũ giữ cấu trúc đến lần chỉnh lệnh đầu tiên; sau đó chuyển hai nhóm sang `actions`, giữ thời hạn kế thừa.
+- `pyramiding` chọn nhiều lần mở theo ràng buộc API.
+- HNX hỗ trợ MTL/MOK/MAK với **Lượng đối ứng cố định mỗi nến** và `price_limits` trong nguồn giao dịch.
+- MTL có thời hạn cho LO dư; MAK/MOK kết thúc sau lần thử đầu.
+- Thiếu biên giá hoặc chọn normalized/`next_open`: báo lỗi.
+- Thay nguồn giao dịch: bảng biên giá theo tệp mới.
+- Lịch sử của chế độ lượng cố định hiển thị loại ban đầu/có hiệu lực,
+  giá LO chuyển đổi, lượng mong muốn/nhận đặt/khớp/hủy/từ chối/hết hạn.
+  Chọn fill mở thứ hai trở đi vẫn nối tới cùng vị thế và các lần đóng.
+  Bản dịch thuộc `language.mjs`; khóa JSON và giá trị kỹ thuật giữ nguyên.
+
+**Nạp dữ liệu**
+
 - Tải payload đầy đủ sẽ thay cấu hình và dữ liệu trên form. Tải JSON vào từng nguồn
   chỉ thay nguồn đó, giữ cấu hình và nguồn còn lại. Dữ liệu nhận dạng danh sách nến,
   object `bars`, OHLCV dạng `t/o/h/l/c/v` hoặc phần tương ứng trong payload đầy đủ.
-- Nạp VN30F1M có sẵn đọc `data/trade/vn30f1m-5m-20260316-20260915.json` vào
-  `trade_data`; nạp VNINDEX có sẵn đọc
-  `data/market/VNINDEX_5&from=1772323200&to=1789516800.json` vào `market_data`.
-  Hai tài nguyên UI cố định là `GET /ui-data/trade_data` và
-  `GET /ui-data/market_data`; không nhận đường dẫn tùy ý, không gọi nguồn bên ngoài.
-  Tệp được đọc dưới thư mục `data` của thư mục chạy ứng dụng; Compose đã gắn thư mục
-  này. Nếu thiếu tệp, báo lỗi và vẫn cho tải JSON lên.
+- Nạp VN30F1M: `data/trade/vn30f1m-5m-20260316-20260915.json` → `trade_data`.
+- Nạp VNINDEX: `data/market/VNINDEX_5&from=1772323200&to=1789516800.json` → `market_data`.
+- Endpoint cố định: `GET /ui-data/trade_data`, `GET /ui-data/market_data`.
+- Tệp nằm dưới `data` của thư mục chạy; Compose đã gắn thư mục này. Thiếu tệp: báo lỗi và cho tải JSON lên.
 - Nến nằm trong dữ liệu của form; chỉ hiện số nến và thời gian đầu/cuối, không
   tạo trường nhập cho từng nến và không đưa toàn bộ payload vào textarea.
   Bỏ một nguồn sẽ bỏ dữ liệu và thông tin của nguồn đó.
+
+**Gửi yêu cầu**
+
 - Kiểm tra/Chạy ghép lại JSON theo hợp đồng hiện tại. Vốn, tỷ lệ phí và tham số
   thập phân được giữ dạng chuỗi khi chỉnh, tránh làm tròn qua số JavaScript.
   Giá trị và kiểu của trường chưa chỉnh được giữ nguyên khi tải payload lên.
@@ -122,11 +123,9 @@ số hợp đồng. Các run lịch sử được trình bày theo metadata đã
 
 ### Mục lục toàn trang
 
-- Thanh điều hướng dọc ghim sát góc trái trên, cao bằng màn hình, ở cửa sổ từ
-  1200 px. Nội dung giữ chiều rộng 1200 px tối đa và căn giữa; chừa lề cân hai
-  bên khi cửa sổ hẹp hơn 1600 px để thanh không che hoặc đẩy lệch nội dung.
-  Hai tiêu đề Nhập liệu/Kết quả dùng chữ đậm 18 px, đen ở giao diện sáng và
-  trắng ở giao diện tối; các liên kết bên trong thụt thêm 12 px.
+- Từ 1200 px: thanh điều hướng ghim góc trái trên, cao bằng màn hình.
+- Nội dung tối đa 1200 px, căn giữa. Dưới 1600 px, chừa lề cân hai bên để tránh thanh điều hướng che nội dung.
+- Tiêu đề Nhập liệu/Kết quả: đậm 18 px, đen khi sáng, trắng khi tối. Liên kết con thụt 12 px.
 - Luôn có liên kết đến tải JSON/điền mẫu, tham số lần chạy, dữ liệu giao dịch,
   dữ liệu thị trường, tiền và khối lượng, chỉ báo, điều kiện chiến lược,
   kiểm tra/chạy và tìm lịch sử.
@@ -144,14 +143,12 @@ số hợp đồng. Các run lịch sử được trình bày theo metadata đã
 
 ## 5. Trạng thái và lỗi
 
-Chưa có run, đang tải, thành công có giao dịch, thành công không giao dịch,
-vị thế mở và lỗi phải phân biệt rõ. No-trade không đồng nghĩa đủ dữ liệu đánh giá;
-hiển thị evaluation_status khi có.
+Hiển thị riêng các trạng thái: ban đầu, đang tải, có giao dịch, trống giao dịch, còn vị thế và lỗi. `evaluation_status` cho biết mức đủ dữ liệu để đánh giá.
 
-Controller dùng sequence để bỏ response đến muộn. POST thành công nhưng chart
-GET lỗi thì giữ result/bảng đã tải và cho thử lại bằng GET. Lỗi history hiển thị
-riêng. Khi result lỗi, ẩn kết quả/chart cũ để không gắn với run mới.
-Thông báo API được hiển thị bằng text; không thực thi HTML từ dữ liệu.
+- Sequence loại phản hồi đến muộn.
+- POST thành công nhưng GET chart lỗi: giữ kết quả/bảng, cho thử lại GET.
+- Lỗi lịch sử hiển thị riêng; lỗi result ẩn kết quả/chart cũ.
+- Thông báo API hiển thị dạng văn bản thuần.
 
 ## 6. Tài nguyên và giao diện đã chọn
 
@@ -159,26 +156,19 @@ HTML/CSS/JavaScript ES modules đóng gói trong `backtesting_api/web`, được
 FastAPI phục vụ cùng origin tại `/static`. Module .mjs dùng MIME text/javascript.
 Lightweight Charts và LICENSE/NOTICE được lưu trong `web/vendor`.
 
-Style theo [DESIGN.md](DESIGN.md): nền cream, chữ espresso, nút amber;
-light/dark qua nút có nhãn truy cập. Main nối `create_app(..., preview=True)`
-để dùng preview.css và preview-theme.mjs cho giao diện chính. Theme lưu bằng
-`backtest-preview-theme`, đồng bộ tab và phát themechange; không tải lại run.
-Màu nến/hướng giao dịch giữ ý nghĩa đã chọn. Font dùng tài nguyên máy/fallback;
-không yêu cầu tải font ngoài để chạy.
+- Màu theo [DESIGN.md](DESIGN.md): nền kem, chữ nâu đậm, nút vàng hổ phách.
+- Ứng dụng dùng `create_app(..., preview=True)`, `preview.css` và `preview-theme.mjs`.
+- Nút sáng/tối có nhãn truy cập; lựa chọn lưu ở `backtest-preview-theme`, đồng bộ tab qua `themechange`.
+- Màu nến và hướng giao dịch giữ ý nghĩa đã chọn. Font lấy từ tài nguyên máy.
 
-Chuyển ngôn ngữ bằng liên kết **VN / ENG** ở đầu trang, ngay cạnh nút
-sáng/tối; hai điều khiển căn giữa theo chiều dọc và nằm cùng hàng trong nhóm.
-Không hiển thị nhãn “Ngôn ngữ”; nhóm liên kết vẫn có nhãn truy cập cho trình
-đọc màn hình. Ngôn ngữ đang chọn dùng chữ đậm, gạch chân và `aria-current`.
+- Liên kết **VN / ENG** nằm cùng hàng với nút sáng/tối ở đầu trang.
+- Nhóm ngôn ngữ có nhãn cho trình đọc màn hình.
+- Ngôn ngữ được chọn có chữ đậm, gạch chân và `aria-current`.
 
-Mặc định dùng tiếng Việt; lựa chọn tiếng Anh/Việt được lưu trong localStorage
-bằng khóa `backtest-language` (`en`/`vi`) và khôi phục khi tải lại trang.
-`web/language.mjs` dịch nhãn, hướng dẫn và thông báo đã có bản dịch, kể cả
-nội dung được cập nhật sau khi tải kết quả/lịch sử; đồng thời cập nhật thuộc
-tính `lang` của trang. Chuyển ngôn ngữ không tải lại trang, không chạy lại
-backtest và không thay giá trị nhập, dữ liệu JSON, mã lỗi hoặc dữ liệu bảng.
-Nội dung chưa có bản dịch giữ nguyên; không dịch trực tiếp phần chart của
-thư viện và JSON thô.
+- Mặc định tiếng Việt; lưu `en`/`vi` ở localStorage `backtest-language`, khôi phục khi tải trang.
+- `web/language.mjs` dịch nhãn, hướng dẫn và thông báo, gồm nội dung cập nhật từ kết quả/lịch sử; cập nhật `lang` của trang.
+- Đổi ngôn ngữ giữ nguyên lượt chạy, dữ liệu nhập, JSON, mã lỗi và dữ liệu bảng.
+- Nội dung thiếu bản dịch giữ nguyên; chart thư viện và JSON thô dùng nội dung gốc.
 
 ## 7. Nghiệm thu
 

@@ -39,6 +39,7 @@ class BacktestResult:
     position_details: StrategyDetails = ()
     lot_details: tuple[tuple[str, StrategyDetails], ...] = ()
 
+    # Validate position and lot detail values stored with the result.
     def __post_init__(self) -> None:
         validate_details(self.position_details)
         for _, details in self.lot_details:

@@ -53,6 +53,8 @@ def run_engine(
     auction_entry: bool = False,
     auction_match_quantity: int | None = None,
     require_end_flat: bool = False,
+    continuous_match_quantity: int | None = None,
+    price_limits: Mapping | None = None,
 ) -> BacktestResult:
     """Execute pending signals at Open, then evaluate new signals after Close.
 
@@ -70,6 +72,7 @@ def run_engine(
     if any(current.closed_at > following.trading_date for current, following in zip(bars, bars[1:])):
         raise ValueError("Next Open cannot precede the prior Close")
 
+    # Use explicit data availability when provided, otherwise use the candle close.
     def available_at(bar):
         return getattr(bar, 'available_at', None) or bar.closed_at
 
@@ -107,7 +110,10 @@ def run_engine(
                                   auction_events=auction_events, on_execution=on_execution,
                                   max_execution_bars=max_execution_bars, entry_cutoff=entry_cutoff, on_open=on_open,
                                   auction_entry=auction_entry, auction_match_quantity=auction_match_quantity,
-                                  require_end_flat=require_end_flat)
+                                  require_end_flat=require_end_flat, continuous_match_quantity=continuous_match_quantity,
+                                  price_limits=price_limits)
+    if continuous_match_quantity is not None or price_limits:
+        raise ValueError('SESSION_MATCHING_REQUIRED')
     pending: tuple[BarTime, FixedSignal] | None = None
     signal_records: list[SignalRecord] = []
     orders: list[OrderResult] = []
@@ -216,6 +222,7 @@ def run_fixed_signals(
 
     return run_engine(
         bars,
+        # Select the fixed signal associated with the current decision candle.
         lambda context: signals.get(context.bars[-1].trading_date),
         initial_cash=initial_cash,
         fee_rate=fee_rate,

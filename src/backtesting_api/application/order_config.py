@@ -1,9 +1,10 @@
-"""Đọc cấu hình lệnh cũ/mới tại một nơi, không sửa đầu vào đã ghim."""
+"""Read and validate order configuration from strategy payload."""
 
 
 LEGACY_ORDER_TYPES = {'next_open': 'SIMULATED', 'limit': 'LO', 'ato': 'ATO', 'atc': 'ATC'}
 
 
+# Resolve each action's direction and order using explicit and legacy settings.
 def action_orders(group, *, entry=False, legacy_policy=None, pending=None):
     if group is None:
         return {}
@@ -35,6 +36,7 @@ def action_orders(group, *, entry=False, legacy_policy=None, pending=None):
     return resolved
 
 
+# Resolve entry and bar-close orders from the strategy payload.
 def strategy_orders(payload):
     strategy = payload['strategy']
     pending = strategy['entry'].get('pending')
@@ -45,6 +47,7 @@ def strategy_orders(payload):
     )
 
 
+# Report effective orders together with their configuration source paths.
 def order_configuration(payload):
     entry, close = strategy_orders(payload)
     strategy = payload['strategy']

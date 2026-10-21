@@ -10,6 +10,10 @@ test('labels, metrics and live messages use either language while raw values sta
     assert.equal(translate('Chế độ khớp theo phiên', 'en'), 'Session matching model');
     assert.equal(translate('Mô hình khớp lệnh', 'en'), 'Matching model');
     assert.equal(translate('Loại lệnh', 'en'), 'Order type');
+    assert.equal(translate('Lượng đối ứng cố định mỗi nến', 'en'), 'Fixed counterparty quantity per bar');
+    assert.equal(translate('Thị trường chuyển dư sang LO (MTL)', 'en'), 'Market to limit (MTL)');
+    assert.equal(translate('canceled_quantity', 'en'), 'Canceled quantity');
+    assert.equal(translate('rejected_quantity'), 'Khối lượng bị từ chối');
     assert.equal(translate('Biểu thức giá giới hạn', 'en'), 'Limit price expression');
     assert.equal(translate('Entry: A'), 'Mở lệnh: A');
     assert.equal(translate('Exit: TIME'), 'Đóng lệnh: TIME');

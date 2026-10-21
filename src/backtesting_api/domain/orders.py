@@ -1,21 +1,24 @@
-"""Yêu cầu lệnh bất biến và kết quả xử lý; không đọc giá hoặc sửa tài khoản."""
+"""Domain classes for order management."""
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Literal
 from .market import BarTime
 
 Side = Literal['BUY', 'SELL', 'LONG', 'SHORT', 'CLOSE']
-OrderType = Literal['SIMULATED', 'LO', 'ATO', 'ATC']
+MARKET_TYPES = frozenset(('MTL', 'MOK', 'MAK'))
+OrderType = Literal['SIMULATED', 'LO', 'ATO', 'ATC', 'MTL', 'MOK', 'MAK']
 
 
+# Carry order type, optional limit price, and pending lifetime independently of matching.
 @dataclass(frozen=True)
 class OrderRequest:
     type: OrderType = 'SIMULATED'
     limit_price: Decimal | None = None
     max_execution_bars: int | None = None
 
+    # Validate fields supported by the requested order type.
     def validate(self):
-        if self.type not in ('SIMULATED', 'LO', 'ATO', 'ATC'):
+        if self.type not in ('SIMULATED', 'LO', 'ATO', 'ATC', *MARKET_TYPES):
             raise ValueError('UNSUPPORTED_ORDER_TYPE')
         if self.type == 'LO':
             price = self.limit_price
@@ -26,16 +29,19 @@ class OrderRequest:
         if self.max_execution_bars is not None and (
                 type(self.max_execution_bars) is not int or self.max_execution_bars < 1):
             raise ValueError('INVALID_MAX_EXECUTION_BARS')
+        if self.type in ('MAK', 'MOK') and self.max_execution_bars is not None:
+            raise ValueError('MARKET_ORDER_PENDING_NOT_APPLICABLE')
 
+    # Map simulated order intent to its persisted next-open result label.
     @property
     def result_type(self):
-        # Giữ nhãn kết quả cũ để chạy lại và đối chiếu lịch sử.
+        # Return the type of the order result.
         return 'NEXT_OPEN' if self.type == 'SIMULATED' else self.type
 
 
 @dataclass(frozen=True)
 class OrderResult:
-    """Kết quả một yêu cầu, kể cả bị từ chối hoặc còn chờ."""
+    """Result of an order request, including filled, rejected, or pending status."""
     signal_date: BarTime
     side: Side
     status: Literal['FILLED', 'REJECTED', 'PENDING', 'CANCELED', 'EXPIRED']
@@ -50,3 +56,9 @@ class OrderResult:
     expired_quantity: int = 0
     remaining_quantity: int | None = None
     position_id: str | None = None
+    requested_quantity: int | None = None
+    reference_price: Decimal | None = None
+    effective_order_type: str | None = None
+    converted_limit_price: Decimal | None = None
+    canceled_quantity: int = 0
+    rejected_quantity: int = 0

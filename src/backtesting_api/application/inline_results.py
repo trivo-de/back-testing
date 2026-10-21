@@ -31,6 +31,8 @@ def contract_result_to_dict(run_id, data, result, *, input_hash, policy_hash, ac
     position = entry = None
     multi = isinstance(result.portfolio, ContractBook)
     positions, entries = {}, {}
+    opening_orders = {}
+    finite = data.metadata.get('continuous_match_quantity') is not None
     close_indices = [i for i, fill in enumerate(result.fills) if fill.side == 'CLOSE']
     if len(close_indices) != len(result.trades):
         raise ValueError('EXIT_LEG_COUNT_MISMATCH')
@@ -51,6 +53,11 @@ def contract_result_to_dict(run_id, data, result, *, input_hash, policy_hash, ac
                               remaining_quantity=order.remaining_quantity,
                               events=order.events, submitted_time=order.signal_date,
                               completed_time=order.events[-1]['time'] if order.events and order.status != 'PENDING' else None)
+            if finite:
+                orders[-1].update(requested_quantity=order.requested_quantity, reference_price=order.reference_price,
+                                   effective_order_type=order.effective_order_type or order.order_type,
+                                   converted_limit_price=order.converted_limit_price,
+                                   canceled_quantity=order.canceled_quantity, rejected_quantity=order.rejected_quantity)
         if multi:
             if signal.position_id != order.position_id or not signal.position_id:
                 raise ValueError('SIGNAL_ORDER_POSITION_MISMATCH')
@@ -65,6 +72,9 @@ def contract_result_to_dict(run_id, data, result, *, input_hash, policy_hash, ac
         if not linked and order.status == 'FILLED':
             while next_fill_index in seen_fills: next_fill_index += 1
             linked = (next_fill_index,)
+        if finite:
+            orders[-1].update(fill_indices=linked,
+                              fill_ids=tuple(uuid5(run_id, f'fill:{i + 1}') for i in linked))
         for actual_index in linked:
             if actual_index in seen_fills or not 0 <= actual_index < len(result.fills):
                 raise ValueError('ORDER_FILL_LINK_INVALID')
@@ -78,14 +88,26 @@ def contract_result_to_dict(run_id, data, result, *, input_hash, policy_hash, ac
             fill_id = uuid5(run_id, f'fill:{actual_index + 1}')
             contract = contracts.get(fill.fill_date.date())
             if fill.side in ('LONG', 'SHORT'):
-                if position is not None: raise ValueError('OVERLAPPING_POSITIONS')
-                position_index += 1
-                position = {'position_id': public_id if multi else uuid5(run_id, f'position:{position_index}'), 'direction': fill.direction,
-                            'contract_code': contract, 'entry_fill_id': fill_id, 'entry_time': fill.fill_date,
-                            'entry_price': fill.price, 'initial_quantity': fill.quantity, 'quantity': fill.quantity}
-                entry = fill
-                if multi:
-                    positions[signal.position_id], entries[signal.position_id] = position, fill
+                if position is not None:
+                    if (not finite or opening_orders.get(position['position_id']) != order_id
+                            or contract != position['contract_code'] or fill.direction != position['direction']):
+                        raise ValueError('OVERLAPPING_POSITIONS')
+                    total = position['quantity'] + fill.quantity
+                    position['entry_price'] = (position['entry_price'] * position['quantity'] + fill.price * fill.quantity) / total
+                    position['quantity'] = total
+                    position['initial_quantity'] += fill.quantity
+                    position['entry_fill_ids'].append(fill_id)
+                else:
+                    position_index += 1
+                    position = {'position_id': public_id if multi else uuid5(run_id, f'position:{position_index}'), 'direction': fill.direction,
+                                'contract_code': contract, 'entry_fill_id': fill_id, 'entry_time': fill.fill_date,
+                                'entry_price': fill.price, 'initial_quantity': fill.quantity, 'quantity': fill.quantity}
+                    entry = fill
+                    if finite:
+                        position['entry_fill_ids'] = [fill_id]
+                        opening_orders[position['position_id']] = order_id
+                    if multi:
+                        positions[signal.position_id], entries[signal.position_id] = position, fill
             elif position is None or contract != position['contract_code']:
                 raise ValueError('EXIT_POSITION_OR_CONTRACT_MISMATCH')
             orders[-1]['position_id'] = position['position_id']
@@ -96,7 +118,9 @@ def contract_result_to_dict(run_id, data, result, *, input_hash, policy_hash, ac
                           'quantity': fill.quantity, 'fee': fill.fee, **fill.costs.__dict__})
             if order.order_type is not None:
                 auction_order = order.order_type in ('ATO', 'ATC')
-                fills[-1].update(order_type=order.order_type,
+                converted = next((e['time'] for e in order.events if e['status'] == 'converted_to_limit'), None)
+                effective_type = 'LO' if converted is not None and fill.fill_date > converted else order.order_type
+                fills[-1].update(order_type=effective_type,
                                  phase=order.order_type if auction_order else 'CONTINUOUS',
                                  time_precision='auction' if auction_order else
                                                 'bar_close_convention' if fill.fill_date != fill.bar_time else 'bar_open')
@@ -124,6 +148,8 @@ def contract_result_to_dict(run_id, data, result, *, input_hash, policy_hash, ac
                                'position_id': position['position_id'], 'entry_fill_id': position['entry_fill_id'],
                                'exit_fill_id': fill_id, 'contract_code': contract, 'close_reason': signal.reason,
                                **{k: v for k, v in trade.__dict__.items() if k != 'position_id'}})
+                if finite:
+                    trades[-1]['entry_fill_ids'] = tuple(position['entry_fill_ids'])
                 position['quantity'] -= fill.quantity
                 if position['quantity'] < 0: raise ValueError('NEGATIVE_OPEN_QUANTITY')
                 if position['quantity'] == 0:
@@ -152,7 +178,9 @@ def contract_result_to_dict(run_id, data, result, *, input_hash, policy_hash, ac
         position = None
         fill_order = {uuid5(run_id, f'fill:{i + 1}'): i for i in range(len(result.fills))}
         trade_order = {uuid5(run_id, f'trade:{i + 1}'): i for i in range(len(result.trades))}
+        # Sort serialized fills by their original engine sequence.
         fills.sort(key=lambda row: fill_order[row['fill_id']])
+        # Sort serialized trades by their original engine sequence.
         trades.sort(key=lambda row: trade_order[row['trade_id']])
     else:
         ledger = result.portfolio.position

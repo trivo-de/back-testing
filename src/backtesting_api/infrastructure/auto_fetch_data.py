@@ -17,11 +17,15 @@ class AutoFetchError(OSError):
     """The upstream data service could not supply a snapshot."""
 
 
+# Fetch VNDIRECT sources while preserving source coverage and closed-candle timing.
 class AutoDataFetcher:
+    # Configure the clock and HTTP opener used for source requests.
     def __init__(self, *, clock=None, opener=None):
+        # Use the current local market time when no clock is supplied.
         self.clock = clock or (lambda: datetime.now(ZoneInfo('Asia/Ho_Chi_Minh')))
         self.opener = opener or urlopen
 
+    # Fetch the latest six months of closed candles.
     def fetch(self):
         now = self.clock().astimezone(ZoneInfo('Asia/Ho_Chi_Minh')).replace(microsecond=0)
         year, month = divmod(now.year * 12 + now.month - 1 - 6, 12)
@@ -79,6 +83,7 @@ class AutoDataFetcher:
             metadata['history_start_limit'] = history_start
         return sources, metadata
 
+    # Fetch both sources for the computed interval and retain request provenance.
     def _fetch_range(self, unix_from, unix_to, now):
         sources = {}
         metadata = {'provider': 'VNDIRECT', 'fetched_at': now.isoformat(),

@@ -34,7 +34,10 @@ class FixedSignal:
     details: StrategyDetails = ()
     order: OrderRequest = OrderRequest()
     position_id: str | None = None
+    requested_quantity: int | None = None
+    reference_price: Decimal | None = None
 
+    # Validate the detail values attached to the signal.
     def __post_init__(self) -> None:
         validate_details(self.details)
 

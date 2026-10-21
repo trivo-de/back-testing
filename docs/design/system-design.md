@@ -2,12 +2,11 @@
 
 ## 1. Mục tiêu và luồng xử lý
 
-Ứng dụng đồng bộ nhận JSON và đi qua các lớp:
-`data → indicator → strategy evaluation → signal → execution → portfolio → metrics`.
-Giao diện và notebook gọi cùng API; domain không chọn rule dựa trên tên symbol.
-Quy tắc thuộc [hướng dẫn JSON](strategy-payload-guide.md),
-[CANSLIM v1](../strategies/canslim-v1-rules.md) và
-[accounting](canslim-v1-execution-accounting.md).
+Ứng dụng nhận JSON và xử lý theo các lớp:
+
+`data → indicator → strategy evaluation → signal → execution → portfolio → metrics`
+
+Web và notebook dùng cùng API. Quy tắc theo [hướng dẫn JSON](strategy-payload-guide.md), [CANSLIM v1](../strategies/canslim-v1-rules.md) và [tính tiền hợp đồng](canslim-v1-execution-accounting.md).
 
 ```mermaid
 flowchart LR
@@ -24,25 +23,21 @@ flowchart LR
 
 ### 1.1. Một yêu cầu POST /api/backtests đi qua hàm nào?
 
-Loại lệnh thuộc `strategy.entry`/`strategy.exit.bar_close`, còn
-`execution.matching_model` chọn bộ khớp. `application/order_config.py` đọc
-cấu hình cũ/mới tại một điểm; `domain/orders.py` giữ yêu cầu lệnh bất biến và
-kết quả lệnh. `domain/matching.py` trả giá, lượng và thời điểm khớp;
-`engine.py`/`session_matching.py` điều phối thời gian, lệnh chờ và vòng đời.
-`execution.py` áp dụng lần khớp và bảo vệ, sổ tiền cập nhật phí, ký quỹ, P/L.
-Thêm loại lệnh cần cập nhật schema/kiểm tra tham số, khả năng hỗ trợ của bộ
-khớp, biểu mẫu và kiểm thử; không cần hệ thống plugin.
+- `strategy.entry`/`strategy.exit.bar_close`: ý định và loại lệnh.
+- `execution.matching_model`: bộ khớp được chọn.
+- `application/order_config.py`: đọc cấu hình cũ/mới.
+- `domain/orders.py`: yêu cầu lệnh bất biến và kết quả lệnh.
+- `domain/matching.py`: giá, lượng và thời điểm khớp.
+- `engine.py`/`session_matching.py`: thời gian, lệnh chờ và vòng đời.
+- `execution.py` và sổ tiền: áp dụng fill, bảo vệ, phí, ký quỹ và P/L.
+- Thêm loại lệnh cần cập nhật schema, bộ khớp, biểu mẫu và kiểm thử.
 
-Chế độ nhiều lần mở dùng `MultiContractExecution` và `ContractBook`:
-cùng tài khoản nhưng mỗi `position_id` giữ trạng thái bảo vệ riêng, tái sử
-dụng bộ thực thi một vị thế qua `LotAccount`. Không bình quân giá vốn hoặc
-phân bổ đóng sang phần vị thế khác. Chế độ một vị thế và next_open giữ đường
-chạy cũ. Hợp đồng cấu hình và kết quả ở mục 3.4 của đặc tả API.
+- `MultiContractExecution` và `ContractBook` quản lý tài khoản chung, bảo vệ riêng từng `position_id`.
+- `LotAccount` tái sử dụng bộ thực thi một vị thế; giá vốn và lượng đóng thuộc từng phần.
+- Một vị thế và `next_open` giữ đường chạy hiện có. Hợp đồng cấu hình tại mục 3.4 đặc tả API.
 
-Sơ đồ dưới đây đối chiếu với source hiện tại. Đây là lời gọi đồng bộ: API
-chờ chạy và lưu xong mới trả HTTP 201. Khi khởi động, `main.build_service()`
-nối `BacktestService` với `FileRunRepository` và đặt
-`inline_runner=run_inline_strategy`; không dựng lại service cho mỗi yêu cầu.
+- API chạy đồng bộ, chờ lưu kết quả xong mới trả `201`.
+- Khi khởi động, `main.build_service()` nối `BacktestService`, `FileRunRepository` và `inline_runner=run_inline_strategy`.
 
 ```mermaid
 sequenceDiagram
@@ -118,42 +113,30 @@ sequenceDiagram
     end
 ```
 
-Kiểm tra schema không đạt thì FastAPI trả 422 trước khi gọi `run_backtest()`.
-Lỗi ở `validate_inline()` hoặc `start_inline()` xảy ra trước khối `try` chạy
-chiến lược, nên không đi qua `fail_run()`. Route đổi `ValueError` thành 422;
-`OSError`, `KeyError`, `TypeError` thành 503; `AutoFetchError` do lỗi nguồn
-được trả 503 riêng; ngoại lệ khác không được route
-này ánh xạ riêng. Nếu chính `fail_run()` lỗi thì việc ghi trạng thái failed
-cũng không được bảo đảm.
+- Schema sai: FastAPI trả `422` trước `run_backtest()`.
+- Lỗi `validate_inline()`/`start_inline()` xảy ra trước khối chạy chiến lược nên nằm ngoài `fail_run()`.
+- Route ánh xạ `ValueError` → `422`; `OSError`, `KeyError`, `TypeError` → `503`; `AutoFetchError` nguồn → `503`.
+- Ngoại lệ khác theo xử lý mặc định. Ghi trạng thái failed phụ thuộc `fail_run()` hoàn tất.
 
-`POST /api/backtests/validate` đi qua route `validate_inline(request)` →
-`request.model_dump()` → `service.validate_inline(payload)` rồi trả kết quả
-kiểm tra. Nó không gọi `start_inline()`, `run_inline_strategy()` hoặc lưu run.
-Đầu vào HTTP chọn dữ liệu nhập tay hoặc `auto_fetch_data: true`.
-Khi cờ này là boolean `true`, `InlineRunRequest.prefer_auto_data()` bỏ hai
-nguồn nhập tay trước khi kiểm tra trường, kể cả khi chúng chưa hợp lệ;
-các nhóm cấu hình khác vẫn được kiểm tra. Không sửa trực tiếp JSON đầu vào
-do bên gọi truyền vào.
-`prepare_inline()` gọi `AutoDataFetcher.fetch_by_range()` khi bật tự lấy và có
-`report`: service tính số nến khởi tạo từ `warmup_bars`, chỉ báo và `shift`;
-fetcher đếm ngược theo lịch phiên rồi chỉ giữ số nến lịch sử cần dùng trước
-`start_date`, cùng dữ liệu đến hết `end_date`. Contract chỉ đếm nến liên tục;
-ATO cần tối thiểu một nến trước kỳ. Thiếu nến/khoảng trống vẫn được báo, không
-tự lấp hoặc lùi thêm qua khoảng thiếu. Nếu không có `report`, service gọi `fetch()` để lấy sáu tháng gần
-nhất đến hiện tại. Cả hai đường đều kiểm tra OHLCV, chỉ giữ nến đã đóng và dùng
-cùng mốc Unix cho hai nguồn. Với mô hình contract, bảng đáo hạn được lấy từ chính sách hiện có;
-kiểm tra lịch phiên vẫn dùng `runtime-policy-v1.json`, không tự mở rộng lịch.
-Khi có `report` ở mô hình contract, lịch sử khởi tạo không được tải trước
-ngày đầu lịch phiên hoặc đầu tháng đầu tiên của bảng đáo hạn. Giới hạn được
-ghi tại `metadata.auto_fetch.history_start_limit`; kỳ báo cáo và ngưỡng
-`warmup_bars` giữ nguyên, thiếu mẫu vẫn báo chưa đánh giá được.
-Sau khi lấy, payload chứa hai nguồn cụ thể và `auto_fetch_data: false`;
-metadata giữ nguồn, khoảng lấy, mã băm và số nến bị loại. `start_inline()`
-lưu snapshot này như đầu vào nhập tay để có thể chạy lại. Lỗi nguồn HTTP/mạng
-trả 503 riêng; dữ liệu nguồn sai trả 422 trước khi tạo lượt chạy.
-`prepare_inline()` cũng ưu tiên ghi đè cả hai nguồn cho lời gọi service trực
-tiếp. Tải lỗi thì dừng, không chuyển sang dữ liệu nhập tay. Không cần tách
-endpoint hoặc hai request để lấy dữ liệu rồi chạy backtest.
+`POST /api/backtests/validate`:
+
+1. Route gọi `request.model_dump()` → `service.validate_inline(payload)`.
+2. `InlineRunRequest.prefer_auto_data()` bỏ hai nguồn nhập tay khi `auto_fetch_data` là boolean `true`; vẫn kiểm tra nhóm cấu hình khác.
+3. `prepare_inline()` chuẩn bị dữ liệu rồi trả kết quả kiểm tra.
+
+Cách lấy dữ liệu:
+
+- Có `report`: gọi `AutoDataFetcher.fetch_by_range()`, lùi số nến theo `warmup_bars`, chỉ báo và `shift`; giữ lịch sử cần dùng và nến đến hết `end_date`.
+- Contract đếm nến liên tục; ATO cần ít nhất một nến trước kỳ. Khoảng thiếu giữ nguyên.
+- Bỏ `report`: gọi `fetch()` lấy sáu tháng gần nhất. Hai nguồn dùng chung mốc Unix và chỉ giữ nến đã đóng, OHLCV hợp lệ.
+- Contract dùng bảng đáo hạn hiện có và lịch `runtime-policy-v1.json`. Lịch sử giới hạn bởi ngày đầu lịch và đầu tháng đầu của bảng.
+- Giới hạn ghi tại `metadata.auto_fetch.history_start_limit`; kỳ và `warmup_bars` giữ nguyên. Thiếu mẫu: chưa đánh giá được.
+- Payload chuẩn bị có hai nguồn cụ thể, `auto_fetch_data: false`; metadata ghi nguồn, khoảng lấy, mã băm và số nến loại.
+- Khi chạy, `start_inline()` lưu dữ liệu đã chuẩn bị để chạy lại.
+- Lỗi HTTP/mạng trả `503`; dữ liệu nguồn sai trả `422`, trước khi tạo lượt chạy.
+- `prepare_inline()` cũng thay cả hai nguồn cho lời gọi service trực tiếp. Lỗi tải kết thúc yêu cầu; đầu vào gốc của bên gọi giữ nguyên.
+
+Endpoint kiểm tra chỉ chuẩn bị và xác thực đầu vào.
 
 ### 1.2. Trong mỗi nến, engine gọi gì và theo thứ tự nào?
 
@@ -163,10 +146,9 @@ endpoint hoặc hai request để lấy dữ liệu rồi chạy backtest.
 - `contract`: `InlineExecution` kế thừa `ContractExecution`, dùng `ContractPortfolio`.
 - `normalized`: `InlineNormalizedExecution` kế thừa `NormalizedExecution`, dùng `Portfolio`.
 
-Sau đó hàm gọi `run_engine(..., signal_provider=evaluate, execution=lambda cash: executor, on_open=executor.before_open)`.
-`evaluate(context)` là hàm nằm bên trong `run_inline_strategy()`, không phải
-endpoint hay phương thức của engine. `run_engine()` kiểm tra thứ tự/thời gian
-nến và gọi hàm `execution` để nhận lại bộ thực thi đã dựng.
+- Sau đó hàm gọi `run_engine(..., signal_provider=evaluate, execution=lambda cash: executor, on_open=executor.before_open)`.
+- `evaluate(context)` là hàm nằm bên trong `run_inline_strategy()`, không phải endpoint hay phương thức của engine.
+- `run_engine()` kiểm tra thứ tự/thời gian nến và gọi hàm `execution` để nhận lại bộ thực thi đã dựng.
 
 ```mermaid
 sequenceDiagram
@@ -246,16 +228,13 @@ sequenceDiagram
     Runner->>Runner: Kiểm tra vị thế cuối kỳ khi cấm qua đêm<br/>đổi lệnh mở còn chờ thành REJECTED / END_OF_REPORT<br/>gắn evaluations và position_details bằng replace()
 ```
 
-`IndicatorData.__init__()` tính trước các chuỗi chỉ báo theo từng đoạn dữ
-liệu; `at(stamp)` chỉ trả phần có `available_at <= stamp`, giới hạn từ điểm
-khởi tạo lại sau đổi hợp đồng hoặc khoảng thiếu. Tính trước chuỗi không cho
-phép `evaluate()` đọc mẫu tương lai. `evaluate_expression()` gọi
-`validate_expression()` trước khi tính; `all`/`any` đánh giá mọi toán hạng.
+- `IndicatorData.__init__()` tính chuỗi theo từng đoạn dữ liệu.
+- `at(stamp)` chỉ trả mẫu có `available_at <= stamp`, từ mốc khởi tạo lại sau chuyển mã hoặc khoảng thiếu.
+- `evaluate_expression()` gọi `validate_expression()` trước khi tính; `all`/`any` đánh giá mọi toán hạng.
 
-Nếu thiếu dữ liệu khi xét mở, `evaluate()` ghi `UNEVALUABLE` và không tạo
-tín hiệu. Khi xét thoát theo Close, `MissingValue` ở một nhãn khiến bộ chạy
-bỏ qua nhãn đó và xét nhãn tiếp theo. Margin/time-stop/giờ thoát theo Close
-được xét qua biểu thức đã khai báo; không có một hàm tự thêm các quy tắc này.
+- Xét mở thiếu dữ liệu: ghi `UNEVALUABLE`, bỏ tạo tín hiệu.
+- Xét thoát Close gặp `MissingValue`: bỏ nhãn đó, xét nhãn tiếp theo.
+- Margin, time-stop và giờ thoát được xét qua biểu thức trong JSON.
 
 ### 1.3. Lời gọi khớp lệnh và vị trí source
 
@@ -276,12 +255,11 @@ bỏ qua nhãn đó và xét nhãn tiếp theo. Margin/time-stop/giờ thoát th
 | Chuyển kết quả        | `inline_result_to_dict()` → hàm theo model → `exact_json()`                                                                                                                                    | [inline_results.py](../../src/backtesting_api/application/inline_results.py)                                                                                                                                                   |
 | Ghi đầu vào/kết quả | `start_inline()`, `complete_run()` hoặc `fail_run()` → `_publish_json()` / `_publish_bytes()`                                                                                             | [file_repository.py](../../src/backtesting_api/infrastructure/file_repository.py)                                                                                                                                              |
 
-`portfolio` là sổ tiền bất biến: `buy()`/`sell()` hoặc `enter()`/`exit()` trả
-sổ tiền mới; executor thay `self.portfolio`, engine lấy lại sổ tiền đó sau
-khớp. `mark()` chỉ trả snapshot, không tự tạo giao dịch. Đường chạy mặc định tính
-khối lượng lúc `execute()`. Khớp theo phiên chốt lượng LO theo giá giới hạn, ATO
-theo Close liên tục gần nhất lúc 08:45 và ATC theo vị thế còn lại lúc 14:30;
-`auction_match_quantity` chỉ giới hạn lượng thực khớp, không sửa lượng đã đặt.
+- Sổ tiền bất biến: `buy()`/`sell()` hoặc `enter()`/`exit()` trả bản mới; executor cập nhật `self.portfolio`, engine nhận lại sau fill.
+- `mark()` trả ảnh chụp tài khoản.
+- Bộ khớp mặc định tính lượng lúc `execute()`.
+- HNX chốt LO theo giá giới hạn, ATO theo Close liên tục trước 08:45, ATC theo vị thế còn lại lúc 14:30.
+- `auction_match_quantity` giới hạn lượng khớp, giữ nguyên lượng đặt.
 
 ## 2. Ranh giới module
 
@@ -297,16 +275,12 @@ theo Close liên tục gần nhất lúc 08:45 và ATC theo vị thế còn lạ
 | Kho file            | `infrastructure/file_repository.py`                                                   | Ghim đầu vào, lưu/đọc kết quả và dựng dữ liệu chart     |
 | Giao diện          | `web/`                                                                                | Trình bày cùng một kết quả từ API                            |
 
-Domain không import API, application, infrastructure hoặc web. Chiến lược được
-khai báo bằng chỉ báo/biểu thức trong JSON; không thực thi mã Python do HTTP gửi.
-Cấu trúc đầy đủ tại [cấu trúc repository](project-structure.md).
+Domain độc lập với API, application, infrastructure và web. JSON khai báo chỉ báo, biểu thức và hành động theo [cấu trúc repository](project-structure.md).
 
 ## 3. Thời gian, tín hiệu và trạng thái
 
-Engine xử lý các bước tại nến: thực thi lệnh chờ ở Open → áp dụng fill/rejection
-→ xử lý thoát trong nến theo rule → ghi tài khoản tại Close → đánh giá điều kiện
-bằng dữ liệu đã khả dụng → tạo tín hiệu/lệnh chờ cho Open kế tiếp.
-Dữ liệu thị trường được ghép theo available_at, không theo chỉ số dòng.
+- Engine xử lý các bước tại nến: thực thi lệnh chờ ở Open → áp dụng fill/rejection → xử lý thoát trong nến theo rule → ghi tài khoản tại Close → đánh giá điều kiện bằng dữ liệu đã khả dụng → tạo tín hiệu/lệnh chờ cho Open kế tiếp.
+- Dữ liệu thị trường được ghép theo available_at, không theo chỉ số dòng.
 
 ```mermaid
 stateDiagram-v2
@@ -321,14 +295,12 @@ stateDiagram-v2
     ExitPending --> Flat: đóng toàn bộ
 ```
 
-Signal, order và fill là record khác nhau. Không có fill thì không được tạo
-trade hoặc thay đổi vị thế như đã giao dịch. Sizing sử dụng giá/thông tin tại
-lúc thực thi, theo nhóm sizing/accounting trong JSON. Normalized và contract
-là hai mô hình tiền hiện hỗ trợ; các giới hạn cụ thể thuộc đặc tả API.
+- Signal, order và fill là record khác nhau.
+- Không có fill thì không được tạo trade hoặc thay đổi vị thế như đã giao dịch.
+- Sizing sử dụng giá/thông tin tại lúc thực thi, theo nhóm sizing/accounting trong JSON.
+- Normalized và contract là hai mô hình tiền hiện hỗ trợ; các giới hạn cụ thể thuộc đặc tả API.
 
-IndicatorData chuẩn bị chuỗi nhưng mỗi lần đánh giá chỉ đọc phần đã khả dụng.
-Thiếu lịch sử hoặc dữ liệu bắt buộc tại t phải ghi UNEVALUABLE. Không lặp nến
-tham chiếu, không tự điền gap, không ghép giá hợp đồng tương lai để tính quá khứ.
+`IndicatorData` chỉ cung cấp mẫu đã khả dụng. Thiếu lịch sử hoặc dữ liệu bắt buộc tại `t`: ghi `UNEVALUABLE`, giữ nguyên khoảng thiếu và ranh giới hợp đồng.
 
 ## Các trường hợp lỗi và phục hồi theo luồng
 
@@ -340,10 +312,10 @@ test và integration test.
 | ------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | `SDD-EX-01` | Data loader/validator gặp schema, OHLC, thứ tự hoặc metadata sai             | Chưa được phép vào indicator/strategy; chưa có signal hoặc fill hợp lệ                                    | Dừng run và trả structured validation error; không tự sửa hoặc điền dữ liệu                                          |
 | `SDD-EX-02` | Indicator/strategy thiếu warm-up hoặc required value tại`t`                 | Chỉ lần đánh giá hiện tại không có signal; state vị thế giữ nguyên                                      | Ghi reason unevaluable và tiếp tục các bar hợp lệ sau đó                                                                |
-| `SDD-EX-03` | Execution nhận pending nhưng không có Open kế tiếp hợp lệ                | Order ghi trạng thái chưa khớp hoặc cuối kỳ theo cấu hình; không phát sinh fill hoặc thay đổi position | Ghi trạng thái cuối kỳ/missing next bar theo result contract; không tạo giá giả                                         |
+| `SDD-EX-03` | Lệnh chờ thiếu Open kế tiếp hợp lệ | Ghi trạng thái chờ hoặc cuối kỳ theo cấu hình | Kiểm tra trạng thái và nến thực thi theo hợp đồng kết quả |
 | `SDD-EX-04` | Execution hoặc ledger từ chối order do quantity/cash/side/fee                 | Signal vẫn tồn tại; order rejected; position và ledger không đổi bởi fill                                    | Ghi order outcome/reason, chuyển sang bước mark/evaluate kế tiếp                                                           |
-| `SDD-EX-05` | Core phát hiện invariant sai như cash âm ngoài tolerance hoặc position âm | Run không còn đủ điều kiện thành công; child records không được xem là result hoàn chỉnh             | Đánh dấu failed với structured error; không trả partial result thành công                                               |
-| `SDD-EX-06` | Repository không ghi atomically hoặc artifact/result sai hash/schema khi đọc | Không được công bố aggregate succeeded; dữ liệu lỗi không được dùng làm result                        | Công bố từng tệp bằng thay thế nguyên tử; không công bố kết quả thiếu, từ chối tệp sai khi đọc               |
+| `SDD-EX-05` | Vi phạm bất biến, như tiền hoặc vị thế âm ngoài sai số cho phép | Run thất bại | Trả lỗi có cấu trúc, chỉ công bố kết quả đầy đủ |
+| `SDD-EX-06` | Lỗi ghi tệp hoặc sai hash/schema khi đọc | Từ chối công bố hoặc đọc dữ liệu lỗi | Kiểm tra thay tệp nguyên tử và tính toàn vẹn |
 | `SDD-EX-07` | Evaluator có nguy cơ nhìn thấy dữ liệu sau decision hoặc full array       | Có nguy cơ làm sai signal, fill và tính tái lập                                                               | Chỉ truyền prefix/record có`available_at <= decision`; causality test phải chặn vi phạm                                 |
 | `SDD-EX-08` | Service restart sau khi run đã thành công hoặc failed                       | Run thành công phải giữ được business result; run failed không xuất hiện trong history thành công        | Repository reload theo hash/schema; API chỉ đọc succeeded; trạng thái failed được lưu trong tệp run để đối chiếu |
 
@@ -359,32 +331,26 @@ backtest-store/
 └── policies/                     # Chính sách của lịch sử đã có
 ```
 
-`start_inline()` ghi đầu vào, tính input_hash/policy_hash và tạo run running.
-Core chạy trong bộ nhớ; `complete_run()` kiểm tra run/input và công bố toàn bộ
-kết quả succeeded bằng thay tệp nguyên tử, kèm result_hash. Lỗi sau khi tạo run
-được lưu bằng `fail_run()`. Đây là công bố từng tệp, không phải giao dịch nhiều
-file; run chỉ thành công khi tệp kết quả đầy đủ đã được công bố.
+1. `start_inline()` ghim đầu vào/chính sách, tính `input_hash`/`policy_hash`, tạo run `running`.
+2. Bộ chạy xử lý trong bộ nhớ.
+3. `complete_run()` kiểm tra đầu vào và công bố toàn bộ kết quả `succeeded` bằng thay tệp nguyên tử, kèm `result_hash`.
+4. Lỗi sau khi tạo run được ghi qua `fail_run()`.
+
+Tính nguyên tử áp dụng từng tệp. Run thành công khi tệp kết quả đầy đủ đã được công bố.
 
 Kết quả mới lưu thời điểm bắt đầu thực thi trong `metadata.run_at` theo UTC.
 Lịch sử dùng trường này; run cũ dùng ngày tạo file JSON, hoặc ngày sửa cuối nếu
 hệ thống không có ngày tạo. Không ghi lại kết quả cũ để bổ sung thời gian.
 
-`get_run()` kiểm tra phiên bản, trạng thái, run_id, hash kết quả và đầu vào/chính
-sách của phiên bản 2. `list_runs()` chỉ trả succeeded, theo tên tệp giảm dần;
-không coi thứ tự UUID là thứ tự thời gian tạo. API không cung cấp danh sách failed.
-`GET /api/backtests/history` dùng `iter_run_summaries()` để đọc và kiểm tra
-từng kết quả, lọc theo tỷ suất sinh lời/vốn cuối kỳ rồi trả tóm tắt có phân
-trang. Không giữ toàn bộ kết quả các lần chạy trong bộ nhớ. Web không gọi
-danh sách đầy đủ và không tự mở lịch sử khi khởi động. Hiện tìm kiếm vẫn
-cần đọc tệp JSON của các lần chạy được xét; khi số tệp làm việc quét chậm,
-có thể bổ sung chỉ mục tóm tắt, không thay định dạng kết quả chỉ để giảm RAM web.
-`get_input()` phục vụ kết quả phiên bản 2; lịch sử phiên bản 1 không có input JSON
-này và trả lỗi tương thích khi gọi endpoint input.
+- `get_run()`: kiểm tra phiên bản, trạng thái, `run_id`, hash kết quả và đầu vào/chính sách phiên bản 2.
+- `list_runs()`: chỉ trả `succeeded`, theo tên tệp giảm dần. UUID không biểu diễn thời gian tạo.
+- `GET /api/backtests/history`: dùng `iter_run_summaries()` kiểm tra từng kết quả, lọc lợi nhuận/vốn cuối và trả trang tóm tắt.
+- Web tải lịch sử khi được yêu cầu. Bộ lọc vẫn phải đọc từng tệp JSON được xét.
+- `get_input()`: phục vụ phiên bản 2; phiên bản 1 trả lỗi tương thích vì thiếu input JSON.
 
-Chart phiên bản 2 dựng từ đầu vào đã ghim; không chạy lại chiến lược hoặc gọi
-nguồn ngoài. Trường open_time của một đầu vào lịch sử được ánh xạ khi đọc trên
-bản sao; JSON mới vẫn bắt buộc time. Chart phiên bản 1 đọc manifest và nến
-Parquet của lịch sử còn giữ; pyarrow phục vụ nhánh đọc này.
+- Chart phiên bản 2 dựng từ đầu vào đã ghim; không chạy lại chiến lược hoặc gọi nguồn ngoài.
+- Trường open_time của một đầu vào lịch sử được ánh xạ khi đọc trên bản sao; JSON mới vẫn bắt buộc time.
+- Chart phiên bản 1 đọc manifest và nến Parquet của lịch sử còn giữ; pyarrow phục vụ nhánh đọc này.
 
 Kho có một tiến trình ghi. Đường dẫn chính sách/kho file tương đối được xác
 định từ thư mục làm việc; chạy ứng dụng từ gốc repository theo
@@ -392,20 +358,15 @@ Kho có một tiến trình ghi. Đường dẫn chính sách/kho file tương �
 
 ## 5. Giao diện và đọc kết quả
 
-API trả một result cho mỗi run. Summary, chart, fill marker, bảng giao dịch,
-vị thế mở, audit và equity đều dùng cùng run_id/hash. Frontend chỉ định dạng
-và lọc record, không tính lại chỉ báo hoặc tiền. Lỗi chart không tạo lượt chạy
-mới; nút thử lại đọc kết quả/chart theo run_id đã có.
-Chi tiết tại [đặc tả giao diện](web-ui-specification.md).
+- Mỗi run có một result; summary, chart, marker, giao dịch, vị thế, nhật ký và equity cùng `run_id`/hash.
+- Frontend định dạng và lọc dữ liệu do API trả.
+- Lỗi chart: thử lại GET theo `run_id` hiện có. Xem [đặc tả giao diện](web-ui-specification.md).
 
 ## 6. Kiểm thử
 
-Kiểm thử các lớp dữ liệu/biểu thức, trạng thái lệnh, tính tiền, lỗi ghi nguyên
-tử, hash/schema, đọc lịch sử, API, notebook và ánh xạ chart. Đối chiếu đầy đủ
-với dữ liệu cắt tại t và dữ liệu tương lai bị thay đổi; chạy cùng JSON nhiều
-lần phải giữ kết quả nghiệp vụ sau khi tách UUID và metadata.run_at.
-Input/policy hash được đối chiếu khi cùng đầu vào đã ghim; result_hash bao gồm
-định danh và thời điểm chạy nên có thể khác giữa hai run.
+- Kiểm thử các lớp dữ liệu/biểu thức, trạng thái lệnh, tính tiền, lỗi ghi nguyên tử, hash/schema, đọc lịch sử, API, notebook và ánh xạ chart.
+- Đối chiếu đầy đủ với dữ liệu cắt tại t và dữ liệu tương lai bị thay đổi; chạy cùng JSON nhiều lần phải giữ kết quả nghiệp vụ sau khi tách UUID và metadata.run_at.
+- Input/policy hash được đối chiếu khi cùng đầu vào đã ghim; result_hash bao gồm định danh và thời điểm chạy nên có thể khác giữa hai run.
 
 Các test hiện có và giới hạn kiểm chứng tại
 [danh mục kiểm thử](../testing/vn30f1m/canslim-v1-test-cases.md).

@@ -14,11 +14,13 @@ STATE_REFS = {'position.entry_price', 'position.initial_quantity', 'position.hel
 
 class MissingValue(ValueError):
     """Raised when a value is missing for a reference in an expression."""
+    # Retain the missing reference name in the evaluation error.
     def __init__(self, name):
         super().__init__(f'Missing value for reference: {name}')
         self.name = name
 
 
+# Validate expression structure, types, reference shifts, and recursion limits.
 def validate_expression(node, references, conditions=None, expected=None, *, depth=0, trail=(), _budget=None):
     _budget = [4096] if _budget is None else _budget
     _budget[0] -= 1
@@ -86,6 +88,7 @@ def evaluate_expression(node, values, conditions=None):
     conditions = conditions or {}
     validate_expression(node, set(values), conditions)
 
+    # Evaluate one expression node using the supplied available values.
     def evaluate(item):
         if isinstance(item, str):
             return evaluate(conditions[item]) if item in conditions else time.fromisoformat(item)

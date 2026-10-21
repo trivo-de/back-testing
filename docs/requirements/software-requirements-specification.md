@@ -6,11 +6,9 @@ Hệ thống chạy chiến lược được cung cấp bằng JSON, từ dữ l
 điều kiện chiến lược → tín hiệu → khớp lệnh → tài khoản → kết quả. Độ đúng
 được đánh giá theo dữ liệu, quy tắc, thời điểm và số học, không theo lợi nhuận.
 
-Symbol hiện hành là VN30F1M, dữ liệu chính 5 phút; 1D là khả năng hỗ trợ theo
-cấu hình JSON. Chiến lược và cách tính tiền thuộc nội dung đầu vào được kiểm
-tra, không được suy ra từ tên symbol hoặc tên CANSLIM. Quy tắc v1 đã chốt tại
-[CANSLIM v1](../strategies/canslim-v1-rules.md); mô hình tiền normalized tại
-[tính tiền normalized](../design/normalized-accounting.md).
+- Symbol hiện hành là VN30F1M, dữ liệu chính 5 phút; 1D là khả năng hỗ trợ theo cấu hình JSON.
+- Chiến lược và cách tính tiền thuộc nội dung đầu vào được kiểm tra, không được suy ra từ tên symbol hoặc tên CANSLIM.
+- Quy tắc v1 đã chốt tại [CANSLIM v1](../strategies/canslim-v1-rules.md); mô hình tiền normalized tại [tính tiền normalized](../design/normalized-accounting.md).
 
 API nhận JSON trực tiếp; giao diện web và notebook dùng cùng API. Đầu vào,
 chính sách và kết quả được lưu tại kho file. Hệ thống đọc lại kết quả lịch sử
@@ -48,13 +46,13 @@ strategy, còn status HTTP thuộc đặc tả API.
 
 | Case ID | Điều kiện | Hành vi hệ thống bắt buộc | Tiêu chí kiểm tra |
 | --- | --- | --- | --- |
-| `SRS-EX-01` | Input sai schema, thiếu metadata/cột bắt buộc, ngày trùng hoặc giảm dần, OHLC không hợp lệ | Từ chối trước khi chạy; trả lỗi có cấu trúc; không tạo kết quả thành công | Validator test xác nhận lỗi và không có fill/result thành công |
-| `SRS-EX-02` | Thiếu dữ liệu cần cho indicator hoặc chưa đủ warm-up tại thời điểm `t` | Đánh dấu không đánh giá được; không coi là đạt, không tự lùi kỳ, không tự điền dữ liệu | Fixture thiếu history không sinh signal và ghi reason |
-| `SRS-EX-03` | Signal ở Close `t` không có Open thực thi kế tiếp hoặc là signal cuối kỳ | Giữ pending/unfilled hoặc ghi trạng thái cuối kỳ; không tạo fill giả | State-machine test xác nhận không có fill ngoài dữ liệu |
+| `SRS-EX-01` | Sai cấu trúc, thiếu trường, thời gian hoặc OHLC sai | Từ chối trước khi chạy, trả lỗi có cấu trúc | Kiểm thử đầu vào xác nhận yêu cầu bị từ chối |
+| `SRS-EX-02` | Thiếu dữ liệu cần cho indicator hoặc chưa đủ warm-up tại thời điểm `t` | Đánh dấu không đánh giá được; giữ kỳ báo cáo và khoảng thiếu của nguồn | Fixture thiếu history không sinh signal và ghi reason |
+| `SRS-EX-03` | Tín hiệu Close thiếu Open thực thi kế tiếp | Ghi trạng thái chờ hoặc cuối kỳ theo cấu hình | Đối chiếu fill với nến thực có |
 | `SRS-EX-04` | Quantity dưới 1, không đủ cash hoặc lệnh bị từ chối | Giữ signal, ghi rejected order/reason, không thay đổi vị thế | Accounting/execution test đối chiếu signal, order và position |
 | `SRS-EX-05` | Core invariant, persistence hoặc ghi kết quả thất bại | Run ở trạng thái failed với lỗi có cấu trúc; không công bố partial result là thành công | Atomicity test xác nhận không đọc được run như succeeded |
 | `SRS-EX-06` | Service restart hoặc result/input không còn hợp lệ khi đọc lại | Run thành công hợp lệ phải đọc lại được; tệp sai hash/schema phải bị từ chối | Reload/integrity test đối chiếu cùng kết quả nghiệp vụ hoặc lỗi rõ ràng |
-| `SRS-EX-07` | Có dữ liệu sau thời điểm quyết định hoặc chạy lại cùng input/config | Không dùng dữ liệu tương lai; kết quả đến `t` phải giữ nguyên và chạy lại phải cho cùng kết quả | Causality và determinism test so sánh event đến cutoff |
+| `SRS-EX-07` | Có dữ liệu sau thời điểm quyết định hoặc chạy lại cùng input/config | Kết quả đến `t` giữ nguyên khi thay dữ liệu tương lai; cùng đầu vào cho cùng kết quả | Causality và determinism test so sánh event đến cutoff |
 | `SRS-EX-08` | UI/API nhận run no-trade, rejected, loading hoặc error | Phân biệt đúng trạng thái; không hiển thị lỗi/partial result như kết quả giao dịch thành công | Acceptance UI/API kiểm tra mapping theo cùng `run_id` |
 
 ## 3. Yêu cầu chất lượng
@@ -81,10 +79,10 @@ strategy, còn status HTTP thuộc đặc tả API.
 
 ## 5. Ngoài phạm vi hiện tại
 
-Live trading, dữ liệu thời gian thực, nhiều vị thế đồng thời, mô hình thanh khoản,
-khớp một phần lệnh, xác thực nhiều người dùng và agent/MCP chưa thuộc hệ thống
-hiện tại. Đóng một phần vị thế theo rule là khả năng riêng với khớp một phần lệnh.
-Không tự tối ưu ngưỡng hoặc bổ sung quy tắc ngoài JSON đã được kiểm tra.
+- Giao dịch thật, dữ liệu thời gian thực, xác thực nhiều người dùng và agent/MCP thuộc phạm vi mở rộng.
+- Cơ chế nhiều phần vị thế và khớp từng phần hiện có được mô tả tại [khớp theo phiên HNX](../design/hnx-session-matching.md).
+- Thanh khoản thị trường cần mô hình và dữ liệu riêng.
+- Chiến lược thực thi theo JSON đã kiểm tra.
 
 ## 6. Tài liệu sở hữu
 

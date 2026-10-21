@@ -8,6 +8,7 @@ from .infrastructure.file_repository import FileRunRepository
 from .infrastructure.auto_fetch_data import AutoDataFetcher
 from .application.inline_strategy import run_inline_strategy
 
+# Wire file storage, automatic data fetching, and the JSON strategy runner.
 def build_service():
     files = FileRunRepository(INTRADAY.store)
     return BacktestService(

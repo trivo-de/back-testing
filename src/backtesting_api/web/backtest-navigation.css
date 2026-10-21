@@ -1,4 +1,4 @@
-/* Chừa lề cân hai bên để thanh cố định không che hoặc đẩy lệch nội dung. */
+/* Reserve equal side margins so fixed navigation does not cover or offset the content. */
 #page-navigation { position: fixed; top: 0; left: 0; width: 196px; z-index: 4; }
 #navigation-toggle { display: none; }
 #navigation-links { height: 100dvh; overflow: auto; padding: 16px 12px; background: var(--surface); color: var(--text); border-right: 1px solid var(--border); }

@@ -50,7 +50,7 @@ cash_after_sell = cash_before_sell + net_proceeds
 ```
 
 Lãi/lỗ chưa chốt chưa trừ phí bán dự kiến. Sau SELL toàn bộ, vị thế bằng rỗng
-và equity bằng cash. Không trừ tổng phí thêm lần nữa khỏi P/L đã bao gồm phí.
+và equity bằng cash. P/L đã bao gồm phí.
 Các phép tính dùng Decimal; kết quả JSON giữ số thập phân bằng chuỗi.
 
 [Ví dụ số và kiểm thử](../testing/normalized-accounting-test-cases.md) đối chiếu

@@ -1,5 +1,16 @@
 // Presentation labels only; form values and persisted JSON stay untouched.
 const labels = [
+    ['Lượng đối ứng cố định mỗi nến', 'Lượng đối ứng cố định mỗi nến', 'Fixed counterparty quantity per bar'],
+    ['Bảng giá trần/sàn theo ngày và hợp đồng (price_limits)', 'Bảng giá trần/sàn theo ngày và hợp đồng (price_limits)', 'Daily contract price limits (price_limits)'],
+    ['Thị trường chuyển dư sang LO (MTL)', 'Thị trường chuyển dư sang LO (MTL)', 'Market to limit (MTL)'],
+    ['Thị trường khớp toàn bộ hoặc hủy (MOK)', 'Thị trường khớp toàn bộ hoặc hủy (MOK)', 'Match or kill (MOK)'],
+    ['Thị trường khớp và hủy dư (MAK)', 'Thị trường khớp và hủy dư (MAK)', 'Match and kill (MAK)'],
+    ['Loại lệnh này cần mô hình khớp theo phiên HNX.', 'Loại lệnh này cần mô hình khớp theo phiên HNX.', 'This order type requires HNX session matching.'],
+    ['Lệnh thị trường chỉ dùng với mô hình contract.', 'Lệnh thị trường chỉ dùng với mô hình contract.', 'Market orders require contract accounting.'],
+    ['Lệnh thị trường cần lượng đối ứng cố định mỗi nến.', 'Lệnh thị trường cần lượng đối ứng cố định mỗi nến.', 'Market orders require a fixed counterparty quantity per bar.'],
+    ['Lệnh thị trường cần bảng giá trần/sàn được cung cấp; chưa dùng lấy dữ liệu tự động.', 'Lệnh thị trường cần bảng giá trần/sàn được cung cấp; chưa dùng lấy dữ liệu tự động.', 'Market orders require supplied daily price limits; automatic fetching is not supported yet.'],
+    ['MAK/MOK không nhận số nến chờ; hãy xóa tham số này.', 'MAK/MOK không nhận số nến chờ; hãy xóa tham số này.', 'MAK/MOK do not accept waiting bars; remove this parameter.'],
+    ['LO cần biểu thức giá. MTL dùng số nến chờ cho LO dư; MAK/MOK không chờ. Lệnh thị trường cần contract/HNX, lượng đối ứng cố định và bảng trần/sàn có nguồn. Đổi loại không tự xóa tham số.', 'LO cần biểu thức giá. MTL dùng số nến chờ cho LO dư; MAK/MOK không chờ. Lệnh thị trường cần contract/HNX, lượng đối ứng cố định và bảng trần/sàn có nguồn. Đổi loại không tự xóa tham số.', 'LO requires a price expression. MTL waiting bars apply to its LO remainder; MAK/MOK do not wait. Market orders require contract/HNX, fixed counterparty quantity and sourced daily limits. Changing type preserves parameters.'],
     ['Mô hình khớp lệnh', 'Mô hình khớp lệnh', 'Matching model'],
     ['Loại lệnh', 'Loại lệnh', 'Order type'],
     ['Biểu thức giá giới hạn', 'Biểu thức giá giới hạn', 'Limit price expression'],
@@ -129,47 +140,53 @@ const fields = {
     created_time: ['Thời điểm tạo', 'Created at'], status: ['Trạng thái', 'Status'], rejection_reason: ['Lý do từ chối', 'Rejection reason'],
     order_type: ['Loại lệnh', 'Order type'], filled_quantity: ['Khối lượng đã khớp', 'Filled quantity'],
     expired_quantity: ['Khối lượng hết hiệu lực', 'Expired quantity'], remaining_quantity: ['Khối lượng còn chờ', 'Remaining quantity'],
+    effective_order_type: ['Loại lệnh có hiệu lực', 'Effective order type'], converted_limit_price: ['Giá LO chuyển đổi', 'Converted LO price'],
+    requested_quantity: ['Khối lượng mong muốn', 'Requested quantity'], reference_price: ['Giá dự kiến', 'Reference price'],
+    canceled_quantity: ['Khối lượng đã hủy', 'Canceled quantity'], rejected_quantity: ['Khối lượng bị từ chối', 'Rejected quantity'],
     trading_date: ['Thời điểm', 'Time'], cash: ['Tiền mặt', 'Cash'], required_margin: ['Ký quỹ yêu cầu', 'Required margin'], available_cash: ['Tiền khả dụng', 'Available cash'], equity: ['Vốn tài khoản', 'Equity'],
 };
-const exact = new Map(labels.map(([key, vi, en]) => [key, {vi, en}]));
+const exact = new Map(labels.map(/* Index each exact presentation label by its bilingual text. */ ([key, vi, en]) => [key, {vi, en}]));
 for (const [key, [vi, en]] of Object.entries(fields)) exact.set(key, {vi, en});
+/** Translate a presentation label or supported dynamic message. */
 export function translate(text, language = 'vi') {
     const key = text.trim(), match = exact.get(key);
     if (match) return text.replace(key, match[language === 'en' ? 'en' : 'vi']);
     const metric = key.match(/^([a-z_]+): (.*)$/s);
     if (metric && fields[metric[1]]) return `${translate(metric[1], language)}: ${metric[2]}`;
     const patterns = [
-        [/^(Entry|Exit): (.*)$/s, m => language === 'en' ? key : `${m[1] === 'Entry' ? 'Mở lệnh' : 'Đóng lệnh'}: ${m[2]}`],
-        [/^Không tải được chart: (.*)$/s, m => language === 'en' ? `Unable to load chart: ${m[1]}` : `Không tải được biểu đồ: ${m[1]}`],
-        [/^Không tải được lịch sử: (.*)$/s, m => language === 'en' ? `Unable to load history: ${m[1]}` : key],
-        [/^Đang hiển thị (\d+) kết quả\.$/, m => language === 'en' ? `Showing ${m[1]} results.` : key],
-        [/^Đã nạp (.*)\.$/s, m => language === 'en' ? `Loaded ${m[1]}.` : key],
-        [/^Đã điền cấu hình và dữ liệu từ (.*)\.$/s, m => language === 'en' ? `Settings and data loaded from ${m[1]}.` : key],
-        [/^(.*) · (.*) · (\d+) nến · (\d+) lần khớp · Mua ↑ \/ Bán ↓$/, m => language === 'en' ? `${m[1]} · ${m[2]} · ${m[3]} bars · ${m[4]} fills · Buy ↑ / Sell ↓` : key],
-        [/^(.*) nến · (.*)$/s, m => language === 'en' ? `${m[1]} bars · ${m[2]}` : key],
-        [/^(BUY|SELL) đã khớp$/, m => language === 'en' ? `${m[1]} filled` : `${m[1] === 'BUY' ? 'Mua' : 'Bán'} đã khớp`],
-        [/^Đang lọc theo (.*) lúc (.*)\. Bấm vùng trống trên chart để bỏ lọc\.$/, m => language === 'en' ? `Filtered by ${m[1]} at ${m[2]}. Click an empty chart area to clear.` : `Đang lọc theo ${m[1]} lúc ${m[2]}. Bấm vùng trống trên biểu đồ để bỏ lọc.`],
-        [/^Đã tải kết quả và biểu đồ\.(.*)$/s, m => language === 'en' ? `Results and chart loaded.${m[1].replace(' Đánh giá quy tắc: ', ' Rule evaluation: ').replace(' nến thiếu dữ liệu để đánh giá.', ' bars lack evaluation data.')}` : key],
-        [/^(.*) phải là một object JSON\.$/, m => language === 'en' ? `${m[1]} must be a JSON object.` : `${m[1]} phải là một đối tượng JSON.`],
-        [/^(.*) phải là số nguyên dương\.$/, m => language === 'en' ? `${translate(m[1], language)} must be a positive integer.` : key],
-        [/^(.*) phải là số hữu hạn\.$/, m => language === 'en' ? `${translate(m[1], language)} must be finite.` : key],
-        [/^(.*): JSON không hợp lệ\.$/, m => language === 'en' ? `${translate(m[1], language)}: invalid JSON.` : key],
-        [/^Không tìm thấy dữ liệu (.*) trong file JSON\.$/, m => language === 'en' ? `No ${m[1]} data found in JSON file.` : key],
-        [/^(.*) vượt 65\.536 ký tự(.*)$/, m => language === 'en' ? `${translate(m[1], language)} exceeds 65,536 characters.` : key],
-        [/^(.*)\. Có thể chạy; từng nến vẫn cần đủ dữ liệu chỉ báo\.$/, m => language === 'en' ? `${m[1]}. Ready to run; each bar still needs sufficient indicator data.` : key],
-        [/^(.*)\. Chưa có bộ thực thi\.$/, m => language === 'en' ? `${m[1]}. No execution engine available.` : key],
-        [/^Xem kết quả (.*), từ (.*) đến (.*), (.*)$/, m => language === 'en' ? `View ${m[1]} results, from ${m[2]} to ${m[3]}, ${m[4]}` : key],
+        [/^(Entry|Exit): (.*)$/s, /* Translate an entry or exit group label. */ m => language === 'en' ? key : `${m[1] === 'Entry' ? 'Mở lệnh' : 'Đóng lệnh'}: ${m[2]}`],
+        [/^Không tải được chart: (.*)$/s, /* Translate a chart-loading error while preserving its details. */ m => language === 'en' ? `Unable to load chart: ${m[1]}` : `Không tải được biểu đồ: ${m[1]}`],
+        [/^Không tải được lịch sử: (.*)$/s, /* Translate a history-loading error while preserving its details. */ m => language === 'en' ? `Unable to load history: ${m[1]}` : key],
+        [/^Đang hiển thị (\d+) kết quả\.$/, /* Translate the displayed history result count. */ m => language === 'en' ? `Showing ${m[1]} results.` : key],
+        [/^Đã nạp (.*)\.$/s, /* Translate a source-loading confirmation. */ m => language === 'en' ? `Loaded ${m[1]}.` : key],
+        [/^Đã điền cấu hình và dữ liệu từ (.*)\.$/s, /* Translate a payload-loading confirmation. */ m => language === 'en' ? `Settings and data loaded from ${m[1]}.` : key],
+        [/^(.*) · (.*) · (\d+) nến · (\d+) lần khớp · Mua ↑ \/ Bán ↓$/, /* Translate chart metadata while preserving symbols, intervals, and counts. */ m => language === 'en' ? `${m[1]} · ${m[2]} · ${m[3]} bars · ${m[4]} fills · Buy ↑ / Sell ↓` : key],
+        [/^(.*) nến · (.*)$/s, /* Translate a source candle count and coverage description. */ m => language === 'en' ? `${m[1]} bars · ${m[2]}` : key],
+        [/^(BUY|SELL) đã khớp$/, /* Translate a completed buy or sell label. */ m => language === 'en' ? `${m[1]} filled` : `${m[1] === 'BUY' ? 'Mua' : 'Bán'} đã khớp`],
+        [/^Đang lọc theo (.*) lúc (.*)\. Bấm vùng trống trên chart để bỏ lọc\.$/, /* Translate the active fill filter and its clearing hint. */ m => language === 'en' ? `Filtered by ${m[1]} at ${m[2]}. Click an empty chart area to clear.` : `Đang lọc theo ${m[1]} lúc ${m[2]}. Bấm vùng trống trên biểu đồ để bỏ lọc.`],
+        [/^Đã tải kết quả và biểu đồ\.(.*)$/s, /* Translate the result-loading status and rule-evaluation summary. */ m => language === 'en' ? `Results and chart loaded.${m[1].replace(' Đánh giá quy tắc: ', ' Rule evaluation: ').replace(' nến thiếu dữ liệu để đánh giá.', ' bars lack evaluation data.')}` : key],
+        [/^(.*) phải là một object JSON\.$/, /* Translate the requirement for a JSON object. */ m => language === 'en' ? `${m[1]} must be a JSON object.` : `${m[1]} phải là một đối tượng JSON.`],
+        [/^(.*) phải là số nguyên dương\.$/, /* Translate the requirement for a positive integer. */ m => language === 'en' ? `${translate(m[1], language)} must be a positive integer.` : key],
+        [/^(.*) phải là số hữu hạn\.$/, /* Translate the requirement for a finite number. */ m => language === 'en' ? `${translate(m[1], language)} must be finite.` : key],
+        [/^(.*): JSON không hợp lệ\.$/, /* Translate a JSON parsing error for the named field. */ m => language === 'en' ? `${translate(m[1], language)}: invalid JSON.` : key],
+        [/^Không tìm thấy dữ liệu (.*) trong file JSON\.$/, /* Translate a missing-source error while preserving its source name. */ m => language === 'en' ? `No ${m[1]} data found in JSON file.` : key],
+        [/^(.*) vượt 65\.536 ký tự(.*)$/, /* Translate the rule editor's character-limit error. */ m => language === 'en' ? `${translate(m[1], language)} exceeds 65,536 characters.` : key],
+        [/^(.*)\. Có thể chạy; từng nến vẫn cần đủ dữ liệu chỉ báo\.$/, /* Translate validation readiness while retaining the per-bar data requirement. */ m => language === 'en' ? `${m[1]}. Ready to run; each bar still needs sufficient indicator data.` : key],
+        [/^(.*)\. Chưa có bộ thực thi\.$/, /* Translate the status for an unavailable execution engine. */ m => language === 'en' ? `${m[1]}. No execution engine available.` : key],
+        [/^Xem kết quả (.*), từ (.*) đến (.*), (.*)$/, /* Translate a saved-run link's accessible description. */ m => language === 'en' ? `View ${m[1]} results, from ${m[2]} to ${m[3]}, ${m[4]}` : key],
     ];
     for (const [pattern, render] of patterns) {const match = key.match(pattern); if (match) return render(match);}
     return text;
 }
 
+/** Bind language selection and translate current and newly inserted DOM labels. */
 export function mountLanguage(root, selector, storage) {
     let language = 'vi';
     try {storage ??= globalThis.localStorage; if (storage.getItem('backtest-language') === 'en') language = 'en';} catch {}
     const originals = new WeakMap();
     const attributes = new WeakMap();
-    const observer = new MutationObserver(records => apply(new Set(records.map(record => record.target.nodeType === 3 ? record.target.parentElement : record.target))));
+    const observer = new MutationObserver(/* Collect changed DOM targets for incremental translation. */ records => apply(new Set(records.map(/* Use a changed text node's parent as its translation target. */ record => record.target.nodeType === 3 ? record.target.parentElement : record.target))));
+    /** Translate a node property while retaining its original presentation text. */
     function convert(node, key, value, records) {
         let record = records.get(node);
         if (!record) {record = {}; records.set(node, record);}
@@ -179,6 +196,7 @@ export function mountLanguage(root, selector, storage) {
         record[key] = {original, rendered};
         return rendered;
     }
+    /** Translate selected DOM subtrees without triggering recursive observer updates. */
     function apply(targets = [root]) {
         observer.disconnect();
         root.ownerDocument.documentElement.lang = language;
@@ -206,7 +224,7 @@ export function mountLanguage(root, selector, storage) {
         }
         observer.observe(root, {subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['aria-label', 'placeholder']});
     }
-    selector.onclick = event => {
+    selector.onclick = /* Apply and persist the language selected through the language menu. */ event => {
         const link = event.target.closest('[data-language]');
         if (!link || !selector.contains(link)) return;
         event.preventDefault();

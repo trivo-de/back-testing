@@ -13,6 +13,28 @@ def entry(key, quantity=1, side='LONG'):
 
 
 class MultiExecutionTest(unittest.TestCase):
+    def test_same_order_continuation_preserves_protection_and_caps_quantity(self):
+        from dataclasses import replace
+        executor = self.executor()
+        stamp = bar(0).trading_date
+        signal = entry('A', 2)
+        executor.execute(signal, stamp, stamp, D(1000), order_quantity=5)
+        first = executor.lots['A'].entry_fill
+        executor.execute(replace(signal, quantity=3), stamp, bar(1).trading_date, D('1000.1'),
+                         continuation=True, order_quantity=5)
+        position = executor.portfolio.lot('A')
+        self.assertEqual((position.quantity, position.initial_quantity, position.entry_price), (5, 5, D('1000.06')))
+        self.assertEqual(executor.lots['A'].active_stop, 994)
+        self.assertEqual(executor.lots['A'].entry_fill, first)
+        original = executor.portfolio
+        with self.assertRaisesRegex(ValueError, 'ENTRY_CONTINUATION_EXCEEDS_ORDER'):
+            executor.execute(entry('A', 1), stamp, stamp, D(1000), continuation=True)
+        self.assertEqual(executor.portfolio, original)
+        executor.execute(FixedSignal('CLOSE', 2, position_id='A'), stamp, stamp, D(1001))
+        executor.execute(FixedSignal('CLOSE', 3, position_id='A'), stamp, stamp, D(1001))
+        self.assertEqual(executor.portfolio.quantity, 0)
+        self.assertEqual(executor.portfolio.cash - 200000000, executor.portfolio.realized_pnl)
+
     def executor(self, cash=200000000):
         return MultiContractExecution(cash, lambda amount: ContractExecution(
             amount, ACCOUNTING, bracket=Bracket(D(6), ((D(12), None),))))

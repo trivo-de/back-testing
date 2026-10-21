@@ -9,6 +9,7 @@ from .inline_schemas import InlineRunRequest
 from ..infrastructure.auto_fetch_data import AutoFetchError
 
 
+# Describe one saved run in a history response.
 class HistoryItem(BaseModel):
     run_id: UUID
     run_at: datetime | None = None
@@ -21,15 +22,18 @@ class HistoryItem(BaseModel):
     final_equity: str
 
 
+# Describe a history page and its continuation cursor.
 class HistoryPage(BaseModel):
     items: list[HistoryItem]
     next_cursor: UUID | None = None
 
 
+# Bind backtest validation, execution, and retrieval routes to the service.
 def create_backtest_router(service: BacktestService) -> APIRouter:
 
     router = APIRouter(prefix=API.backtests_path, tags=["backtests"])
 
+    # Validate request data and report whether the configured runner is available.
     @router.post('/validate')
     def validate_inline(request: InlineRunRequest):
         payload = request.model_dump(mode='json', by_alias=True, exclude_none=True)
@@ -67,6 +71,7 @@ def create_backtest_router(service: BacktestService) -> APIRouter:
         except (ValueError, OSError, KeyError, TypeError):
             raise HTTPException(status_code=409, detail={"code": "RESULT_STORAGE_INVALID"}) from None
 
+    # Return a filtered page of saved runs after validating filter bounds.
     @router.get('/history', response_model=HistoryPage)
     def history(min_total_return_pct: Decimal | None = Query(None, allow_inf_nan=False),
                 max_total_return_pct: Decimal | None = Query(None, allow_inf_nan=False),
@@ -95,6 +100,7 @@ def create_backtest_router(service: BacktestService) -> APIRouter:
             raise HTTPException(status_code=404, detail="run not found")
         return result
 
+    # Return chart data for a saved run or translate storage errors to HTTP errors.
     @router.get("/{run_id}/chart")
     def get_chart(run_id: UUID):
         try:
@@ -107,6 +113,7 @@ def create_backtest_router(service: BacktestService) -> APIRouter:
             raise HTTPException(404, detail={"code": "RUN_NOT_FOUND"})
         return chart
 
+    # Return the pinned input document for a saved run.
     @router.get('/{run_id}/input')
     def get_input(run_id: UUID):
         try:

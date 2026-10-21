@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # Schemas
+# Hold immutable API metadata and route paths.
 @dataclass(frozen=True)
 class ApiSettings:
     title: str
@@ -11,10 +12,12 @@ class ApiSettings:
     home_path: str
     backtests_path: str
 
+# Hold the engine version recorded with backtest results.
 @dataclass(frozen=True)
 class BacktestSettings:
     engine_version: str
 
+# Hold the configured file-backed run storage path.
 @dataclass(frozen=True)
 class IntradaySettings:
     store: Path

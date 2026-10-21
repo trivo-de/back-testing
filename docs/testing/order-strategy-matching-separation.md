@@ -1,9 +1,8 @@
 # Kiểm thử cấu hình lệnh và nhiều phần vị thế
 
-Hợp đồng đầu vào và kết quả ở [đặc tả API, mục 3.4](../design/backtest-api-specification.md#34-execution).
-Ví dụ đầy đủ: [LO](../examples/orders/lo-auto.json) và
-[ATO/ATC](../examples/orders/ato-atc-partial-auto.json).
-Hai ví dụ dùng tự lấy dữ liệu; kiểm thử schema không gọi nguồn thị trường.
+- Hợp đồng đầu vào và kết quả ở [đặc tả API, mục 3.4](../design/backtest-api-specification.md#34-execution).
+- Ví dụ đầy đủ: [LO](../examples/orders/lo-auto.json) và [ATO/ATC](../examples/orders/ato-atc-partial-auto.json).
+- Hai ví dụ dùng tự lấy dữ liệu; kiểm thử schema không gọi nguồn thị trường.
 
 ## Phạm vi và bằng chứng
 
@@ -36,12 +35,8 @@ mục này trong môi trường chạy kiểm thử. `.agents/` tiếp tục đ�
 
 ## Kết quả đối chiếu ngày 20/10/2026
 
-- Python: 143/143 đạt. Kiểm thử
-  `test_daily_entry_limit_conflict_and_sizing_without_future_prices` từng
-  kỳ vọng lượng 1 nhưng lấy mức rủi ro 2% từ mẫu tài liệu, tương ứng lượng 3.
-  Đã sửa đầu vào kiểm thử để khai báo rõ hai trường hợp với vốn 100 triệu,
-  giá mở 1.000: rủi ro 1% ra 1 hợp đồng, rủi ro 2% ra 3 hợp đồng.
-  Giữ kiểm tra giá khớp; không thay công thức sizing của engine.
+- Python: 143/143 đạt.
+- `test_daily_entry_limit_conflict_and_sizing_without_future_prices`: vốn 100 triệu, giá mở 1.000; rủi ro 1% cho 1 hợp đồng, 2% cho 3 hợp đồng. Đầu vào kiểm thử khai báo rõ tỷ lệ.
 - Web: 24/24 đạt. `git diff --check` không có lỗi khoảng trắng.
 - Đã thử đảo điều kiện tách giá Open trong một tiến trình riêng: kiểm thử
   `test_open_target_cannot_be_replaced_by_a_later_stop` thất bại đúng như
@@ -51,7 +46,6 @@ mục này trong môi trường chạy kiểm thử. `.agents/` tiếp tục đ�
   lịch sử và mở lại kết quả/biểu đồ thành công; không có lỗi JavaScript.
   Kho thử và ảnh bằng chứng đặt local dưới `.agents/`.
 
-Chưa nghiệm thu lại trên dữ liệu thị trường thật toàn kỳ. Các quy tắc
-Open/Close là quy ước OHLC của dự án; giới hạn lượng đấu giá cố định không
-chứng minh thanh khoản hoặc hàng đợi thực. Chưa có Market/MTL/MOK/MAK;
-nhiều lệnh mở chỉ bật với LO/ATO trên HNX, next_open giữ chế độ một vị thế.
+- Phạm vi trên dùng dữ liệu tổng hợp; Open/Close theo quy ước OHLC của dự án.
+- Giới hạn lượng đấu giá là tham số mô phỏng.
+- Phần mở rộng MTL/MOK/MAK và nhiều lần khớp tại [hồ sơ kiểm thử](market-orders-partial-matching.md).

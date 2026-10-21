@@ -4,6 +4,7 @@ from typing import Sequence
 from .portfolio import decimal
 
 
+# Validate and select a trailing window ending at an exclusive index.
 def _window(series: Sequence[Decimal | int | str], window: int, end_exclusive: int) -> tuple[Decimal, ...] | None:
     if type(window) is not int or window <= 0:
         raise ValueError("window must be a positive integer")

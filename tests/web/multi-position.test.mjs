@@ -11,3 +11,12 @@ test('all open lots are displayed and selected entry links only its own lot', ()
     assert.deepEqual(relatedRows(run, 'fa').position, [a]);
     assert.deepEqual(relatedRows({...run, open_positions: undefined, open_position: a}).position, [a]);
 });
+
+test('later entry fills link the same position and all associated close legs', () => {
+    const position = {position_id: 'A', entry_fill_id: 'first', entry_fill_ids: ['first', 'second']};
+    const trade = {...position, exit_fill_id: 'close'};
+    const run = {open_position: position, fills: [{fill_id: 'second', order_id: 'order', fill_time: '2026-03-25T09:10:00+07:00'}],
+        orders: [{order_id: 'order', signal_id: 'signal'}], signals: [{signal_id: 'signal'}], trades: [trade], equity_history: []};
+    assert.deepEqual(relatedRows(run, 'second').position, [position]);
+    assert.deepEqual(relatedRows(run, 'second').trades, [trade]);
+});

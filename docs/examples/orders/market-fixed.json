@@ -1,0 +1,192 @@
+{
+  "trade_data": {
+    "resolution": "5",
+    "symbol": "VN30F1M",
+    "bars": [
+      {
+        "time": 1774404000,
+        "open": "1000",
+        "high": "1001",
+        "low": "999",
+        "close": "1000"
+      },
+      {
+        "time": 1774404300,
+        "open": "1000",
+        "high": "1001",
+        "low": "999",
+        "close": "1000"
+      },
+      {
+        "time": 1774404600,
+        "open": "1000",
+        "high": "1001",
+        "low": "999",
+        "close": "1000"
+      },
+      {
+        "time": 1774404900,
+        "open": "1000",
+        "high": "1001",
+        "low": "999",
+        "close": "1000"
+      },
+      {
+        "time": 1774405200,
+        "open": "1000",
+        "high": "1001",
+        "low": "999",
+        "close": "1000"
+      },
+      {
+        "time": 1774405500,
+        "open": "1000",
+        "high": "1001",
+        "low": "999",
+        "close": "1000"
+      }
+    ],
+    "contract_dates": [
+      {
+        "date": "2026-03-25",
+        "contract_code": "VN30F2604"
+      }
+    ],
+    "provenance": {
+      "provider": "synthetic test",
+      "timestamp_convention": "bar_open",
+      "note": "Synthetic OHLC only."
+    },
+    "price_limits": [
+      {
+        "trading_date": "2026-03-25",
+        "contract_code": "VN30F2604",
+        "floor_price": "900",
+        "ceiling_price": "1100",
+        "available_at": 1774403100,
+        "source": "synthetic fixed bounds"
+      }
+    ]
+  },
+  "strategy": {
+    "indicators": {},
+    "entry": {
+      "conditions": {
+        "LONG": {
+          "all": [
+            {
+              "gte": [
+                {
+                  "ref": "clock.local_time"
+                },
+                "09:05"
+              ]
+            },
+            {
+              "lte": [
+                {
+                  "ref": "clock.local_time"
+                },
+                "09:05"
+              ]
+            }
+          ]
+        }
+      },
+      "any": [
+        "LONG"
+      ],
+      "signal_windows": [
+        [
+          "09:05",
+          "14:25"
+        ]
+      ],
+      "order": {
+        "type": "MTL",
+        "pending": {
+          "max_execution_bars": 4,
+          "cross_lunch": false,
+          "cross_cutoff": false,
+          "cross_session": false
+        }
+      }
+    },
+    "exit": {
+      "bar_close": {
+        "conditions": {
+          "EXIT": {
+            "gte": [
+              {
+                "ref": "clock.local_time"
+              },
+              "09:20"
+            ]
+          }
+        },
+        "any": [
+          "EXIT"
+        ],
+        "priority": [
+          "EXIT"
+        ],
+        "quantity": "remaining",
+        "order": {
+          "type": "MAK"
+        }
+      }
+    },
+    "sizing": {
+      "type": "risk_and_margin",
+      "risk_fraction": "0.5",
+      "stop_points": 6,
+      "margin_buffer": 1.1,
+      "max_contracts": 5,
+      "pyramiding": false
+    },
+    "daily_limits": {
+      "stop_new_entry": {
+        "any": [
+          {
+            "lte": [
+              {
+                "ref": "day.net_pnl"
+              },
+              {
+                "mul": [
+                  {
+                    "ref": "day.start_equity"
+                  },
+                  -0.02
+                ]
+              }
+            ]
+          },
+          {
+            "gte": [
+              {
+                "ref": "day.entry_fill_count"
+              },
+              3
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "execution": {
+    "slippage_rate": "0",
+    "matching_model": "hnx_sessions_v1",
+    "continuous_match_quantity": 2
+  },
+  "initial_cash": "500000000",
+  "accounting": {
+    "model": "contract",
+    "contract_multiplier": "100000",
+    "margin_rate": "0.17",
+    "pit_rate": "0.001",
+    "exchange_fee_per_contract": "2700",
+    "clearing_fee_per_contract": "2550",
+    "broker_fee_per_contract": "0"
+  }
+}

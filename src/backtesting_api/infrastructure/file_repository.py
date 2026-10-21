@@ -25,10 +25,12 @@ _SNAPSHOT_URLS = {
 
 
 
+# Serialize stable compact JSON bytes for storage and content hashing.
 def _json_bytes(value: dict) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
 
 
+# Publish bytes atomically through a flushed temporary file.
 def _publish_bytes(path: Path, raw: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(f".{uuid4().hex}.tmp")
@@ -42,10 +44,12 @@ def _publish_bytes(path: Path, raw: bytes) -> None:
         temporary.unlink(missing_ok=True)
 
 
+# Serialize and atomically publish a JSON document.
 def _publish_json(path: Path, value: dict) -> None:
     _publish_bytes(path, _json_bytes(value))
 
 
+# Read a Parquet table and translate invalid storage into a validation error.
 def _read_parquet(path: Path):
     try:
         return pq.read_table(path)
@@ -53,6 +57,7 @@ def _read_parquet(path: Path):
         raise ValueError("PARQUET_STORAGE_INVALID") from None
 
 
+# Validate raw source bytes and convert their price columns to stored rows.
 def _raw_rows(raw: bytes) -> list[dict]:
     payload = json.loads(raw, parse_float=Decimal)
     validate_bars(payload)
@@ -63,6 +68,7 @@ def _raw_rows(raw: bytes) -> list[dict]:
 # ============================== Historical dataset reader ==============================
 
 
+# Verify a pinned dataset's identity, hashes, provenance, and Parquet contents.
 def _read_dataset(path: Path) -> tuple[dict, dict[str, list[dict]]]:
     manifest = json.loads(path.read_bytes())
     if manifest.get("schema_version") != 1 or manifest.get("dataset_id") != DATASET_ID:
@@ -102,6 +108,7 @@ def _read_dataset(path: Path) -> tuple[dict, dict[str, list[dict]]]:
 class FileRunRepository:
     """Publish full results atomically; one local process is the supported writer."""
 
+    # Configure the run store and optional policy path.
     def __init__(self, store: Path, policy_path: Path | None = None):
         self.store = store
         self.policy_path = policy_path
@@ -121,6 +128,7 @@ class FileRunRepository:
             'schema_version': 2, 'status': 'running', 'input_hash': input_hash})
         return run_id, input_hash, hashlib.sha256(_json_bytes(policy)).hexdigest()
 
+    # Read and verify the input document identified by its pinned hash.
     def _inline_input(self, input_hash):
         if not isinstance(input_hash, str) or len(input_hash) != 64 or any(c not in '0123456789abcdef' for c in input_hash):
             raise ValueError('INPUT_HASH_INVALID')
@@ -134,6 +142,7 @@ class FileRunRepository:
         if document.get('schema_version') != 1: raise ValueError('INPUT_SCHEMA_UNSUPPORTED')
         return document
 
+    # Return verified inline inputs for a saved run.
     def get_input(self, run_id):
         response = self.get_run(run_id)
         if response is None: return None
@@ -143,13 +152,14 @@ class FileRunRepository:
     # ============================== State and results ==============================
 
 
+    # Publish a completed result after checking its run and input identities.
     def complete_run(self, run_id: UUID, result, response: dict) -> None:
         if response["metadata"]["run_id"] != str(run_id):
             raise ValueError("RUN_ID_MISMATCH")
         version = response.get('schema_version', 1)
         extra = {}
         if version == 2:
-            # v1: kết quả phải khớp input_hash đã ghim khi bắt đầu chạy.
+        # v1 results must match the input_hash pinned when the run started.
             current = json.loads((self.store / 'runs' / f'{run_id}.json').read_bytes())
             if current.get('status') != 'running' or current.get('input_hash') != response['metadata']['input_hash']:
                 raise ValueError('RUN_INPUT_MISMATCH')
@@ -162,6 +172,7 @@ class FileRunRepository:
             "result_hash": hashlib.sha256(_json_bytes(response)).hexdigest(),
         })
 
+    # Persist a failure against the run's pinned input identity.
     def fail_run(self, run_id: UUID, error: Exception) -> None:
         path = self.store / 'runs' / f'{run_id}.json'
         current = json.loads(path.read_bytes())
@@ -173,6 +184,7 @@ class FileRunRepository:
             "schema_version": 1, "status": "failed", "error_type": type(error).__name__,
         })
 
+    # Read and validate a saved run and its referenced inputs.
     def get_run(self, run_id: UUID) -> dict | None:
         path = self.store / "runs" / f"{run_id}.json"
         if not path.exists():
@@ -197,10 +209,12 @@ class FileRunRepository:
                 raise ValueError('POLICY_INTEGRITY_ERROR')
         return response
 
+    # List saved successful runs in repository order.
     def list_runs(self) -> list[dict]:
         return [result for path in sorted((self.store / "runs").glob("*.json"), reverse=True)
                 if (result := self.get_run(UUID(path.stem))) is not None]
 
+    # Yield compact run summaries after the requested continuation cursor.
     def iter_run_summaries(self, after: UUID | None = None):
         # ponytail: reads one full file at a time; add a summary index if disk scans become slow.
         for path in sorted((self.store / 'runs').glob('*.json'), reverse=True):
@@ -228,6 +242,7 @@ class FileRunRepository:
             del run
             yield item
 
+    # Build chart data from the saved run's verified source inputs.
     def get_chart(self, run_id: UUID) -> dict | None:
         response = self.get_run(run_id)
         if response is None:
@@ -245,6 +260,7 @@ class FileRunRepository:
                         if 'time' not in row and 'open_time' in row:
                             row['time'] = row['open_time']
             data = resolve_inline(payload, document['policy'])
+            # Serialize candles for chart output without recomputing market prices.
             def chart_rows(rows):
                 return [{'time': int(bar.trading_date.timestamp()), 'open': str(bar.open), 'high': str(bar.high),
                          'low': str(bar.low), 'close': str(bar.close),

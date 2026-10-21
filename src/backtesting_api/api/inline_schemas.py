@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_
 from ..domain.expressions import STATE_REFS, validate_expression
 from ..infrastructure.market_snapshot import normalize_raw_source
 from ..application.order_config import strategy_orders
+from ..domain.orders import MARKET_TYPES
 
 Positive = Annotated[Decimal, Field(gt=0, allow_inf_nan=False)]
 Nonnegative = Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
@@ -14,9 +15,11 @@ Period = Annotated[StrictInt, Field(gt=0)]
 AuctionQuantity = Annotated[StrictInt, Field(ge=0)]
 
 
+# Reject unknown fields and nonfinite numbers in request models.
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
 
+    # Reject coerced values for fields that require literal JSON booleans.
     @model_validator(mode='before')
     @classmethod
     def boolean_keywords(cls, value):
@@ -29,6 +32,7 @@ class StrictModel(BaseModel):
         return value
 
 
+# Describe contract margin, multiplier, tax, and fee inputs.
 class ContractAccountingInput(StrictModel):
     model: Literal['contract']
     contract_multiplier: Positive = Decimal('100000')
@@ -39,6 +43,7 @@ class ContractAccountingInput(StrictModel):
     broker_fee_per_contract: Nonnegative
 
 
+# Describe normalized accounting and its fee rate.
 class NormalizedAccountingInput(StrictModel):
     model: Literal['normalized']
     fee_rate: Nonnegative
@@ -47,6 +52,7 @@ class NormalizedAccountingInput(StrictModel):
 AccountingInput = Annotated[ContractAccountingInput | NormalizedAccountingInput, Field(discriminator='model')]
 
 
+# Describe one source candle and its availability timestamps.
 class CandleInput(StrictModel):
     time: StrictInt
     open: Positive
@@ -57,6 +63,7 @@ class CandleInput(StrictModel):
     close_time: StrictInt | None = None
     available_at: StrictInt | None = None
 
+    # Require candle prices to stay within their declared high and low.
     @model_validator(mode='after')
     def prices(self):
         if not self.low <= min(self.open, self.close) <= max(self.open, self.close) <= self.high:
@@ -64,23 +71,27 @@ class CandleInput(StrictModel):
         return self
 
 
+# Identify a contract and its expiry timestamps.
 class ContractMapInput(StrictModel):
     contract_code: str = Field(min_length=1)
     expiry_date: date
     expiry_unix: StrictInt
 
 
+# Map one trading date to its contract code.
 class ContractDateInput(StrictModel):
     date: date
     contract_code: str = Field(min_length=1)
 
 
+# Record the source provider and timestamp convention.
 class ProvenanceInput(StrictModel):
     provider: str = Field(min_length=1)
     timestamp_convention: Literal['bar_open']
     note: str = Field(min_length=1)
 
 
+# Describe an ATC observation without requiring a matched price.
 class AuctionInput(StrictModel):
     phase: Literal['ATC'] = 'ATC'
     contract_code: str = Field(min_length=1)
@@ -90,6 +101,7 @@ class AuctionInput(StrictModel):
     price: Positive | None = None
     source: str = Field(min_length=1)
 
+    # Require auction prices to agree with match status and tick size.
     @model_validator(mode='after')
     def price_status(self):
         if (self.status == 'matched') != (self.price is not None):
@@ -99,6 +111,25 @@ class AuctionInput(StrictModel):
         return self
 
 
+# Describe sourced floor and ceiling prices for one contract day.
+class PriceLimitInput(StrictModel):
+    trading_date: date
+    contract_code: str = Field(min_length=1)
+    floor_price: Positive
+    ceiling_price: Positive
+    available_at: StrictInt
+    source: str = Field(min_length=1)
+
+    # Validate price bounds, tick size, and source identity.
+    @model_validator(mode='after')
+    def bounds(self):
+        if (self.floor_price > self.ceiling_price or self.floor_price % Decimal('.1')
+                or self.ceiling_price % Decimal('.1') or not self.source.strip() or not self.contract_code.strip()):
+            raise ValueError('INVALID_PRICE_LIMITS')
+        return self
+
+
+# Describe source candles, session metadata, and contract mappings.
 class DataInput(StrictModel):
     resolution: Literal['5', 'D'] = '5'
     bars: list[CandleInput] = Field(min_length=1)
@@ -110,12 +141,15 @@ class DataInput(StrictModel):
     contract_dates: list[ContractDateInput] = Field(default_factory=list)
     auctions: list[AuctionInput] = Field(default_factory=list)
     provenance: ProvenanceInput | None = None
+    price_limits: list[PriceLimitInput] = Field(default_factory=list)
 
+    # Normalize supported raw source documents before field validation.
     @model_validator(mode='before')
     @classmethod
     def parse_raw_data(cls, value):
         return normalize_raw_source(value)
 
+    # Validate source time ordering, availability, contracts, and auction records.
     @model_validator(mode='after')
     def timestamps(self):
         try:
@@ -168,6 +202,7 @@ class DataInput(StrictModel):
         return self
 
 
+# Describe an indicator and its explicitly supplied parameters.
 class IndicatorInput(StrictModel):
     type: Literal['SMA', 'EMA', 'BB', 'MACD', 'MFI', 'HIGHEST', 'LOWEST']
     source: str
@@ -178,6 +213,7 @@ class IndicatorInput(StrictModel):
     signal_period: Period | None = None
     histogram: Literal['line'] | None = None
 
+    # Require exactly the parameters supported by the selected indicator.
     @model_validator(mode='after')
     def parameters(self):
         required = {'type', 'source'} | ({'fast_period', 'slow_period', 'signal_period', 'histogram'}
@@ -195,6 +231,7 @@ class IndicatorInput(StrictModel):
         return self
 
 
+# Require a time string in canonical HH:MM format.
 def check_time(value):
     try:
         if time.fromisoformat(value).strftime('%H:%M') != value: raise ValueError()
@@ -202,6 +239,7 @@ def check_time(value):
         raise ValueError('INVALID_HH_MM') from None
 
 
+# Limit how long an order may remain pending within a session.
 class PendingInput(StrictModel):
     max_execution_bars: Annotated[StrictInt, Field(ge=1)]
     cross_lunch: Literal[False]
@@ -209,29 +247,36 @@ class PendingInput(StrictModel):
     cross_session: Literal[False]
 
 
+# Describe order intent separately from the selected matching model.
 class OrderInput(StrictModel):
-    type: Literal['SIMULATED', 'LO', 'ATO', 'ATC']
+    type: Literal['SIMULATED', 'LO', 'ATO', 'ATC', 'MTL', 'MOK', 'MAK']
     limit_price: dict | None = None
     pending: PendingInput | None = None
 
+    # Validate order-specific prices and pending restrictions.
     @model_validator(mode='after')
     def parameters(self):
         if (self.type == 'LO') != (self.limit_price is not None):
             raise ValueError('LIMIT_PRICE_REQUIRED_ONLY_FOR_LO')
         if self.pending is not None and self.type in ('ATO', 'ATC'):
             raise ValueError('AUCTION_LIFETIME_IS_FIXED')
+        if self.pending is not None and self.type in ('MAK', 'MOK'):
+            raise ValueError('MARKET_ORDER_PENDING_NOT_APPLICABLE')
         return self
 
 
+# Describe the direction and optional order for an entry action.
 class EntryActionInput(StrictModel):
     side: Literal['BUY', 'LONG', 'SHORT']
     order: OrderInput | None = None
 
 
+# Describe the optional order for a closing action.
 class CloseActionInput(StrictModel):
     order: OrderInput | None = None
 
 
+# Describe entry conditions, directions, orders, and signal windows.
 class EntryInput(StrictModel):
     conditions: dict[str, dict] = Field(min_length=1)
     any: list[str] = Field(min_length=1)
@@ -247,6 +292,7 @@ class EntryInput(StrictModel):
     actions: dict[str, EntryActionInput] = Field(default_factory=dict)
     priority: list[str] | None = Field(default=None, min_length=1)
 
+    # Validate entry condition coverage, action directions, and signal windows.
     @model_validator(mode='after')
     def directions(self):
         if set(self.any) != set(self.conditions) or len(set(self.any)) != len(self.any):
@@ -270,6 +316,7 @@ class EntryInput(StrictModel):
         return self
 
 
+# Describe the approved trailing-stop activation and update policy.
 class TrailingInput(StrictModel):
     activate_after: Literal['TP1_fill']
     distance_points: Positive
@@ -281,12 +328,14 @@ class TrailingInput(StrictModel):
     allow_widening: Literal[False]
 
 
+# Describe target quantity selection based on initial position size.
 class SplitQuantity(StrictModel):
     if_initial_quantity_eq: Period
     then: Literal['remaining']
     else_: dict = Field(alias='else')
 
 
+# Describe a protective stop and its optional trailing configuration.
 class StopInput(StrictModel):
     type: Literal['protective_stop']
     distance_points: Positive
@@ -294,6 +343,7 @@ class StopInput(StrictModel):
     trailing: TrailingInput | None = None
 
 
+# Describe a named target touch and its exit quantity.
 class TargetInput(StrictModel):
     type: Literal['target_touch']
     level: Literal['TP1', 'TP2']
@@ -301,12 +351,14 @@ class TargetInput(StrictModel):
     requires: Literal['TP1_filled'] | None = None
 
 
+# Describe intrabar exit conditions and their evaluation priority.
 class IntrabarInput(StrictModel):
     conditions: dict[str, Annotated[StopInput | TargetInput, Field(discriminator='type')]] = Field(min_length=1)
     any: list[str] = Field(min_length=1)
     priority: list[str] = Field(min_length=1)
 
 
+# Describe bar-close exit conditions, priority, and order overrides.
 class CloseInput(StrictModel):
     conditions: dict[str, dict] = Field(min_length=1)
     any: list[str] = Field(min_length=1)
@@ -318,6 +370,7 @@ class CloseInput(StrictModel):
     actions: dict[str, CloseActionInput] = Field(default_factory=dict)
 
 
+# Group target formulas and intrabar or bar-close exit rules.
 class ExitInput(StrictModel):
     targets: dict[str, dict[str, dict]] = Field(default_factory=dict)
     intrabar: IntrabarInput | None = None
@@ -326,6 +379,7 @@ class ExitInput(StrictModel):
     allow_overnight: Literal[False] | None = None
 
 
+# Describe risk and margin limits for contract sizing.
 class ContractSizingInput(StrictModel):
     type: Literal['risk_and_margin']
     risk_fraction: Annotated[Positive, Field(le=1)]
@@ -335,6 +389,7 @@ class ContractSizingInput(StrictModel):
     pyramiding: StrictBool
 
 
+# Describe risk and position limits for normalized sizing.
 class NormalizedSizingInput(StrictModel):
     type: Literal['fixed_fractional']
     risk_fraction: Annotated[Positive, Field(le=1)]
@@ -344,10 +399,12 @@ class NormalizedSizingInput(StrictModel):
 SizingInput = Annotated[ContractSizingInput | NormalizedSizingInput, Field(discriminator='type')]
 
 
+# Describe the expression that stops new entries.
 class LimitsInput(StrictModel):
     stop_new_entry: dict
 
 
+# Describe indicators, entries, exits, sizing, and strategy limits.
 class StrategyInput(StrictModel):
     warmup_bars: Period | None = None
     indicators: dict[str, IndicatorInput] = Field(default_factory=dict)
@@ -356,6 +413,7 @@ class StrategyInput(StrictModel):
     sizing: SizingInput
     daily_limits: LimitsInput | None = None
 
+    # List source and indicator references allowed in strategy expressions.
     def references(self):
         refs = {f'{s}.{c}' for s in ('trade_data', 'market_data') for c in ('open', 'high', 'low', 'close', 'volume')}
         for name, spec in self.indicators.items():
@@ -363,6 +421,7 @@ class StrategyInput(StrictModel):
             refs.update(f'{name}.{part}' for part in outputs) if outputs else refs.add(name)
         return refs | STATE_REFS | {f'position.entry_{name}' for name in self.entry.details}
 
+    # Validate expression types, references, action priorities, and order compatibility.
     @model_validator(mode='after')
     def expressions(self):
         reserved = {'trade_data', 'market_data', 'position', 'account', 'day', 'clock'}
@@ -441,17 +500,21 @@ class StrategyInput(StrictModel):
         return self
 
 
+# Describe matching-model selection and execution simulation parameters.
 class ExecutionInput(StrictModel):
     entry_fill_policy: Literal['next_open', 'limit', 'ato'] | None = None
     slippage_rate: Annotated[Nonnegative, Field(lt=1)]
     matching_model: Literal['next_open', 'hnx_sessions_v1'] | None = None
     auction_match_quantity: AuctionQuantity | None = None
+    continuous_match_quantity: AuctionQuantity | None = None
 
 
+# Describe the requested reporting interval.
 class ReportInput(StrictModel):
     start_date: date
     end_date: date
 
+    # Require the report start date to precede or equal its end date.
     @model_validator(mode='after')
     def date_order(self):
         if self.start_date > self.end_date:
@@ -459,6 +522,7 @@ class ReportInput(StrictModel):
         return self
 
 
+# Describe a complete inline backtest request and its required data sources.
 class InlineRunRequest(StrictModel):
     auto_fetch_data: StrictBool = Field(
         False, description='Tự lấy VN30F1M và VNINDEX 5 phút trong sáu tháng gần nhất; ưu tiên và bỏ qua dữ liệu nhập tay.')
@@ -470,6 +534,7 @@ class InlineRunRequest(StrictModel):
     initial_cash: Positive
     report: ReportInput | None = None
 
+    # Discard manual sources when automatic fetching is explicitly enabled.
     @model_validator(mode='before')
     @classmethod
     def prefer_auto_data(cls, value):
@@ -477,6 +542,7 @@ class InlineRunRequest(StrictModel):
             return {key: item for key, item in value.items() if key not in ('trade_data', 'market_data')}
         return value
 
+    # Require the data sources referenced by the selected strategy and execution.
     @model_validator(mode='after')
     def requirements(self):
         if not self.auto_fetch_data and self.trade_data is None:
@@ -487,6 +553,7 @@ class InlineRunRequest(StrictModel):
             source = indicator.source.split('.')[0]
             needed.add(source)
             if indicator.type == 'MFI' or indicator.source.endswith('.volume'): volumes.add(source)
+        # Collect source requirements from nested strategy references.
         def visit(value):
             if isinstance(value, dict):
                 ref = value.get('ref', '')
@@ -507,13 +574,26 @@ class InlineRunRequest(StrictModel):
         sides = {action['side'] for action in entry_actions.values()}
         entry_types = {action['order']['type'] for action in entry_actions.values()}
         close_types = {action['order']['type'] for action in close_actions.values()}
-        if entry_types - {'SIMULATED', 'LO', 'ATO'} or close_types - {'SIMULATED', 'LO', 'ATC'}:
+        market_types = (entry_types | close_types) & MARKET_TYPES
+        if entry_types - {'SIMULATED', 'LO', 'ATO', *MARKET_TYPES} or close_types - {'SIMULATED', 'LO', 'ATC', *MARKET_TYPES}:
             raise ValueError('ORDER_UNSUPPORTED_FOR_ACTION')
         session = self.execution.matching_model == 'hnx_sessions_v1'
+        if market_types:
+            if not session or self.accounting.model != 'contract':
+                raise ValueError('ORDER_UNSUPPORTED_BY_MATCHING_MODEL')
+            if self.execution.continuous_match_quantity is None:
+                raise ValueError('MARKET_ORDER_REQUIRES_MATCH_QUANTITY')
+            if self.auto_fetch_data or not self.trade_data.price_limits:
+                raise ValueError('MISSING_PRICE_LIMITS')
+            old_pending = self.strategy.entry.pending
+            if old_pending is not None and (entry_types | close_types) & {'MAK', 'MOK'} and old_pending.max_execution_bars != 1:
+                raise ValueError('MARKET_ORDER_PENDING_NOT_APPLICABLE')
+        if self.execution.continuous_match_quantity is not None and not session:
+            raise ValueError('SESSION_MATCHING_REQUIRED')
         multi = getattr(self.strategy.sizing, 'pyramiding', False)
         entry = self.strategy.entry
         if multi:
-            if not session or self.accounting.model != 'contract' or entry_types - {'LO', 'ATO'}:
+            if not session or self.accounting.model != 'contract' or entry_types - {'LO', 'ATO', *MARKET_TYPES}:
                 raise ValueError('MULTI_ENTRY_REQUIRES_SESSION_LO_OR_ATO')
             if not entry.priority:
                 raise ValueError('MULTI_ENTRY_REQUIRES_PRIORITY')
@@ -544,6 +624,8 @@ class InlineRunRequest(StrictModel):
             raise ValueError('SESSION_MATCHING_REQUIRED')
         if self.market_data and self.market_data.auctions:
             raise ValueError('AUCTIONS_REQUIRE_TRADE_DATA')
+        if self.market_data and self.market_data.price_limits:
+            raise ValueError('PRICE_LIMITS_REQUIRE_TRADE_DATA')
         if self.accounting.model == 'normalized':
             if sides != {'BUY'} or self.strategy.sizing.type != 'fixed_fractional' or self.strategy.exit.intrabar:
                 raise ValueError('NORMALIZED_REQUIRES_BUY_FIXED_FRACTIONAL_AND_BAR_CLOSE_EXIT')

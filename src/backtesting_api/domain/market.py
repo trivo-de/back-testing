@@ -17,11 +17,13 @@ class Bar:
     close: Decimal
     close_time: BarTime | None = None
 
+    # Return the explicit candle close, falling back to its recorded time.
     @property
     def closed_at(self) -> BarTime:
         return self.close_time if self.close_time is not None else self.trading_date
 
 
+# Carry the OHLC prices and timing consumed by strategy execution.
 @dataclass(frozen=True)
 class StrategyBar:
     trading_date: BarTime
@@ -33,6 +35,7 @@ class StrategyBar:
     index_close: Decimal | None = None
     close_time: BarTime | None = None
 
+    # Return the explicit candle close, falling back to its recorded time.
     @property
     def closed_at(self) -> BarTime:
         return self.close_time if self.close_time is not None else self.trading_date

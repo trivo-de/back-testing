@@ -1,9 +1,8 @@
 # VN30F1M — Bảng đáo hạn tham khảo năm 2026
 
-Các ngày dưới đây là bảng tham khảo người dùng cung cấp, được lưu trong
-`runtime-policy.json`. Khi tự lấy dữ liệu hợp đồng, service chuyển các dòng
-`rollover` thành `trade_data.contract_map`. Mã `VN30FYYMM` là nhãn tháng của
-mô hình; việc gắn nhãn không xác minh dữ liệu từng hợp đồng với vendor.
+- Các ngày dưới đây là bảng tham khảo người dùng cung cấp, được lưu trong `runtime-policy.json`.
+- Khi tự lấy dữ liệu hợp đồng, service chuyển các dòng `rollover` thành `trade_data.contract_map`.
+- Mã `VN30FYYMM` là nhãn tháng của mô hình; việc gắn nhãn không xác minh dữ liệu từng hợp đồng với vendor.
 
 Quy ước lịch:
 
@@ -31,7 +30,7 @@ Quy ước lịch:
 Unix là giây tại 00:00:00 `Asia/Ho_Chi_Minh` của ngày đáo hạn, không phải
 thời điểm khớp. Bảng hiện kết thúc 17/12/2026; kỳ và lịch sử phải được map phủ.
 
-Luồng JSON chỉ dùng bảng để gắn mã hợp đồng và kiểm tra độ phủ. Không tự
-đóng vị thế tại Open ngày đáo hạn từ trường `rollover_action` trong chính sách.
-Điều kiện đóng vị thế phải được khai báo trong JSON; mẫu CANSLIM v1 đóng
-cuối ngày theo quy tắc riêng. Chi tiết tại [hợp đồng dữ liệu](data-contract.md).
+- Luồng JSON chỉ dùng bảng để gắn mã hợp đồng và kiểm tra độ phủ.
+- Không tự đóng vị thế tại Open ngày đáo hạn từ trường `rollover_action` trong chính sách.
+- Điều kiện đóng vị thế phải được khai báo trong JSON; mẫu CANSLIM v1 đóng cuối ngày theo quy tắc riêng.
+- Chi tiết tại [hợp đồng dữ liệu](data-contract.md).

@@ -1,34 +1,21 @@
 # Đặc tả API backtest
 
-Phần bổ sung tùy chọn `execution.matching_model: "hnx_sessions_v1"`, ATO/LO/ATC,
-`auction_match_quantity`, `contract_dates`, `provenance`, bản ghi `auctions` cũ
-và các trường kết quả tương ứng được
-đặc tả tại [khớp theo phiên HNX](hnx-session-matching.md). Các mô tả `next_open`
-và giới hạn chờ một nến bên dưới là mặc định của đường chạy cũ.
-
 ## 1. Tổng quan
 
-API nhận dữ liệu giá và định nghĩa chiến lược bằng JSON để kiểm tra đầu vào,
-mô phỏng giao dịch và trả kết quả backtest. Người gọi không cần đăng ký bộ
-dữ liệu hoặc mẫu chiến lược trước khi chạy.
+API nhận dữ liệu giá và chiến lược JSON, kiểm tra đầu vào, mô phỏng giao dịch và lưu kết quả.
 
-Tài liệu dành cho người chuẩn bị request, tích hợp API và kiểm tra kết quả.
-Luồng sử dụng: chuẩn bị dữ liệu → kiểm tra request → chạy → đọc kết quả.
-Hai endpoint POST dùng cùng cấu trúc request.
+Luồng sử dụng: chuẩn bị dữ liệu → kiểm tra → chạy → đọc kết quả. Hai endpoint POST dùng cùng cấu trúc request.
 
-Chuỗi gọi hàm từ HTTP đến engine và kho file, cùng thứ tự xử lý từng nến,
-được mô tả bằng [sơ đồ tuần tự trong thiết kế hệ thống](system-design.md#11-một-yêu-cầu-post-apibacktests-đi-qua-hàm-nào).
+Xem [sơ đồ tuần tự](system-design.md#11-một-yêu-cầu-post-apibacktests-đi-qua-hàm-nào) để tra lời gọi và thứ tự xử lý từng nến.
 
 - Chỉ dùng dữ liệu đã khả dụng tại thời điểm quyết định.
 - Tín hiệu sau Close chỉ khớp tại Open kế tiếp theo quy tắc thực thi.
 - Tín hiệu, lệnh, lần khớp và giao dịch đã đóng là các đối tượng khác nhau.
 - Chỉ tự tải khi bật `auto_fetch_data`; không điền dữ liệu giá bị thiếu.
 - `accounting.model` chọn mô hình tính tiền; symbol không chọn chiến lược.
-
-Mẫu CANSLIM thuộc [quy tắc v1](../strategies/canslim-v1-rules.md); mô hình
-normalized theo [tính tiền normalized](normalized-accounting.md). Quy ước nguồn, phiên và
-đáo hạn thuộc [hợp đồng dữ liệu](../data/vn30f1m/data-contract-v1.md).
-Các ví dụ dưới đây không thay đổi quy tắc đã chốt.
+- [CANSLIM v1](../strategies/canslim-v1-rules.md): quy tắc chiến lược.
+- [Tính tiền normalized](normalized-accounting.md): công thức sổ tiền.
+- [Hợp đồng dữ liệu](../data/vn30f1m/data-contract-v1.md): nguồn, phiên và đáo hạn.
 
 ## 2. Endpoint
 
@@ -77,15 +64,13 @@ Lưu ý:
 | `GET /api/backtests/{run_id}/input` | Đầu vào đầy đủ và thông tin chính sách đã lưu                                   |
 | `GET /api/backtests/{run_id}/chart` | Dữ liệu biểu đồ của lần chạy                                                          |
 
-`run_id` là UUID. Các endpoint đọc không chạy lại chiến lược. Lần chạy thất
-bại hoặc đang chạy không có trong danh sách thành công: đọc chi tiết trả 404.
+- `run_id` là UUID; các endpoint GET đọc kết quả đã lưu.
+- Lượt đang chạy hoặc thất bại: đọc chi tiết trả `404`.
 
 ### 2.4. Lọc lịch sử để hiển thị trên web
 
-`GET /api/backtests/history` lọc tại máy chủ và trả một trang tóm tắt. Các
-điều kiện kết hợp bằng AND; khoảng từ/đến tính cả hai đầu. Không truyền giới
-hạn nào thì lấy các lần chạy thành công theo thứ tự kho lưu trữ, không phải
-thứ tự thời gian tạo vì UUID không mang ý nghĩa thời gian trong kho này.
+- Lọc tại máy chủ, kết hợp điều kiện bằng AND; khoảng từ/đến gồm hai đầu.
+- Kết quả theo thứ tự kho lưu trữ. UUID không biểu diễn thời gian tạo.
 
 | Tham số query           | Bắt buộc | Ý nghĩa                                                                       |
 | ------------------------ | ---------- | ------------------------------------------------------------------------------- |
@@ -97,49 +82,44 @@ thứ tự thời gian tạo vì UUID không mang ý nghĩa thời gian trong kh
 | `after`                | Không     | UUID trong`next_cursor` của trang trước; giữ các bộ lọc khi sang trang |
 
 Ví dụ: `/api/backtests/history?min_total_return_pct=0&max_total_return_pct=20&limit=20`.
-Thành công trả `200` với `items` và `next_cursor`. Mỗi item chỉ có `run_id`,
-`symbol`, `resolution`, `start_date`, `end_date`, `money_unit`, `total_return`,
-`final_equity`, `run_at`; các trường mô tả có thể là null với lịch sử cũ.
-`run_at` là thời điểm bắt đầu chạy, trả dưới dạng ISO 8601 có múi giờ và lưu trong
-`metadata.run_at` của kết quả mới. Với run cũ chưa lưu trường này, lịch sử dùng
-ngày tạo file JSON của run; nếu hệ thống không cung cấp ngày tạo file thì dùng
-thời điểm sửa file cuối. Không sửa lại file cũ hoặc đổi mã băm kết quả.
-Hai giá trị kết quả được trả dưới dạng chuỗi số; `total_return` vẫn là tỷ lệ
-gốc, ví dụ `"0.1"` nghĩa là 10%. `money_unit` phân biệt VND với đơn vị giá,
-không tự quy đổi giữa các mô hình. `next_cursor: null` nghĩa là hết kết quả.
 
-Giá trị không phải số hữu hạn, giới hạn từ lớn hơn đến, limit ngoài khoảng
-hoặc after không phải UUID trả `422`. Lỗi đọc/kiểm tra kho trả `409` với
-`detail.code: RESULT_STORAGE_INVALID`. Endpoint vẫn kiểm tra tính toàn vẹn
-của từng kết quả đã đọc. API danh sách đầy đủ hiện có vẫn giữ hợp đồng cũ;
-web dùng endpoint lịch sử này để tránh tải toàn bộ bảng kết quả.
+**Phản hồi**
+
+- Thành công: `200`, gồm `items` và `next_cursor`; `next_cursor: null` là hết kết quả.
+- Mỗi item có `run_id`, `symbol`, `resolution`, `start_date`, `end_date`, `money_unit`, `total_return`, `final_equity`, `run_at`. Trường mô tả của lịch sử cũ có thể là null.
+- `run_at`: thời điểm bắt đầu chạy, dạng ISO 8601 có múi giờ, lưu tại `metadata.run_at`.
+- Lịch sử cũ: dùng ngày tạo file JSON; nếu thiếu thì dùng ngày sửa cuối. File và mã băm cũ giữ nguyên.
+- `total_return` và `final_equity` là chuỗi số; `"0.1"` ở `total_return` tương ứng 10%.
+- `money_unit` xác định VND hoặc đơn vị giá của mô hình.
+
+**Lỗi**
+
+- `422`: số không hữu hạn, giới hạn từ lớn hơn đến, `limit` ngoài khoảng hoặc `after` sai UUID.
+- `409`, mã `RESULT_STORAGE_INVALID`: kho lưu trữ đọc hoặc kiểm tra không hợp lệ.
+- Máy chủ kiểm tra tính toàn vẹn từng kết quả. Web dùng trang tóm tắt để giảm dữ liệu tải.
 
 ## 3. Cấu trúc request
 
 **Payload nhận một JSON object với các trường chính dưới đây.**
 Tên trường và từ khóa phân biệt hoa/thường. Trường ngoài cấu trúc cho phép sẽ bị từ chối và trả lỗi 422.
 
-| Nhóm               | Kiểu JSON        | Bắt buộc                                                | Nội dung                                                                       |
-| ------------------- | ----------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `auto_fetch_data` | boolean           | Không; mặc định`false`                              | `true` để ưu tiên tự lấy cả hai nguồn và bỏ qua dữ liệu nhập tay |
-| `trade_data`      | object hoặc null | Khi không bật tự lấy                                  | Chuỗi giá dùng giao dịch                                                    |
-| `market_data`     | object hoặc null | Khi nhập tay và được chỉ báo/biểu thức sử dụng | Chuỗi thị trường tham chiếu                                                |
-| `strategy`        | object            | Có                                                       | Chỉ báo, vào/thoát lệnh, số lượng và giới hạn ngày                  |
-| `execution`       | object            | Có                                                       | Cách khớp và trượt giá                                                    |
-| `accounting`      | object            | Có                                                       | Mô hình tính tiền và phí                                                  |
-| `initial_cash`    | số thập phân   | Có                                                       | Vốn ban đầu, lớn hơn 0                                                     |
-| `report`          | object hoặc null | Không                                                    | Khoảng ngày báo cáo                                                         |
+| Nhóm               | Kiểu JSON        | Bắt buộc                                                          | Nội dung                                                                       |
+| ------------------- | ----------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `auto_fetch_data` | boolean           | Không; mặc định`false`                                        | `true` để ưu tiên tự lấy cả hai nguồn và bỏ qua dữ liệu nhập tay |
+| `trade_data`      | object hoặc null | Khi không bật tự lấy                                            | Chuỗi giá dùng giao dịch                                                    |
+| `market_data`     | object hoặc null | Khi dữ liệu tự lấy và được chỉ báo/biểu thức sử dụng | Chuỗi thị trường tham chiếu                                                |
+| `strategy`        | object            | Có                                                                 | Chỉ báo, vào/thoát lệnh, số lượng và giới hạn ngày                  |
+| `execution`       | object            | Có                                                                 | Cách khớp và trượt giá                                                    |
+| `accounting`      | object            | Có                                                                 | Mô hình tính tiền và phí                                                  |
+| `initial_cash`    | số thập phân   | Có                                                                 | Vốn ban đầu, lớn hơn 0                                                     |
+| `report`          | object hoặc null | Không                                                              | Khoảng ngày báo cáo                                                         |
 
 Quy tắc chọn nguồn cho cả `/api/backtests/validate` và `/api/backtests`
 (cập nhật 09/10/2026):
 
 - **Nhập tay:** bỏ `auto_fetch_data` hoặc đặt `false`, gửi `trade_data`;
   gửi thêm `market_data` nếu chiến lược sử dụng nguồn này. Cách gửi cũ vẫn hợp lệ.
-- **Tự lấy:** đặt `auto_fetch_data: true`. Có thể bỏ hai nguồn nhập tay hoặc
-  vẫn gửi; API luôn bỏ qua toàn bộ `trade_data` và `market_data` nhập tay
-  trước khi kiểm tra hai trường này, rồi dùng cả hai nguồn tự tải. Dữ liệu
-  nhập tay thiếu trường, sai kiểu, sai OHLCV, bảng hợp đồng hoặc khác khoảng
-  báo cáo đều không chặn yêu cầu tự lấy.
+- **Tự lấy:** đặt `auto_fetch_data: true`. API bỏ qua cả hai nguồn nhập tay trước kiểm tra và dùng hai nguồn tải về.
 
 | `auto_fetch_data`          | Dữ liệu nhập tay                             | Xử lý                                                   |
 | ---------------------------- | ----------------------------------------------- | --------------------------------------------------------- |
@@ -147,76 +127,52 @@ Quy tắc chọn nguồn cho cả `/api/backtests/validate` và `/api/backtests`
 | `false` hoặc bỏ trường | Đủ và hợp lệ theo chiến lược            | Dùng dữ liệu nhập tay                                 |
 | `false` hoặc bỏ trường | Thiếu hoặc chưa hợp lệ                     | Trả 422 như trước                                     |
 
-Các nhóm chiến lược, khớp lệnh, tính tiền, vốn ban đầu và `report` nếu gửi
-vẫn được kiểm tra. `report` được đối chiếu với dữ liệu tự tải khi bật tự lấy.
-Tự tải lỗi hoặc dữ liệu tải không hợp lệ thì trả lỗi và dừng trước khi tạo
-lượt chạy; không dùng lại dữ liệu nhập tay, không ghép hai loại nguồn.
-`auto_fetch_data` chỉ nhận boolean JSON,
-không nhận chuỗi `"true"`, số `1` hoặc `null`.
+- Chiến lược, khớp lệnh, tính tiền, vốn và `report` vẫn được kiểm tra.
+- Khi tự lấy, `report` được đối chiếu với dữ liệu tải về. Lỗi tải hoặc dữ liệu sai làm yêu cầu dừng trước khi tạo lượt chạy.
+- `auto_fetch_data` chỉ nhận boolean JSON.
 
-Máy chủ gọi VNDIRECT cho **VN30F1M và VNINDEX, độ phân giải 5 phút**. Nếu không
-có `report`, `to` là Unix giây lúc bắt đầu lấy và `from` lùi đúng sáu tháng theo
-lịch tại `Asia/Ho_Chi_Minh`, giữ giờ/phút/giây. Nếu có `report`, chỉ lùi `from`
-đủ số nến khởi tạo: giá trị lớn nhất giữa `warmup_bars`, yêu cầu tối thiểu của
-chỉ báo và `shift` (MFI: `period + 1`; MACD: `slow_period + signal_period - 1`).
-ATO cần ít nhất một nến liên tục trước kỳ. Đếm ngược trên lịch phiên, bỏ ngày
-nghỉ; contract không đếm nến ngoài giờ liên tục. Hai nguồn dùng chung mốc tải
-sớm nhất cần thiết; mỗi nguồn chỉ giữ số nến lịch sử cần dùng, cùng toàn bộ
-dữ liệu trong kỳ. Không kéo dài lịch sử qua khoảng thiếu để giả định đủ mẫu.
-`metadata.auto_fetch.warmup_bars_requested` ghi số nến yêu cầu; mỗi nguồn ghi
-`warmup_count` và `retained_count`. Lịch sử có thể bắt đầu giữa phiên; chỉ kiểm
-tra thiếu nhãn từ mốc này, kỳ báo cáo vẫn được kiểm tra đủ phiên.
-`to` là 23:59:59 của `report.end_date`, hoặc thời điểm hiện tại nếu ngày kết
-thúc là hôm nay. Ngày kết thúc trong tương lai bị từ chối. Thiếu mẫu khởi tạo
-vẫn được báo chưa đánh giá được. Không đổi kỳ báo cáo hoặc ngưỡng chiến lược.
-Header tải là `Accept: */*`, `User-Agent: backtest-hpg/0.1`; mỗi nguồn có
-thời gian chờ tối đa 60 giây. Không tự thử lại hoặc chuyển nguồn khi tải lỗi.
+Máy chủ lấy **VN30F1M và VNINDEX 5 phút từ VNDIRECT**.
 
-Chỉ giữ nến có `time + 300 <= to`; không loại riêng nến ATC đã đóng,
-không điền nến thiếu, không đổi độ phân giải. Dữ liệu sai trạng thái, OHLCV,
-thứ tự, mốc 5 phút hoặc vượt khoảng yêu cầu bị từ chối. `report` nếu gửi
-được kiểm tra thứ tự ngày trước khi gọi nguồn. Nguồn thiếu ngày đầu/cuối kỳ
-vẫn chạy trên các nến thực có; `report_range` giữ nguyên, `available_range`
-ghi phạm vi nến giao dịch thực có trong kỳ. Khi áp dụng lịch phiên, nến thiếu
-vẫn được ghi trong `data_gaps`. Chỉ trả `REPORT_DATA_MISSING` khi không có nến
-giao dịch nào trong kỳ. Nếu bỏ `report`, báo cáo dùng ngày
-đầu/cuối của các nến đã đóng, có thể ngắn hơn khoảng yêu cầu nếu nguồn thiếu.
+**Khoảng tải**
 
-Với `accounting.model: "contract"`, máy chủ dùng bảng đáo hạn từ
-`AUTO_FETCH_POLICY_PATH` (mặc định `runtime-policy.json`) và kiểm tra phiên
-bằng `INLINE_POLICY_PATH` (mặc định `runtime-policy-v1.json`). **Lịch phiên
-bao phủ 01/03–31/12/2026**, gồm ngày làm việc trừ ngày nghỉ theo
-[thông báo HNX năm 2026](https://www.gov.hnx.vn/vi-vn/chi-tiet-lich-nghi-gd-60021971.html?_page=1).
-Dữ liệu ngoài lịch vẫn trả `REPORT_OUTSIDE_STATIC_CALENDAR`; bảng đáo hạn
-hiện bao phủ đến 17/12/2026, vượt bảng trả `CONTRACT_MAP_COVERAGE_MISSING`.
-Khi có `report`, phần lịch sử khởi tạo tự tải được giới hạn bởi ngày đầu
-lịch phiên và đầu tháng đầu tiên của bảng đáo hạn (mặc định 01/03/2026).
-`metadata.auto_fetch.history_start_limit` ghi giới hạn này; `from` ghi mốc
-tải thực tế. Không đổi kỳ báo cáo hoặc ngưỡng `warmup_bars`; thiếu lịch sử
-vẫn báo `UNEVALUABLE`, kỳ báo cáo ngoài phạm vi vẫn bị từ chối.
-Khớp liên tục `hnx_sessions_v1` hỗ trợ `auto_fetch_data: true` với LO, mô hình
-`contract` và trượt giá `0`. Máy chủ tạo `trade_data.contract_dates` từ bảng
-đáo hạn theo giả định đã được chấp nhận: giữ mã đến hết ngày đáo hạn, đổi từ
-ngày sau đó; lưu giả định và nguồn dữ liệu cùng lượt chạy. Chưa đối chiếu lịch
-chuyển mã của nhà cung cấp. ATO/ATC yêu cầu bản ghi nhãn 09:00/14:45 tương ứng;
-thiếu bản ghi làm lượt chạy lỗi; xem [quy tắc khớp theo phiên](hnx-session-matching.md).
+- Bỏ `report`: `to` là Unix giây lúc bắt đầu lấy; `from` lùi sáu tháng theo `Asia/Ho_Chi_Minh`, giữ giờ/phút/giây.
+- Có `report`: lùi `from` theo số nến khởi tạo lớn nhất từ `warmup_bars`, chỉ báo và `shift`. MFI cần `period + 1`; MACD cần `slow_period + signal_period - 1`.
+- ATO cần ít nhất một nến liên tục trước kỳ. Đếm nến theo lịch phiên; contract chỉ đếm giờ liên tục.
+- Hai nguồn dùng chung mốc tải sớm nhất. Mỗi nguồn giữ số nến khởi tạo cần dùng và toàn bộ dữ liệu trong kỳ.
+- Lịch sử có thể bắt đầu giữa phiên; kiểm tra khoảng thiếu từ mốc này. Kỳ báo cáo được kiểm tra đủ phiên.
+- `to` là 23:59:59 của `report.end_date`; nếu là hôm nay thì dùng thời điểm hiện tại. Ngày kết thúc trong tương lai bị từ chối.
+- Thiếu mẫu khởi tạo: báo chưa đánh giá được, giữ nguyên kỳ báo cáo và ngưỡng. Khoảng thiếu được giữ nguyên.
+- `metadata.auto_fetch.warmup_bars_requested` ghi lượng yêu cầu; mỗi nguồn ghi `warmup_count` và `retained_count`.
+- Header: `Accept: */*`, `User-Agent: backtest-hpg/0.1`. Mỗi nguồn chờ tối đa 60 giây; lỗi tải kết thúc yêu cầu.
 
-Tự lấy với mô hình `normalized`
-giữ cách chạy hiện có, không tự thêm bảng hợp đồng hoặc đổi mô hình tiền.
+**Kiểm tra dữ liệu**
 
-Tự lấy giữa phiên không tạo thêm nến đóng vị thế. Nếu chiến lược `contract`
-còn vị thế ở cuối dữ liệu mà chưa đến thời điểm đóng bắt buộc, lượt chạy có
-thể trả `END_OF_REPORT_POSITION_REQUIRES_EXIT`. Khi muốn chạy các phiên đã
-hoàn tất, gửi `report.end_date` là ngày giao dịch đã kết thúc; máy chủ dừng
-khoảng tải tại hết ngày đó và không tự đổi kỳ báo cáo.
+- Giữ nến đã đóng với `time + 300 <= to`, gồm cả bản ghi ATC. Giữ độ phân giải và các khoảng thiếu của nguồn.
+- Từ chối dữ liệu sai trạng thái, OHLCV, thứ tự, mốc 5 phút hoặc vượt khoảng yêu cầu.
+- Kiểm tra thứ tự ngày của `report` trước khi gọi nguồn.
+- Thiếu dữ liệu đầu/cuối kỳ: chạy trên nến thực có, giữ `report_range`; `available_range` ghi phạm vi thực có.
+- Theo lịch phiên, nến thiếu được ghi trong `data_gaps`. Kỳ không có nến giao dịch trả `REPORT_DATA_MISSING`.
+- Bỏ `report`: dùng ngày đầu/cuối của nến đã đóng.
 
-Kết quả tự lấy ghi `metadata.input_origin: "auto_fetch"` và
-`metadata.auto_fetch`: thời điểm/khoảng lấy, URL, mã băm phản hồi nguồn,
-số nến gốc, số nến đã đóng và số nến chưa đóng bị loại của từng nguồn.
-Kho file lưu đầy đủ payload đã chuyển thành dữ liệu cụ thể và metadata;
-không lưu riêng toàn bộ phản hồi HTTP gốc. `/validate` trả `payload` có
-`auto_fetch_data: false` cùng hai nguồn đã tải: gửi lại payload này để chạy
-đúng snapshot đã kiểm tra. Gửi lại `auto_fetch_data: true` sẽ lấy dữ liệu mới.
+Với `accounting.model: "contract"`:
+
+- `AUTO_FETCH_POLICY_PATH` chọn bảng đáo hạn, mặc định `runtime-policy.json`; bảng kết thúc 17/12/2026. Vượt bảng trả `CONTRACT_MAP_COVERAGE_MISSING`.
+- `INLINE_POLICY_PATH` chọn lịch phiên, mặc định `runtime-policy-v1.json`, bao phủ 01/03–31/12/2026 theo [lịch nghỉ HNX](https://www.gov.hnx.vn/vi-vn/chi-tiet-lich-nghi-gd-60021971.html?_page=1). Ngoài lịch trả `REPORT_OUTSIDE_STATIC_CALENDAR`.
+- Lịch sử khởi tạo giới hạn bởi ngày đầu lịch phiên và đầu tháng đầu của bảng đáo hạn; mặc định 01/03/2026.
+- `metadata.auto_fetch.history_start_limit` ghi giới hạn, `from` ghi mốc tải thực tế. Thiếu lịch sử trả `UNEVALUABLE`; kỳ và `warmup_bars` giữ nguyên.
+- `hnx_sessions_v1` hỗ trợ tự lấy cho LO với trượt giá `0`.
+- `trade_data.contract_dates` dùng giả định chuyển mã sau ngày đáo hạn, lưu cùng nguồn dữ liệu. Giả định này cần đối chiếu riêng với nhà cung cấp.
+- ATO/ATC cần bản ghi nhãn 09:00/14:45; thiếu bản ghi làm lượt chạy lỗi. Xem [khớp theo phiên](hnx-session-matching.md).
+
+Mô hình `normalized` tự lấy dữ liệu theo cách hiện có, giữ nguyên mô hình tiền.
+
+- Lấy giữa phiên chỉ dùng nến đã đóng. Contract còn vị thế cuối dữ liệu có thể trả `END_OF_REPORT_POSITION_REQUIRES_EXIT`.
+- Để chạy phiên hoàn tất, chọn `report.end_date` là ngày giao dịch đã kết thúc.
+- `metadata.input_origin: "auto_fetch"` xác định nguồn tự lấy.
+- `metadata.auto_fetch` ghi thời điểm, khoảng lấy, URL, mã băm phản hồi và số nến gốc/đã đóng/bị loại của từng nguồn.
+- Kho lưu payload đã chuẩn bị và metadata; phản hồi HTTP gốc chỉ được lưu mã băm.
+- `/validate` trả `payload` với `auto_fetch_data: false` và hai nguồn cụ thể. Gửi lại payload này để dùng đúng dữ liệu đã kiểm tra.
+- Gửi lại `auto_fetch_data: true` sẽ lấy dữ liệu mới.
 
 ### 3.1. trade_data
 
@@ -229,7 +185,7 @@ Chuỗi OHLCV của mã giao dịch. Các trường cũng áp dụng cho market_
 | `symbol`         | string/null | Không     | null                   | Nhãn mã, không chọn quy tắc                                                   |
 | `timestamp_unit` | string      | Không     | `"s"`                | `"s"`: giây; `"ms"`: mili giây                                               |
 | `timezone`       | string      | Không     | `"Asia/Ho_Chi_Minh"` | Tên múi giờ IANA hợp lệ                                                       |
-| `price_unit`     | string/null | Không     | null                   | Nhãn đơn vị, không tự nhân/chia giá                                        |
+| `price_unit`     | string/null | Không     | null                   | Đơn vị tiền tệ                                                                |
 | `contract_map`   | array       | Không     | `[]`                 | Bảng mã và ngày đáo hạn khi dữ liệu thuộc dạng chứng khoán phái sinh |
 
 **Cấu trúc dữ liệu trong mỗi bar nến**
@@ -246,15 +202,15 @@ Kiểu 1: Mảng các JSON Object
 
 Kiểu 2: JSON Object chứa các mảng (cấu trúc dữ liệu gốc khi lấy từ API)
 
-| Trường | Kiểu           | Bắt buộc | Ý nghĩa/ràng buộc                                                                 |
-| -------- | --------------- | ---------- | ------------------------------------------------------------------------------------- |
-| `t`    | số nguyên     | Có        | Unix tại lúc mở nến, theo timestamp_unit                                          |
-| `c`    | số thập phân | Có        | Close                                                                                 |
-| `o`    | số thập phân | Có        | Open                                                                                  |
-| `h`    | số thập phân | Có        | High                                                                                  |
-| `l`    | số thập phân | Có        | Low                                                                                   |
-| `v`    | số nguyên     | Có        | Volume                                                                                |
-| `s`    | chuỗi          | Không     | Trạng thái nguồn; nếu truyền phải là "ok", bỏ thì bộ chuẩn hóa dùng "ok" |
+| Trường | Kiểu           | Bắt buộc | Ý nghĩa/ràng buộc                        |
+| -------- | --------------- | ---------- | -------------------------------------------- |
+| `t`    | số nguyên     | Có        | Unix tại lúc mở nến, theo timestamp_unit |
+| `c`    | số thập phân | Có        | Close                                        |
+| `o`    | số thập phân | Có        | Open                                         |
+| `h`    | số thập phân | Có        | High                                         |
+| `l`    | số thập phân | Có        | Low                                          |
+| `v`    | số nguyên     | Có        | Volume                                       |
+| `s`    | chuỗi          | Không     | Trạng thái dữ liệu                       |
 
 Dữ liệu OHLC được xem là hợp lệ khi thỏa các điều kiện sau:
 
@@ -262,7 +218,7 @@ Dữ liệu OHLC được xem là hợp lệ khi thỏa các điều kiện sau:
 - `time < close_time <= available_at`, không trùng, đảo thứ tự hoặc chồng lấn.
 - Nến ngày phải có `close_time` và `available_at`; nến 5 phút dùng mặc định
   Close = Open + 300 giây và available_at = Close khi bỏ các trường này.
-- Timestamp đúng format Unix tuyệt đối.
+- Timestamp đúng format Unix.
 
 **Mỗi phần tử contract_map:**
 
@@ -282,9 +238,9 @@ Ví dụ **riêng nhóm dữ liệu**:
 
 ### 3.2. market_data
 
-`market_data` chứa dữ liệu giá và khối lượng của chỉ số thị trường, chẳng hạn VNINDEX, để chiến lược đánh giá xu hướng thị trường chung trước khi mở vị thế trên mã giao dịch trong `trade_data`.
-`market_data` và `trade_data` có thể được nhận vào với khoảng thời gian và số nến khác nhau, do `market_data` phụ thuộc vào các chỉ báo mà yêu cầu về dữ liệu. Do đó, `market_data` được khuyến nghị phải đảm bảo để có đủ dữ liệu khởi tạo chỉ báo.
-Tại quyết định t, chỉ lấy nến thị trường có available_at <= t.
+- `market_data` là OHLCV thị trường tham chiếu, ví dụ VNINDEX.
+- Khoảng thời gian và số nến có thể khác `trade_data`; cần đủ lịch sử cho chỉ báo.
+- Tại quyết định `t`, chỉ đọc nến có `available_at <= t`.
 
 ### 3.3. strategy
 
@@ -299,85 +255,129 @@ Cấu trúc chi tiết ở mục 5.
 
 ### 3.4. execution
 
-| Trường              | Kiểu                  | Bắt buộc | Giá trị hỗ trợ   | Ý nghĩa                                                                                                                                                                                     |
-| --------------------- | ---------------------- | ---------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `entry_fill_policy` | string/null | Không | `"next_open"`, `"limit"`, `"ato"` | Trường tương thích cũ; cấu hình mới đặt loại lệnh trong `strategy.entry.order` hoặc `actions.<nhãn>.order` |
-| `slippage_rate`     | số/chuỗi thập phân | Có        | Từ 0 đến dưới 1 | Tỷ lệ trượt giá mô phỏng mức bất lợi giữa giá tham chiếu và giá khớp. Với normalized, giá mua = giá mở cửa × (1 + tỷ lệ), giá bán = giá mở cửa × (1 − tỷ lệ) |
-| `matching_model` | string/null | Không | `"next_open"`, `"hnx_sessions_v1"` | Bỏ trống tương đương `next_open`; HNX chỉ dùng contract 5 phút, trượt giá 0 |
-| `auction_match_quantity` | integer/null | Không | Số nguyên ≥ 0 | Giới hạn cố định lượng khớp mỗi lệnh ATO/ATC; bỏ để giả định khớp đủ; đây không phải mô hình thanh khoản thật |
+| Trường                      | Kiểu                  | Bắt buộc                          | Giá trị hỗ trợ                      | Ý nghĩa                                                                                                                                                                                     |
+| ----------------------------- | ---------------------- | ----------------------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `entry_fill_policy`         | string/null            | Không                              | `"next_open"`, `"limit"`, `"ato"` | Trường tương thích cũ; cấu hình mới đặt loại lệnh trong `strategy.entry.order` hoặc `actions.<nhãn>.order`                                                                 |
+| `slippage_rate`             | số/chuỗi thập phân | Có                                 | Từ 0 đến dưới 1                    | Tỷ lệ trượt giá mô phỏng mức bất lợi giữa giá tham chiếu và giá khớp. Với normalized, giá mua = giá mở cửa × (1 + tỷ lệ), giá bán = giá mở cửa × (1 − tỷ lệ) |
+| `matching_model`            | string/null            | Không                              | `"next_open"`, `"hnx_sessions_v1"`  | Bỏ trống tương đương `next_open`; HNX chỉ dùng contract 5 phút, trượt giá 0                                                                                                    |
+| `auction_match_quantity`    | integer/null           | Không                              | Số nguyên ≥ 0                        | Giới hạn cố định lượng khớp mỗi lệnh ATO/ATC; bỏ để giả định khớp đủ; đây không phải mô hình thanh khoản thật                                                      |
+| `continuous_match_quantity` | integer/null           | Không; bắt buộc với MTL/MOK/MAK | Số nguyên ≥ 0, không nhận boolean  | Ngân sách đối ứng giả định dùng chung theo nến/mã hợp đồng, cả Open và Close; bỏ để giữ LO khớp đủ như trước                                                        |
 
 Stop/target trong nến có quy tắc tại mục 5.3.
 
 #### 3.4.1. Lệnh thuộc hành động của chiến lược
 
-`strategy.entry.order` dùng chung cho các nhánh mở; `entry.actions.<nhãn>`
-chứa `side` (`BUY` cho normalized, `LONG`/`SHORT` cho contract) và `order`
-ghi đè cấu hình chung. Khi có `actions`, tên nhánh phải khớp đúng `conditions`.
-Nhóm đóng `strategy.exit.bar_close` dùng `order` và `actions.<nhãn>.order`
-tương tự, hướng đóng được suy ra từ mô hình tiền và vị thế.
+- `strategy.entry.order`: cấu hình chung cho lệnh mở.
+- `entry.actions.<nhãn>`: `side` và `order` riêng từng nhánh; nhãn phải khớp `conditions`.
+- `side`: `BUY` cho normalized, `LONG`/`SHORT` cho contract.
+- `strategy.exit.bar_close` dùng `order` và `actions.<nhãn>.order` tương tự. Hướng đóng được suy từ mô hình tiền và vị thế.
 
-| Trường trong `order` | Quy tắc |
-| --- | --- |
-| `type` | `SIMULATED`, `LO`, `ATO` hoặc `ATC` |
-| `limit_price` | Cây biểu thức số, bắt buộc riêng cho LO; chốt khi gửi, dương và đúng bước 0,1 |
-| `pending.max_execution_bars` | Số nguyên dương; ATO/ATC không nhận cấu hình chờ này |
-| `pending.cross_lunch`, `pending.cross_cutoff`, `pending.cross_session` | Khi có pending phải khai báo cả ba là false; không cho lệnh vượt ranh giới này |
+| Trường trong `order`                                                     | Quy tắc                                                                                                |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `type`                                                                     | `SIMULATED`, `LO`, `ATO`, `ATC`, `MTL`, `MOK` hoặc `MAK`                                 |
+| `limit_price`                                                              | Cây biểu thức số, bắt buộc riêng cho LO; chốt khi gửi, dương và đúng bước 0,1           |
+| `pending.max_execution_bars`                                               | Số nguyên dương; ATO/ATC/MAK/MOK không nhận cấu hình chờ riêng này; MTL áp dụng cho LO dư |
+| `pending.cross_lunch`, `pending.cross_cutoff`, `pending.cross_session` | Khi có pending phải khai báo cả ba là false; không cho lệnh vượt ranh giới này               |
 
-`SIMULATED` biểu diễn yêu cầu thực thi tại Open kế tiếp của đường chạy cũ;
-không phải tuyên bố hỗ trợ lệnh Market trên sàn.
+`SIMULATED` yêu cầu khớp mô phỏng tại Open kế tiếp theo đường chạy cũ.
 
-| Mô hình tiền / khớp | Mở | Đóng theo điều kiện |
-| --- | --- | --- |
-| normalized / next_open | SIMULATED | SIMULATED |
-| contract / next_open | SIMULATED | SIMULATED |
-| contract / hnx_sessions_v1 | SIMULATED, LO, ATO | SIMULATED, LO, ATC |
-| contract / hnx_sessions_v1, pyramiding=true | LO, ATO | SIMULATED, LO, ATC |
+| Mô hình tiền / khớp                     | Mở                               | Đóng theo điều kiện          |
+| ------------------------------------------- | --------------------------------- | --------------------------------- |
+| normalized / next_open                      | SIMULATED                         | SIMULATED                         |
+| contract / next_open                        | SIMULATED                         | SIMULATED                         |
+| contract / hnx_sessions_v1                  | SIMULATED, LO, ATO, MTL, MOK, MAK | SIMULATED, LO, ATC, MTL, MOK, MAK |
+| contract / hnx_sessions_v1, pyramiding=true | LO, ATO, MTL, MOK, MAK            | SIMULATED, LO, ATC, MTL, MOK, MAK |
 
-Ánh xạ tương thích: `next_open → SIMULATED`, `limit → LO`, `ato → ATO`,
-`atc → ATC`. `entry_fill_policy` là nguồn cũ cho nhóm mở;
-`bar_close.fill_policy` là nguồn cũ cho nhóm đóng; `limit_price` cũ đi theo
-nhóm tương ứng. `entry.pending` cũ áp dụng cho cả hai nhóm như trước.
-Thứ tự chọn là `actions.<nhãn>.order`, rồi `order` chung, rồi cấu hình cũ.
-Nếu đồng thời khai báo cũ/mới mâu thuẫn về loại, giá hoặc thời hạn thì từ chối.
-Giữ `hnx_sessions_v1` khi chuyển cấu hình cũ dùng `next_open` trong phiên;
-không đổi model chỉ vì ánh xạ loại lệnh thành `SIMULATED`.
+- Ánh xạ cũ: `next_open → SIMULATED`, `limit → LO`, `ato → ATO`, `atc → ATC`.
+- Cấu hình cũ: `entry_fill_policy` cho mở, `bar_close.fill_policy` cho đóng, `limit_price` theo nhóm; `entry.pending` dùng chung hai nhóm.
+- Ưu tiên: `actions.<nhãn>.order` → `order` chung → cấu hình cũ.
+- Cũ/mới mâu thuẫn về loại, giá hoặc thời hạn: từ chối.
+- Chuyển `next_open` sang `SIMULATED` vẫn giữ `hnx_sessions_v1` nếu đang dùng model này.
 
 #### 3.4.2. Nhiều nhánh và nhiều phần vị thế
 
-`strategy.sizing.pyramiding: true` chỉ dùng với contract, HNX và các lệnh mở
-LO/ATO. Phải có `entry.priority` liệt kê đủ nhánh; không dùng `on_conflict`,
-`require_flat: true` hoặc `require_no_pending: true` cùng chế độ này.
-Nhánh đúng được duyệt theo `priority`: lượng đang giữ cộng lượng mở đang chờ
-không vượt `max_contracts`; lượng đặt của nhánh sau được giảm theo hạn mức còn lại.
-Chỉ bổ sung cùng hướng, không mở hướng ngược với vị thế hoặc lệnh đang chờ.
-
-Mỗi lần mở có `position_id`, giá vốn, phí mở còn lại, stop/TP và số nến giữ
-riêng. Nhóm đóng được xét trên từng phần; `position.*` thuộc phần đang xét,
-còn `account.*` và giới hạn ngày thuộc toàn tài khoản. `quantity: "remaining"`
-đóng phần còn lại của chính phần đó, không phân bổ FIFO giữa các lần mở.
-Mỗi phần chỉ có một lệnh đóng theo điều kiện đang chờ; khi bảo vệ làm thay đổi
-lượng, lệnh đóng chờ của phần đó bị hủy bằng `POSITION_CHANGED`.
+- `strategy.sizing.pyramiding: true` dùng với contract/HNX và lệnh mở LO/ATO/MTL/MOK/MAK.
+- `entry.priority` phải liệt kê đủ nhánh; bỏ `on_conflict` và các cờ `require_flat: true`, `require_no_pending: true`.
+- Xử lý nhánh theo `priority`. Lượng đang giữ cộng mở đang chờ tối đa `max_contracts`; nhánh sau nhận phần hạn mức còn lại.
+- Chỉ bổ sung cùng hướng với vị thế và lệnh đang chờ.
+- Mỗi lần mở giữ `position_id`, giá vốn, phí mở còn lại, stop/TP và số nến giữ riêng.
+- `position.*` thuộc phần đang xét; `account.*` và giới hạn ngày thuộc tài khoản chung.
+- `quantity: "remaining"` đóng phần còn lại của chính phần vị thế đó.
+- Mỗi phần có tối đa một lệnh đóng theo điều kiện đang chờ. Bảo vệ thay đổi lượng thì hủy lệnh đóng chờ với `POSITION_CHANGED`.
 
 Với một vị thế, `on_conflict: "SIGNAL_CONFLICT"` giữ hành vi cũ: nhiều nhánh
 đúng thì không mở. Nếu chỉ khai báo `priority`, chọn nhánh đúng đầu tiên.
 
 #### 3.4.3. Cấu hình lưu và chạy lại
 
-`metadata.order_configuration` ghi model có hiệu lực, cấu hình từng nhánh mở/
-đóng và `source` là đường dẫn trường được chọn; `pending_source` ghi nguồn
-`strategy.entry.pending` khi dùng cấu hình chờ cũ. Payload gốc vẫn được ghim
-cùng policy và metadata; hash tính trên toàn bộ tài liệu ghim này. Đầu vào mới
-có thêm metadata nên hash có thể khác đầu vào trước đây, dù giao dịch giống nhau.
-Không sửa payload, hash hoặc kết quả của lượt đã lưu. Chạy lại dùng payload và
-policy đã ghim; không tải lại dữ liệu.
+- `metadata.order_configuration` ghi model, cấu hình từng nhánh và `source` là đường dẫn trường được chọn.
+- `pending_source` ghi `strategy.entry.pending` khi dùng cấu hình chờ cũ.
+- Hash bao gồm payload, policy và metadata đã ghim. Metadata mới có thể làm hash khác dù giao dịch giống nhau.
+- Lượt đã lưu giữ nguyên; chạy lại dùng payload và policy đã ghim.
+- Nhiều phần vị thế: trả `open_positions`, đặt `open_position: null`.
+- `evaluations.position_id` xác định phần đang xét đóng; xét mở trả null.
+- `evaluation_status` đếm thời điểm phân biệt. Có ít nhất một lượt thiếu dữ liệu thì thời điểm được tính vào `unevaluable_bars`.
+- Trạng thái chung: mọi lượt thiếu dữ liệu là `UNEVALUABLE`; còn lượt đánh giá được là `PARTIALLY_EVALUABLE`. Chi tiết giữ trong `evaluations`.
 
-Chế độ nhiều phần trả `open_positions` và giữ `open_position: null` để tránh
-biểu diễn gộp sai giá vốn. `evaluations` có `position_id` cho lượt xét đóng;
-null cho lượt xét mở. `evaluation_status` đếm thời điểm phân biệt, không đếm
-số phần vị thế; thời điểm có ít nhất một lượt `UNEVALUABLE` được tính vào
-`unevaluable_bars`. Chi tiết từng lượt vẫn được giữ trong `evaluations`.
-Trạng thái chung chỉ là `UNEVALUABLE` khi mọi lượt đều thiếu dữ liệu; khi
-còn ít nhất một lượt đánh giá được thì là `PARTIALLY_EVALUABLE`.
+#### 3.4.4. Lệnh MTL/MOK/MAK
+
+Đã triển khai và kiểm thử cơ chế với lượng giả định ngày 20/10/2026.
+Quy tắc sàn, phạm vi hiệu lực, ví dụ 0/2/5 và thời điểm khớp thuộc
+[mục 7 tài liệu phiên](hnx-session-matching.md#7-đặc-tả-mtlmokmak--a01).
+
+| Cấu hình đích                           | Mở LONG/SHORT                             | Đóng LONG/SHORT theo điều kiện  |
+| ------------------------------------------- | ------------------------------------------ | ------------------------------------ |
+| contract / hnx_sessions_v1, một vị thế   | MTL, MOK, MAK                              | MTL, MOK, MAK                        |
+| contract / hnx_sessions_v1, pyramiding=true | MTL, MOK, MAK theo priority, cùng hướng | MTL, MOK, MAK theo từng position_id |
+| contract / next_open                        | Từ chối cả ba                           | Từ chối cả ba                     |
+| normalized / mọi model                     | Từ chối cả ba                           | Từ chối cả ba                     |
+
+- `strategy.entry.order`/`actions.<nhãn>.order` và `exit.bar_close` nhận thêm `MTL`, `MOK`, `MAK`.
+- Ba loại chỉ dùng cấu hình lệnh mới; giá khớp và giá LO dư MTL do bộ khớp xác định.
+- MTL nhận `order.pending` cho LO dư; mặc định một nến từ nến sau chuyển đổi, ba cờ vượt ranh giới là `false`.
+- MAK/MOK từ chối `pending` riêng. Với `entry.pending` cũ, chỉ nhận mặc định `max_execution_bars=1` và ba cờ `false`.
+- LO/ATO/ATC/SIMULATED giữ hợp đồng cấu hình hiện có.
+
+Để kiểm tra giá khớp và chuyển MTL sát biên, chốt đầu vào mới
+`trade_data.price_limits`: mảng một bản ghi cho mỗi cặp ngày/mã hợp đồng
+trong kỳ thực thi khi dùng bất kỳ loại mới nào. Không bắt buộc với lượt cũ.
+
+| Trường mỗi bản ghi             | Kiểu / ràng buộc đích                                                                       |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `trading_date`                   | Ngày ISO `YYYY-MM-DD` theo múi giờ trade_data                                               |
+| `contract_code`                  | Mã thực tế, khớp `contract_dates`; không dùng riêng bí danh VN30F1M                    |
+| `floor_price`, `ceiling_price` | Số hoặc chuỗi thập phân, hữu hạn, dương, đúng bước 0,1; sàn không lớn hơn trần |
+| `available_at`                   | Unix giây nguyên, không muộn hơn sự kiện sử dụng biên giá                             |
+| `source`                         | Chuỗi không rỗng ghi nguồn công bố hoặc giả định kiểm thử                            |
+
+- Bảng tăng theo ngày/mã, duy nhất và phủ các ngày/hợp đồng có thể thực thi. Lịch sử khởi tạo được miễn.
+- Ghim bảng, nguồn và thời điểm khả dụng vào đầu vào để chạy lại.
+- Biên giá phải do bên gọi cung cấp. Tự lấy thiếu bảng này thì báo lỗi.
+
+Bảng dưới quy định phản hồi cho các loại mới. Giữ HTTP 422 và cách trả lỗi hiện có; kiểm tra được từ
+payload ở `/validate`, kiểm tra giá/sự kiện khi
+chạy ở POST tạo lượt. Không công bố lượt chạy một phần là thành công.
+
+| Mã đích                                                                      | Điều kiện                                                                                           |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `ORDER_UNSUPPORTED_BY_MATCHING_MODEL`                                         | Loại mới dùng với next_open; normalized vẫn bị từ chối tại kiểm tra tổ hợp mô hình tiền |
+| `MARKET_ORDER_PENDING_NOT_APPLICABLE`                                         | MAK/MOK khai báo pending riêng hoặc cấu hình chờ cũ không mặc định                          |
+| `MISSING_PRICE_LIMITS`, `INVALID_PRICE_LIMITS`                              | Thiếu biên; sai kiểu, ngày/mã, độ phủ, thứ tự, giá, nguồn hoặc thời điểm khả dụng    |
+| `INVALID_MARKET_MATCH_PRICE`                                                  | Open thiếu, sai bước giá hoặc ngoài biên; xử lý như lỗi giá                                |
+| `MATCH_RESPONSE_OUT_OF_RANGE`                                                 | Bộ khớp trả giá/lượng/chiều/mã/thời điểm ngoài hợp đồng; dừng trước hạch toán      |
+| `MARKET_ORDER_REQUIRES_MATCH_QUANTITY`, `INVALID_CONTINUOUS_MATCH_QUANTITY` | Thiếu ngân sách cố định cho loại mới hoặc lượng âm/phân số/boolean                       |
+| `MARKET_RULES_OUTSIDE_VERIFIED_RANGE`                                         | Kỳ dùng loại mới nằm ngoài 05/05/2025–20/10/2026 đã đối chiếu                              |
+
+- Lượng đặt phải dương; lượng đối ứng có thể bằng 0.
+- Chỉ trừ ngân sách khi tài khoản nhận fill. MOK thiếu lượng/tiền giữ ngân sách cho lệnh sau.
+- Lệnh cùng thời điểm theo thứ tự gửi, Open trước Close.
+- SIMULATED và bảo vệ dùng quy tắc riêng; ATO/ATC giữ giới hạn mỗi lệnh.
+- Có `continuous_match_quantity`: order thêm `requested_quantity`, `reference_price`, `effective_order_type`, `converted_limit_price`, `fill_indices`, `fill_ids`, `canceled_quantity`, `rejected_quantity`.
+- `requested_quantity` là lượng trước hạn mức; `quantity` là lượng nhận đặt.
+- Bảo toàn `quantity = filled_quantity + expired_quantity + canceled_quantity + rejected_quantity + remaining_quantity`.
+- `entry_fill_id` giữ fill đầu; `entry_fill_ids` liệt kê các fill mở cùng lệnh.
+- Fill LO dư có `order_type: "LO"`; order gốc giữ MTL. Dữ liệu lịch sử và nghĩa `expired_quantity` giữ nguyên.
+- Ví dụ: [market-fixed.json](../examples/orders/market-fixed.json).
 
 ### 3.5. accounting
 
@@ -399,10 +399,11 @@ Open sau điều kiện Close. Không hỗ trợ intrabar. Tiền theo đơn v�
 | `clearing_fee_per_contract` | số/chuỗi thập phân | Có        | —           | Phí bù trừ mỗi hợp đồng/lượt, >= 0                        |
 | `broker_fee_per_contract`   | số/chuỗi thập phân | Có        | —           | Phí môi giới mỗi hợp đồng/lượt, >= 0                      |
 
-Contract mở LONG/SHORT, đóng CLOSE, dùng risk_and_margin. Hệ số dùng tính tiền/rủi ro/ký quỹ.
-Cơ sở thuế mỗi lượt = giá khớp × hệ số × số hợp đồng × margin_rate / 2;
-thuế bằng cơ sở nhân pit_rate. Phí mỗi hợp đồng nhân số lượng khớp của lượt.
-Chi tiết làm tròn/phân bổ ở [đặc tả tính tiền](canslim-v1-execution-accounting.md).
+- Contract mở LONG/SHORT, đóng CLOSE, dùng risk_and_margin.
+- Hệ số dùng tính tiền/rủi ro/ký quỹ.
+- Cơ sở thuế mỗi lượt = giá khớp × hệ số × số hợp đồng × margin_rate / 2; thuế bằng cơ sở nhân pit_rate.
+- Phí mỗi hợp đồng nhân số lượng khớp của lượt.
+- Chi tiết làm tròn/phân bổ ở [đặc tả tính tiền](canslim-v1-execution-accounting.md).
 
 ### 3.6. initial_cash
 
@@ -424,13 +425,11 @@ Chỉ khi không có nến giao dịch nào trong kỳ mới trả HTTP 422:
 {"detail":"REPORT_DATA_MISSING:requested=2026-10-08..2026-10-08;available=2026-10-09..2026-10-09"}
 ```
 
-Nguồn bắt đầu muộn hoặc kết thúc sớm vẫn được sử dụng, không tự rút ngắn kỳ
-báo cáo và không tạo nến bù. `metadata.report_range` giữ kỳ yêu cầu;
-`metadata.available_range` ghi ngày đầu/cuối của nến giao dịch thực có trong kỳ.
-Ví dụ yêu cầu 10/04–14/10/2026 nhưng nguồn có từ 15/04 thì hai phạm vi được ghi
-riêng như vậy. Khi áp dụng lịch phiên, `data_gaps` vẫn ghi các nến thiếu đầu/cuối.
-Thiếu lịch sử chỉ báo tại nến trong kỳ vẫn ghi `UNEVALUABLE` khi chạy;
-đó không phải lỗi thứ tự ngày hoặc lỗi bao phủ kỳ báo cáo.
+- Nguồn bắt đầu muộn hoặc kết thúc sớm vẫn được sử dụng, không tự rút ngắn kỳ báo cáo và không tạo nến bù.
+- `metadata.report_range` giữ kỳ yêu cầu; `metadata.available_range` ghi ngày đầu/cuối của nến giao dịch thực có trong kỳ.
+- Ví dụ yêu cầu 10/04–14/10/2026 nhưng nguồn có từ 15/04 thì hai phạm vi được ghi riêng như vậy.
+- Khi áp dụng lịch phiên, `data_gaps` vẫn ghi các nến thiếu đầu/cuối.
+- Thiếu lịch sử chỉ báo tại nến trong kỳ vẫn ghi `UNEVALUABLE` khi chạy; đó không phải lỗi thứ tự ngày hoặc lỗi bao phủ kỳ báo cáo.
 
 ## 4. Payload minh họa
 
@@ -651,10 +650,9 @@ và mức đích TP1/TP2 là từ khóa cố định.
 
 ### 5.1. indicators
 
-Mỗi khóa khai báo một chỉ báo. Tên bắt đầu bằng chữ cái, sau đó chỉ có chữ
-cái, số hoặc `_`; không dùng trade_data, market_data, position, account, day,
-clock. Mỗi chỉ báo phải có type, source và đúng bộ tham số; không truyền thêm
-tham số của loại khác hoặc null cho tham số bắt buộc.
+- Mỗi khóa khai báo một chỉ báo.
+- Tên bắt đầu bằng chữ cái, sau đó chỉ có chữ cái, số hoặc `_`; không dùng trade_data, market_data, position, account, day, clock.
+- Mỗi chỉ báo phải có type, source và đúng bộ tham số; không truyền thêm tham số của loại khác hoặc null cho tham số bắt buộc.
 
 | type                    | source hợp lệ                   | Tham số bổ sung bắt buộc                                                            | Đầu ra ref                           |
 | ----------------------- | --------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------- |
@@ -674,30 +672,31 @@ Ví dụ một khai báo trong indicators:
 ### 5.2. entry
 
 Điều kiện mở được xét sau Close khi không giữ vị thế và không có lệnh chờ
-đang xử lý. Số lượng được xác định lúc khớp, không gửi trong entry.
+đang xử lý. Không gửi số lượng trong entry. SIMULATED tính lượng lúc khớp;
+LO/ATO/MTL/MOK/MAK chốt lượng trước theo quy tắc giá dự kiến tương ứng.
 
-| Trường               | Kiểu             | Bắt buộc             | Ý nghĩa/giá trị hợp lệ                                                           |
-| ---------------------- | ----------------- | ---------------------- | -------------------------------------------------------------------------------------- |
-| `conditions`         | object            | Có                    | Nhãn → expression boolean; mặc định nhãn BUY/LONG/SHORT là hướng, hoặc khai báo `actions.<nhãn>.side` |
-| `any`                | array string      | Có                    | Đúng các nhánh conditions, không rỗng/trùng                                     |
-| `details`            | object            | Không; mặc định {} | Tên → expression số, lưu giá trị lúc tín hiệu mở                             |
-| `require_flat`       | boolean/null      | Không                 | Chỉ xét mở lệnh khi không giữ vị thế (flat)                                    |
-| `require_no_pending` | boolean/null      | Không                 | Chỉ xét mở lệnh khi không có lệnh chờ khớp (pending)                          |
-| `signal_windows`     | array cặp string | Không                 | Khoảng HH:MM gồm hai đầu, tăng dần, không chồng nhau                           |
-| `on_conflict`        | string/null       | Một vị thế, khi không dùng priority | Chỉ SIGNAL_CONFLICT; nhiều nhánh cùng đạt thì không mở |
-| `priority` | array string/null | Bắt buộc khi pyramiding=true | Đủ nhãn trong any, không trùng; duyệt theo thứ tự |
-| `order`, `actions` | object | Khi không có cấu hình lệnh cũ | Loại lệnh dùng chung hoặc riêng theo mục 3.4.1 |
-| `reentry`            | string/null       | Không                 | Chỉ next_bar_close_after_exit; ngăn vào lại tại Close nến vừa thoát            |
-| `pending`            | object/null       | Không                 | Quy tắc lệnh mở chờ                                                                |
+| Trường               | Kiểu             | Bắt buộc                               | Ý nghĩa/giá trị hợp lệ                                                                                        |
+| ---------------------- | ----------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `conditions`         | object            | Có                                      | Nhãn → expression boolean; mặc định nhãn BUY/LONG/SHORT là hướng, hoặc khai báo `actions.<nhãn>.side` |
+| `any`                | array string      | Có                                      | Đúng các nhánh conditions, không rỗng/trùng                                                                  |
+| `details`            | object            | Không; mặc định {}                   | Tên → expression số, lưu giá trị lúc tín hiệu mở                                                          |
+| `require_flat`       | boolean/null      | Không                                   | Chỉ xét mở lệnh khi không giữ vị thế (flat)                                                                 |
+| `require_no_pending` | boolean/null      | Không                                   | Chỉ xét mở lệnh khi không có lệnh chờ khớp (pending)                                                       |
+| `signal_windows`     | array cặp string | Không                                   | Khoảng HH:MM gồm hai đầu, tăng dần, không chồng nhau                                                        |
+| `on_conflict`        | string/null       | Một vị thế, khi không dùng priority | Chỉ SIGNAL_CONFLICT; nhiều nhánh cùng đạt thì không mở                                                     |
+| `priority`           | array string/null | Bắt buộc khi pyramiding=true           | Đủ nhãn trong any, không trùng; duyệt theo thứ tự                                                           |
+| `order`, `actions` | object            | Khi không có cấu hình lệnh cũ      | Loại lệnh dùng chung hoặc riêng theo mục 3.4.1                                                                |
+| `reentry`            | string/null       | Không                                   | Chỉ next_bar_close_after_exit; ngăn vào lại tại Close nến vừa thoát                                         |
+| `pending`            | object/null       | Không                                   | Quy tắc lệnh mở chờ                                                                                             |
 
 Khi có pending, cần đủ bốn trường:
 
-| Trường               | Giá trị hỗ trợ |
-| ---------------------- | ------------------ |
+| Trường               | Giá trị hỗ trợ                                   |
+| ---------------------- | ---------------------------------------------------- |
 | `max_execution_bars` | Số nguyên dương với HNX; next_open chỉ nhận 1 |
-| `cross_lunch`        | false              |
-| `cross_cutoff`       | false              |
-| `cross_session`      | false              |
+| `cross_lunch`        | false                                                |
+| `cross_cutoff`       | false                                                |
+| `cross_session`      | false                                                |
 
 Giờ tín hiệu lấy theo thời điểm xét sau Close, không phải giờ mở nến.
 Tên entry.details cùng quy tắc chữ cái/số/`_` như chỉ báo. Ví dụ:
@@ -764,21 +763,22 @@ Trailing cần có hành động TP1 và đủ các trường:
 | `combine`         | "tightest"         |
 | `allow_widening`  | false              |
 
-Stop/target có hiệu lực sau khớp mở. Gap qua stop khớp Open; chạm stop trong
-nến khớp mức stop. Gap qua target vẫn khớp target. TP1 đóng một phần thì cập
-nhật số lượng trước TP2. Trailing không dùng cực trị nến khớp TP1; từ nến sau
-cập nhật tại Close, áp dụng nến kế tiếp, không nới stop. Bước giá/làm tròn
-thuộc [đặc tả thực thi](canslim-v1-execution-accounting.md).
+- Stop/target có hiệu lực sau khớp mở.
+- Gap qua stop khớp Open; chạm stop trong nến khớp mức stop.
+- Gap qua target vẫn khớp target.
+- TP1 đóng một phần thì cập nhật số lượng trước TP2.
+- Trailing không dùng cực trị nến khớp TP1; từ nến sau cập nhật tại Close, áp dụng nến kế tiếp, không nới stop.
+- Bước giá/làm tròn thuộc [đặc tả thực thi](canslim-v1-execution-accounting.md).
 
 #### 5.3.2. Thoát theo Close — bar_close
 
-| Trường        | Kiểu        | Bắt buộc | Ý nghĩa                                     |
-| --------------- | ------------ | ---------- | --------------------------------------------- |
-| `conditions`  | object       | Có        | Nhãn → expression boolean                   |
-| `any`         | array string | Có        | Đúng các nhãn conditions, không trùng   |
-| `priority`    | array string | Có        | Đúng các nhãn any theo thứ tự ưu tiên |
-| `quantity`    | string       | Có        | Chỉ "remaining"                              |
-| `fill_policy` | string/null | Không | Tương thích cũ: next_open/limit/atc; cấu hình mới dùng `order` hoặc `actions` theo mục 3.4.1 |
+| Trường        | Kiểu        | Bắt buộc | Ý nghĩa                                                                                                  |
+| --------------- | ------------ | ---------- | ---------------------------------------------------------------------------------------------------------- |
+| `conditions`  | object       | Có        | Nhãn → expression boolean                                                                                |
+| `any`         | array string | Có        | Đúng các nhãn conditions, không trùng                                                                |
+| `priority`    | array string | Có        | Đúng các nhãn any theo thứ tự ưu tiên                                                              |
+| `quantity`    | string       | Có        | Chỉ "remaining"                                                                                           |
+| `fill_policy` | string/null  | Không     | Tương thích cũ: next_open/limit/atc; cấu hình mới dùng `order` hoặc `actions` theo mục 3.4.1 |
 
 Chọn điều kiện đầu tiên đạt theo priority, tạo một lệnh đóng phần còn lại ở
 theo cấu hình lệnh đã chọn (SIMULATED dùng Open kế tiếp): contract dùng CLOSE, normalized dùng SELL. Xét sau thoát trong
@@ -792,19 +792,19 @@ khi cấm qua đêm làm lần chạy lỗi.
 
 Không mặc định mở một hợp đồng. Type chọn bộ trường bắt buộc:
 
-| type                 | Trường bắt buộc                                                  | Ràng buộc                                                                                                       |
-| -------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `fixed_fractional` | risk_fraction, stop_loss_fraction                                    | 0 < risk_fraction <= 1; 0 < stop_loss_fraction < 1                                                                |
+| type                 | Trường bắt buộc                                                  | Ràng buộc                                                                                                                 |
+| -------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `fixed_fractional` | risk_fraction, stop_loss_fraction                                    | 0 < risk_fraction <= 1; 0 < stop_loss_fraction < 1                                                                          |
 | `risk_and_margin`  | risk_fraction, stop_points, margin_buffer, max_contracts, pyramiding | 0 < risk_fraction <= 1; stop_points > 0; margin_buffer >= 1; max_contracts nguyên dương; pyramiding=true theo mục 3.4.2 |
 
 Normalized chọn số lượng nguyên theo ngân sách rủi ro và tiền đủ mua sau phí.
 Stop_loss_fraction dùng tính lượng mua, **không tự tạo điều kiện stop**;
 điều kiện thoát vẫn phải khai báo trong exit.
 
-Contract chọn số hợp đồng nguyên theo ngân sách rủi ro, chi phí ước tính hai
-lượt, ký quỹ có dự phòng và trần max_contracts. Không đủ một hợp đồng hoặc
-không đủ ký quỹ sau phí mở thì từ chối lệnh. Số lượng dựa trên tài khoản và
-giá tại lúc khớp. Công thức thuộc [đặc tả tính tiền](canslim-v1-execution-accounting.md).
+- Contract chọn số hợp đồng nguyên theo ngân sách rủi ro, chi phí ước tính hai lượt, ký quỹ có dự phòng và trần max_contracts.
+- Không đủ một hợp đồng hoặc không đủ ký quỹ sau phí mở thì từ chối lệnh.
+- Số lượng dựa trên tài khoản và giá tại lúc khớp.
+- Công thức thuộc [đặc tả tính tiền](canslim-v1-execution-accounting.md).
 
 ### 5.5. daily_limits
 
@@ -934,7 +934,7 @@ UNEVALUABLE khi chạy; lỗi thực thi bắt buộc vẫn có thể xảy ra s
 ### 7.2. Các lỗi chính
 
 Bảng nêu mã thường gặp; lỗi cấu trúc còn có loại lỗi của bộ kiểm tra request.
-Một số mã thêm thông tin sau dấu `:`.
+Một số mã sẽ có thêm thông tin sau dấu `:`.
 
 | Mã/loại lỗi                                                                                     | Điều kiện                                                                                        |
 | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
@@ -944,8 +944,8 @@ Một số mã thêm thông tin sau dấu `:`.
 | `UNORDERED_OR_OVERLAPPING_BARS`                                                                  | Nến trùng, đảo thứ tự, chồng lấn                                                            |
 | `DAILY_EXPLICIT_TIMES_REQUIRED`                                                                  | Nến ngày thiếu thời điểm đóng/khả dụng                                                    |
 | `MISSING_REQUIRED_DATA`, `MISSING_REQUIRED_VOLUME`                                             | Thiếu chuỗi/volume được sử dụng                                                              |
-| `INVALID_REPORT_RANGE`                                                                         | Ngày bắt đầu lớn hơn ngày kết thúc; kiểm tra trước khi gọi nguồn                            |
-| `REPORT_DATA_MISSING`                                                                          | Không có nến giao dịch nào trong kỳ; kèm kỳ yêu cầu và phạm vi dữ liệu nguồn |
+| `INVALID_REPORT_RANGE`                                                                           | Ngày bắt đầu lớn hơn ngày kết thúc; kiểm tra trước khi gọi nguồn                      |
+| `REPORT_DATA_MISSING`                                                                            | Không có nến giao dịch nào trong kỳ; kèm kỳ yêu cầu và phạm vi dữ liệu nguồn         |
 | `INVALID_CONTRACT_MAP`, `CONTRACT_MAP_MONTH_MISSING`, `CONTRACT_MAP_COVERAGE_MISSING`        | Map sai, thiếu tháng/phạm vi                                                                     |
 | `REPORT_OUTSIDE_STATIC_CALENDAR`, `SESSION_POLICY_MISSING`, `UNEXPECTED_BAR`                 | Kỳ ngoài lịch, thiếu chính sách phiên hoặc nến sai phiên                                  |
 | `INDICATOR_PARAMETERS_MISMATCH`, `UNSUPPORTED_INDICATOR_SOURCE`                                | Tham số/nguồn chỉ báo sai                                                                       |
@@ -958,8 +958,8 @@ Một số mã thêm thông tin sau dấu `:`.
 | `NORMALIZED_REQUIRES_BUY_FIXED_FRACTIONAL_AND_BAR_CLOSE_EXIT`                                    | Tổ hợp normalized không hỗ trợ                                                                 |
 | `CONTRACT_REQUIRES_LONG_SHORT_AND_RISK_AND_MARGIN`                                               | Tổ hợp contract không hỗ trợ                                                                   |
 | `UNSUPPORTED_CONTRACT_RESOLUTION`, `UNSUPPORTED_CONTRACT_SLIPPAGE`                             | Contract không dùng 5 phút hoặc trượt giá khác 0                                            |
-| `MISSING_ATO_MATCH_BAR`, `MISSING_ATC_MATCH_BAR`, `ATC_CONTRACT_MISMATCH`                     | Thiếu bản ghi giá đấu giá hoặc sai mã hợp đồng                                              |
-| `INVALID_AUCTION_MATCH_QUANTITY`, `AUCTION_MATCH_QUANTITY_REQUIRES_AUCTION_ORDER`             | Giới hạn lượng khớp đấu giá sai hoặc không có lệnh ATO/ATC                                |
+| `MISSING_ATO_MATCH_BAR`, `MISSING_ATC_MATCH_BAR`, `ATC_CONTRACT_MISMATCH`                    | Thiếu bản ghi giá đấu giá hoặc sai mã hợp đồng                                           |
+| `INVALID_AUCTION_MATCH_QUANTITY`, `AUCTION_MATCH_QUANTITY_REQUIRES_AUCTION_ORDER`              | Giới hạn lượng khớp đấu giá sai hoặc không có lệnh ATO/ATC                              |
 | `PRIMARY_AVAILABILITY_DELAY_UNSUPPORTED`                                                         | Chuỗi giao dịch có thời điểm khả dụng khác Close                                           |
 | `MISSING_REQUIRED_EXIT_BAR`, `MISSING_POSITION_EXECUTION_BAR`                                  | Thiếu nến cần khớp/quản trị vị thế                                                          |
 | `FLAT_DEADLINE_MISSED`, `OVERNIGHT_POSITION_INVALID`, `END_OF_REPORT_POSITION_REQUIRES_EXIT` | Vi phạm hạn hoặc yêu cầu không qua đêm                                                      |
@@ -1102,21 +1102,21 @@ Tín hiệu là ý định giao dịch, chưa chứng minh đã khớp.
 
 ### 8.4. orders
 
-| Trường             | Kiểu                   | Ý nghĩa                                                                        |
-| -------------------- | ----------------------- | -------------------------------------------------------------------------------- |
-| `order_id`         | string UUID             | Định danh lệnh                                                                |
-| `signal_id`        | string UUID             | Tín hiệu tạo lệnh                                                            |
-| `created_time`     | thời điểm ISO        | Thời điểm tạo                                                                |
-| `side`             | string                  | Hành động                                                                     |
-| `status`           | string                  | `filled`, `rejected`, `pending`, `canceled`, `expired`; lệnh đấu giá khớp một phần kết thúc `expired` |
-| `reason`           | string/null, contract   | Lý do trạng thái                                                              |
-| `rejection_reason` | string/null, normalized | Lý do từ chối/chưa khớp                                                     |
-| `position_id`      | string UUID, khi có    | Vị thế liên quan; không có ở mọi lệnh bị từ chối                      |
-| `order_type`       | string, khớp theo phiên | `NEXT_OPEN`, `LO`, `ATO`, `ATC` hoặc `PROTECTIVE` |
-| `quantity`         | integer/null, khớp theo phiên | Lượng đặt ban đầu; không bị thay bằng lượng khớp |
-| `filled_quantity`  | integer, khớp theo phiên | Tổng lượng đã khớp |
-| `expired_quantity` | integer, khớp theo phiên | Lượng đã hết hiệu lực mà không khớp |
-| `remaining_quantity` | integer/null, khớp theo phiên | Lượng còn chờ; bằng 0 khi lệnh kết thúc |
+| Trường               | Kiểu                           | Ý nghĩa                                                                                                                  |
+| ---------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `order_id`           | string UUID                     | Định danh lệnh                                                                                                          |
+| `signal_id`          | string UUID                     | Tín hiệu tạo lệnh                                                                                                      |
+| `created_time`       | thời điểm ISO                | Thời điểm tạo                                                                                                          |
+| `side`               | string                          | Hành động                                                                                                               |
+| `status`             | string                          | `filled`, `rejected`, `pending`, `canceled`, `expired`; lệnh đấu giá khớp một phần kết thúc `expired` |
+| `reason`             | string/null, contract           | Lý do trạng thái                                                                                                        |
+| `rejection_reason`   | string/null, normalized         | Lý do từ chối/chưa khớp                                                                                               |
+| `position_id`        | string UUID, khi có            | Vị thế liên quan; không có ở mọi lệnh bị từ chối                                                                |
+| `order_type`         | string, khớp theo phiên       | `NEXT_OPEN`, `LO`, `ATO`, `ATC`, `MTL`, `MOK`, `MAK` hoặc `PROTECTIVE`                                    |
+| `quantity`           | integer/null, khớp theo phiên | Lượng đặt ban đầu; không bị thay bằng lượng khớp                                                               |
+| `filled_quantity`    | integer, khớp theo phiên      | Tổng lượng đã khớp                                                                                                   |
+| `expired_quantity`   | integer, khớp theo phiên      | Lượng đã hết hiệu lực mà không khớp                                                                              |
+| `remaining_quantity` | integer/null, khớp theo phiên | Lượng còn chờ; bằng 0 khi lệnh kết thúc                                                                            |
 
 Lệnh bị từ chối không có fill. Lệnh mở còn chờ cuối báo cáo được chuyển
 rejected với lý do END_OF_REPORT. Lệnh ATO/ATC khớp một phần có fill dù trạng
@@ -1125,21 +1125,21 @@ bằng `quantity`.
 
 ### 8.5. fills
 
-| Trường                                                    | Kiểu                        | Ý nghĩa                                                                      |
-| ----------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------ |
-| `fill_id`, `order_id`, `position_id`                  | string UUID                  | Định danh khớp/lệnh/vị thế                                               |
-| `side`                                                    | string                       | Hành động khớp                                                             |
-| `signal_time`                                             | thời điểm ISO             | Thời điểm tín hiệu gốc                                                   |
-| `fill_time`                                               | thời điểm ISO             | Open cho thị trường/gap; contract ghi chạm stop/target trong nến ở Close |
-| `bar_time`                                                | thời điểm ISO             | Open nến chứa khớp, dùng vị trí biểu đồ                               |
-| `fill_price`                                              | chuỗi thập phân           | Giá khớp                                                                     |
-| `quantity`                                                | integer                      | Số lượng khớp > 0                                                          |
-| `fee`                                                     | chuỗi thập phân           | Tổng phí/thuế lượt khớp                                                  |
-| `direction`                                               | string, contract             | LONG/SHORT của vị thế                                                       |
-| `contract_code`                                           | string/null, contract        | Mã từ map                                                                    |
-| `exchange_fee`, `clearing_fee`, `broker_fee`, `pit` | chuỗi thập phân, contract | Từng khoản chi phí                                                          |
-| `order_type`, `phase`, `time_precision` | string, khớp theo phiên | Loại lệnh, phiên và độ chính xác thời điểm |
-| `available_at`, `source` | thời điểm ISO/string, ATO/ATC | Thời điểm giá đấu giá khả dụng và nguồn OHLCV |
+| Trường                                                    | Kiểu                            | Ý nghĩa                                                                      |
+| ----------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------ |
+| `fill_id`, `order_id`, `position_id`                  | string UUID                      | Định danh khớp/lệnh/vị thế                                               |
+| `side`                                                    | string                           | Hành động khớp                                                             |
+| `signal_time`                                             | thời điểm ISO                 | Thời điểm tín hiệu gốc                                                   |
+| `fill_time`                                               | thời điểm ISO                 | Open cho thị trường/gap; contract ghi chạm stop/target trong nến ở Close |
+| `bar_time`                                                | thời điểm ISO                 | Open nến chứa khớp, dùng vị trí biểu đồ                               |
+| `fill_price`                                              | chuỗi thập phân               | Giá khớp                                                                     |
+| `quantity`                                                | integer                          | Số lượng khớp > 0                                                          |
+| `fee`                                                     | chuỗi thập phân               | Tổng phí/thuế lượt khớp                                                  |
+| `direction`                                               | string, contract                 | LONG/SHORT của vị thế                                                       |
+| `contract_code`                                           | string/null, contract            | Mã từ map                                                                    |
+| `exchange_fee`, `clearing_fee`, `broker_fee`, `pit` | chuỗi thập phân, contract     | Từng khoản chi phí                                                          |
+| `order_type`, `phase`, `time_precision`               | string, khớp theo phiên        | Loại lệnh, phiên và độ chính xác thời điểm                          |
+| `available_at`, `source`                                | thời điểm ISO/string, ATO/ATC | Thời điểm giá đấu giá khả dụng và nguồn OHLCV                       |
 
 Fill_time của chạm trong nến là quy ước ghi nhận OHLC, không xác định chính
 xác thời điểm chạm bên trong nến. Dùng bar_time gắn mũi tên biểu đồ.
@@ -1186,7 +1186,7 @@ Khóa API là equity_history, không phải equity ở ngoài cùng.
 Open_position khi có giữ position_id, entry_fill_id, giá/thời điểm mở,
 số lượng còn lại và P/L chưa thực hiện. Contract thêm direction, contract_code,
 initial_quantity, remaining_entry_cost và strategy_details khi có.
-Normalized thêm market_value, entry_pivot. Vị thế mở không phải trade đã đóng.
+Normalized thêm market_value, entry_pivot.
 
 ### 8.8. summary
 
@@ -1199,22 +1199,18 @@ Normalized thêm market_value, entry_pivot. Vị thế mở không phải trade 
 | `total_return`   | chuỗi thập phân | (final_equity - initial_cash) / initial_cash |
 | `total_fees`     | chuỗi thập phân | Tổng chi phí đã ghi nhận                |
 
-Total_return "0.05" là 5%. Không trừ total_fees lần nữa khỏi P/L/equity đã
-bao gồm chi phí.
-
 ### 8.9. Trạng thái đánh giá
 
 Mỗi evaluation có time, status, reason, market_sample_count,
 market_available_at, indicator_times, indicators. Chỉ báo chưa có giá trị
 có thể là null; dữ liệu được ghi theo thời điểm khả dụng.
 
-| evaluation_status.status | Ý nghĩa                       |
-| ------------------------ | ------------------------------- |
-| EVALUABLE                | Không có bản ghi UNEVALUABLE |
-| PARTIALLY_EVALUABLE      | Một phần bản ghi UNEVALUABLE |
-| UNEVALUABLE              | Tất cả bản ghi UNEVALUABLE   |
+| evaluation_status.status | Ý nghĩa                                                                                                                                                                                 |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| EVALUABLE                | Dữ liệu đủ để chạy backtest                                                                                                                                                        |
+| PARTIALLY_EVALUABLE      | Các nhóm dữ liệu đủ để chạy backtest duy chỉ có dữ liệu nến chưa đủ để làm warm-up, hoặc thiếu ở vài khoảng không ảnh hưởng đến quá trình chạy backtest |
+| UNEVALUABLE              | Thiếu dữ liệu để chạy backtest                                                                                                                                                      |
 
 Unevaluable_bars/evaluated_bars đếm theo trạng thái. EVALUABLE không khẳng
 định có giao dịch/lợi nhuận hoặc mọi nến được xét mở: reason còn có thể là
-OUTSIDE_ENTRY_WINDOW hoặc DAILY_ENTRY_LIMIT. Không giao dịch cần đọc cả
-trạng thái và lý do.
+OUTSIDE_ENTRY_WINDOW hoặc DAILY_ENTRY_LIMIT.
