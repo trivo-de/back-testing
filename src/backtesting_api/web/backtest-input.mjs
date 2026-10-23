@@ -293,7 +293,7 @@ export function mountInputForm(form, getJSON) {
         const title = control(fields, 'Tên chỉ báo', name, 'text', true);
         const type = control(fields, 'Loại chỉ báo', spec.type, indicatorTypes, true);
         const params = node('div'); params.className = 'input-grid'; row.append(params);
-        const entry = {row, title, type, params: []};
+        const entry = {row, title, type, params: [], legacyHistogram: spec.histogram};
         /** Rebuild parameter controls for the selected indicator type. */
         function parameters() {
             params.replaceChildren(); entry.params = [];
@@ -304,9 +304,8 @@ export function mountInputForm(form, getJSON) {
             const labels = {period: 'Chu kỳ', fast_period: 'Chu kỳ nhanh', slow_period: 'Chu kỳ chậm', signal_period: 'Chu kỳ tín hiệu'};
             for (const key of keys) entry.params.push({key, ...control(params, labels[key], spec[key], 'integer', true)});
             if (type.input.value === 'BB') entry.params.push({key: 'stddev_multiplier', ...control(params, 'Hệ số độ lệch chuẩn', spec.stddev_multiplier, 'decimal', true)});
-            if (type.input.value === 'MACD') entry.params.push({key: 'histogram', ...control(params, 'Dạng histogram', spec.histogram, ['line'], true)});
         }
-        parameters(); type.input.onchange = /* Reset indicator parameters after its type changes. */ () => {spec = {}; parameters();};
+        parameters(); type.input.onchange = /* Reset indicator parameters after its type changes. */ () => {spec = {}; entry.legacyHistogram = undefined; parameters();};
         const remove = node('button', 'Xóa chỉ báo'); remove.type = 'button';
         remove.onclick = /* Remove an indicator row and its retained bindings. */ () => {row.remove(); indicatorRows = indicatorRows.filter(/* Keep indicator bindings other than the removed row. */ item => item !== entry);};
         row.append(remove); $('#indicator-fields').append(row); indicatorRows.push(entry);
@@ -385,7 +384,9 @@ export function mountInputForm(form, getJSON) {
             const name = entry.title.input.value.trim();
             if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(name) || names.has(name)) throw Error('Tên chỉ báo phải hợp lệ và không được trùng.');
             names.add(name);
-            return [name, Object.fromEntries([['type', readControl(entry.type)], ...entry.params.map(/* Pair an indicator parameter key with its validated control value. */ param => [param.key, readControl(param)])])];
+            const spec = Object.fromEntries([['type', readControl(entry.type)], ...entry.params.map(/* Pair an indicator parameter key with its validated control value. */ param => [param.key, readControl(param)])]);
+            if (spec.type === 'MACD' && entry.legacyHistogram !== undefined) spec.histogram = entry.legacyHistogram;
+            return [name, spec];
         });
         if (indicators.length || config.strategy?.indicators) put(config, 'strategy.indicators', Object.fromEntries(indicators));
         for (const {path, input, label} of ruleBindings) {

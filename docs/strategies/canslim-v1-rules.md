@@ -36,7 +36,7 @@ Tài liệu liên quan:
 | EMA5      | Close 5m                 | EMA chu kỳ 5                                                 |
 | BB(20,2)  | Close 5m                 | Middle=SMA20; Upper=SMA20+2×sigma20; Lower=SMA20−2×sigma20 |
 | MACD Line | Close 5m                 | EMA12−EMA26                                                  |
-| Histogram | MACD Line                | Bằng chính MACD Line theo định nghĩa v1                  |
+| Histogram | MACD Line và Signal      | MACD Line − Signal; không tham gia điều kiện vào lệnh v1 |
 | MFI14     | High/Low/Close/Volume 5m | Chu kỳ 14                                                    |
 
 `EMA[t] = input[t] × alpha + EMA[t-1] × (1-alpha)`, `alpha = 2/(N+1)`.
@@ -51,7 +51,7 @@ Không dùng Signal Line trong entry.
 - Công thức chi tiết MFI/typical price/money flow: `TP=(H+L+C)/3`; `RawFlow=TP×Volume`; cộng RawFlow dương/âm trong 14 kỳ theo dấu thay đổi TP; `MFI=100-100/(1+Positive/Negative)`.
 - MFI khi typical price bằng nhau: RawFlow của bar đó không cộng vào dòng dương hoặc âm.
 - MFI khi negative flow hoặc cả hai dòng bằng 0: Negative=0 và Positive>0 → MFI=100; Positive=0 và Negative>0 → MFI=0; cả hai=0 → MFI=50.
-- Signal Line nếu cần xuất để hiển thị: `EMA9(MACD_Line)`, seed bằng SMA 9 giá trị MACD đầu tiên; chỉ để hiển thị, không tham gia entry v1.
+- Signal Line: `EMA9(MACD_Line)`, seed bằng SMA 9 giá trị MACD đầu tiên; không tham gia entry v1. Histogram bằng MACD Line trừ Signal và chỉ có giá trị khi Signal đã đủ mẫu.
 
 ## 3. Entry — R01
 

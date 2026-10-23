@@ -58,7 +58,7 @@ class InlineRuntimeTest(unittest.TestCase):
         self.assertEqual(bands, {'middle': 2, 'upper': 4, 'lower': 0})
         macd = indicators.macd(list(range(1, 41)), 40)
         self.assertEqual(macd['line'], D(7))
-        self.assertEqual(macd['histogram'], macd['line'])
+        self.assertEqual(macd['histogram'], 0)
         self.assertEqual(macd['signal'], 7)
         flat = [bar(i) for i in range(15)]
         self.assertIsNone(indicators.mfi(flat, 14, 14))
@@ -66,6 +66,39 @@ class InlineRuntimeTest(unittest.TestCase):
         rising = [replace(b, high=D(1001+i), low=D(999+i), close=D(1000+i)) for i, b in enumerate(flat)]
         self.assertEqual(indicators.mfi(rising, 14, 15), 100)
         self.assertEqual(indicators.mfi(rising[::-1], 14, 15), 0)
+
+    def test_macd_histogram_warmup_sign_and_completed_prefix(self):
+        """Check histogram values and availability without future samples."""
+        prices = [1, 2, 3, 4, 8]
+        values = indicators.macd_series(prices, 2, 3, 2)
+        self.assertEqual(values['line'][:4], [None, None, D('0.5'), D('0.5')])
+        self.assertEqual(values['signal'][:4], [None, None, None, D('0.5')])
+        self.assertEqual(values['histogram'][:4], [None, None, None, 0])
+        self.assertAlmostEqual(values['histogram'][-1], D(1) / 6, places=25)
+        falling = indicators.macd_series([-price for price in prices], 2, 3, 2)
+        self.assertAlmostEqual(falling['histogram'][-1], -D(1) / 6, places=25)
+        future = indicators.macd_series([*prices, 10000, -10000], 2, 3, 2)
+        for name, rows in values.items():
+            self.assertEqual(future[name][:len(prices)], rows)
+            self.assertEqual(indicators.macd(prices, len(prices), 2, 3, 2)[name], rows[-1])
+        self.assertEqual(indicators.macd_series([], 2, 3, 2)['histogram'], [])
+
+    def test_histogram_entry_uses_difference_after_signal_warmup(self):
+        """Keep zero-histogram entries inactive after the signal becomes available."""
+        p = always_payload()
+        p['strategy']['indicators'] = {'macd': {
+            'type': 'MACD', 'source': 'trade_data.close', 'fast_period': 1,
+            'slow_period': 2, 'signal_period': 1, 'histogram': 'line'}}
+        p['strategy']['entry'].update(
+            conditions={'LONG': {'gt': [{'ref': 'macd.histogram'}, 0]}}, any=['LONG'])
+        for index, row in enumerate(p['trade_data']['bars']):
+            price = 1000 + index
+            row.update(open=str(price), high=str(price + 1), low=str(price - 1), close=str(price))
+        result = run_inline_strategy(resolve_inline(p), p)
+        self.assertEqual(result.evaluations[0]['status'], 'UNEVALUABLE')
+        self.assertEqual(result.evaluations[1]['status'], 'EVALUABLE')
+        self.assertEqual(result.signals, ())
+        self.assertEqual(result.fills, ())
 
     def test_150_includes_current_market_bar_and_partial_targets(self):
         p = approved_payload()

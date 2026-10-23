@@ -108,7 +108,7 @@ const labels = [
     ['Mô hình tính tiền', 'Mô hình tính tiền', 'Accounting model'], ['Cách tính khối lượng', 'Cách tính khối lượng', 'Position sizing'],
     ['Tên chỉ báo', 'Tên chỉ báo', 'Indicator name'], ['Loại chỉ báo', 'Loại chỉ báo', 'Indicator type'], ['Nguồn chỉ báo', 'Nguồn chỉ báo', 'Indicator source'],
     ['Chu kỳ', 'Chu kỳ', 'Period'], ['Chu kỳ nhanh', 'Chu kỳ nhanh', 'Fast period'], ['Chu kỳ chậm', 'Chu kỳ chậm', 'Slow period'], ['Chu kỳ tín hiệu', 'Chu kỳ tín hiệu', 'Signal period'],
-    ['Hệ số độ lệch chuẩn', 'Hệ số độ lệch chuẩn', 'Standard deviation multiplier'], ['Dạng histogram', 'Dạng biểu đồ phân phối', 'Histogram style'],
+    ['Hệ số độ lệch chuẩn', 'Hệ số độ lệch chuẩn', 'Standard deviation multiplier'],
     ['Điều kiện vào lệnh (entry)', 'Điều kiện vào lệnh', 'Entry rules'], ['Điều kiện thoát lệnh (exit)', 'Điều kiện thoát lệnh', 'Exit rules'],
     ['Giới hạn trong ngày (daily_limits)', 'Giới hạn trong ngày', 'Daily limits'], ['Bảng mã hợp đồng và đáo hạn (contract_map)', 'Bảng mã hợp đồng và đáo hạn', 'Contracts and expiry dates'],
     ['Mã dữ liệu', 'Mã dữ liệu', 'Symbol'], ['Khung thời gian', 'Khung thời gian', 'Timeframe'], ['Đơn vị thời gian', 'Đơn vị thời gian', 'Timestamp unit'], ['Múi giờ', 'Múi giờ', 'Timezone'], ['Đơn vị giá', 'Đơn vị giá', 'Price unit'],

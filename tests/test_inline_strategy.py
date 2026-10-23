@@ -39,6 +39,20 @@ class InlineStrategyTest(unittest.TestCase):
         self.assertEqual(request.accounting.contract_multiplier, 100000)
         self.assertEqual(InlineRunRequest.model_validate(request.model_dump(mode='json', by_alias=True, exclude_none=True)), request)
 
+    def test_macd_has_no_required_histogram_mode_and_accepts_legacy_field(self):
+        """Accept computed histogram output and the legacy input without extra modes."""
+        payload = sample()
+        spec = payload['strategy']['indicators']['macd']
+        spec.pop('histogram', None)
+        request = InlineRunRequest.model_validate(payload)
+        self.assertIsNone(request.strategy.indicators['macd'].histogram)
+        spec['histogram'] = 'line'
+        legacy = InlineRunRequest.model_validate(payload)
+        self.assertEqual(legacy.strategy.indicators['macd'].histogram, 'line')
+        spec['histogram'] = 'columns'
+        with self.assertRaises(ValidationError):
+            InlineRunRequest.model_validate(payload)
+
     def test_bad_combinations_are_rejected(self):
         base = sample()
         mutations = [

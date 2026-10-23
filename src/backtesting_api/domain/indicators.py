@@ -69,13 +69,14 @@ def bb(series, window, end_exclusive, stddev_multiplier=2):
 
 
 def macd_series(series, fast_period=12, slow_period=26, signal_period=9):
-    """Return line, signal and the explicitly approved line-based histogram."""
+    """Return MACD line, signal and their difference after signal warm-up."""
     if fast_period >= slow_period: raise ValueError('fast_period must be less than slow_period')
     fast, slow = ema_series(series, fast_period), ema_series(series, slow_period)
     line = [a - b if a is not None and b is not None else None for a, b in zip(fast, slow)]
     valid = [value for value in line if value is not None]
     signal = [None] * (len(line) - len(valid)) + ema_series(valid, signal_period)
-    return {'line': line, 'signal': signal, 'histogram': line.copy()}
+    histogram = [a - b if a is not None and b is not None else None for a, b in zip(line, signal)]
+    return {'line': line, 'signal': signal, 'histogram': histogram}
 
 
 def macd(series, end_exclusive, fast_period=12, slow_period=26, signal_period=9):

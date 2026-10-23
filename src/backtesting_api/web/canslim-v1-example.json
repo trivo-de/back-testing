@@ -128,8 +128,7 @@
         "source": "market_data.close",
         "fast_period": 12,
         "slow_period": 26,
-        "signal_period": 9,
-        "histogram": "line"
+        "signal_period": 9
       },
       "mfi14": {
         "type": "MFI",

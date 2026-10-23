@@ -8,6 +8,11 @@ Tài liệu cho `src/backtesting_api`: nhận chiến lược JSON, mô phỏng 
 - [Đặc tả API](design/backtest-api-specification.md)
 - [Hướng dẫn JSON chiến lược](design/strategy-payload-guide.md)
 
+## Kế hoạch đang đề xuất
+
+- [Tinh gọn API, thống nhất cách tính lãi/lỗ và tích hợp LLM](../tasks/plan.md)
+- [Danh sách công việc và tiêu chí nghiệm thu](../tasks/todo.md)
+
 ## Yêu cầu và thiết kế
 
 - [Đặc tả yêu cầu](requirements/software-requirements-specification.md)

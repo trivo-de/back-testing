@@ -507,8 +507,7 @@ bộ dữ liệu nghiệm thu hoặc kết quả đầu tư.
         "source": "market_data.close",
         "fast_period": 12,
         "slow_period": 26,
-        "signal_period": 9,
-        "histogram": "line"
+        "signal_period": 9
       },
       "mfi14": {"type": "MFI", "source": "market_data", "period": 14}
     },
@@ -660,8 +659,13 @@ và mức đích TP1/TP2 là từ khóa cố định.
 | `HIGHEST`, `LOWEST` | Cột OHLCV trade_data/market_data | period nguyên dương                                                                  | Tên chỉ báo                         |
 | `EMA`                 | Cột OHLC trade_data/market_data  | period nguyên dương                                                                  | Tên chỉ báo                         |
 | `BB`                  | Cột OHLC trade_data/market_data  | period nguyên dương, stddev_multiplier > 0                                           | tên.middle, tên.upper, tên.lower    |
-| `MACD`                | Cột OHLC trade_data/market_data  | fast_period, slow_period, signal_period nguyên dương; fast < slow; histogram: "line" | tên.line, tên.signal, tên.histogram |
+| `MACD`                | Cột OHLC trade_data/market_data  | fast_period, slow_period, signal_period nguyên dương; fast < slow | tên.line, tên.signal, tên.histogram |
 | `MFI`                 | "trade_data" hoặc "market_data"  | period nguyên dương; đủ HLCV                                                       | Tên chỉ báo                         |
+
+MACD Histogram = MACD Line − Signal; chưa có giá trị trước khi Signal đủ mẫu.
+Trường cũ `histogram: "line"` vẫn được nhận nhưng không chọn công thức hoặc
+cách vẽ. JSON mới bỏ trường này. Chạy lại chiến lược dùng `macd.histogram`
+có thể đổi kết quả; xem [ghi chú tương thích](strategy-payload-guide.md).
 
 Ví dụ một khai báo trong indicators:
 

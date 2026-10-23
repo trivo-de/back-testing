@@ -52,6 +52,21 @@ const files = ['payload-hpg-canslim-v0-daily.json', 'payload-vn30f1m-canslim-v0.
 const payload = name => JSON.parse(readFileSync(new URL(`../../data/payload_examples/${name}`, import.meta.url), 'utf8'));
 const sample = () => JSON.parse(readFileSync(new URL('../../src/backtesting_api/web/canslim-v1-example.json', import.meta.url), 'utf8'));
 
+test('MACD has no histogram mode control and preserves the legacy input field', () => {
+    const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
+    try {
+        const ui = editor(), value = sample();
+        ui.input.setPayload(value);
+        assert.deepEqual(ui.input.read(), value);
+        assert.ok(!ui.walk().some(element => element.textContent === 'Dạng histogram'));
+        assert.equal(ui.input.read().strategy.indicators.macd.histogram, undefined);
+        value.strategy.indicators.macd.histogram = 'line';
+        ui.input.setPayload(value);
+        assert.deepEqual(ui.input.read(), value);
+        assert.ok(!ui.walk().some(element => element.textContent === 'Dạng histogram'));
+    } finally {globalThis.document = previous;}
+});
+
 test('market order controls preserve sourced bounds and reject unsupported pending or models', () => {
     const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
     try {

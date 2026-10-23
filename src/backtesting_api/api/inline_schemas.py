@@ -211,15 +211,18 @@ class IndicatorInput(StrictModel):
     fast_period: Period | None = None
     slow_period: Period | None = None
     signal_period: Period | None = None
-    histogram: Literal['line'] | None = None
+    histogram: Literal['line'] | None = Field(
+        None, deprecated=True,
+        description='Trường tương thích cũ; Histogram luôn bằng MACD Line trừ Signal, không chọn cách vẽ.')
 
     # Require exactly the parameters supported by the selected indicator.
     @model_validator(mode='after')
     def parameters(self):
-        required = {'type', 'source'} | ({'fast_period', 'slow_period', 'signal_period', 'histogram'}
+        required = {'type', 'source'} | ({'fast_period', 'slow_period', 'signal_period'}
                     if self.type == 'MACD' else {'period'})
         if self.type == 'BB': required.add('stddev_multiplier')
-        if self.model_fields_set != required or any(getattr(self, k) is None for k in required):
+        supplied = self.model_fields_set - ({'histogram'} if self.type == 'MACD' else set())
+        if supplied != required or any(getattr(self, k) is None for k in required):
             raise ValueError('INDICATOR_PARAMETERS_MISMATCH')
         if self.type == 'MACD' and self.fast_period >= self.slow_period:
             raise ValueError('MACD_FAST_MUST_BE_LESS_THAN_SLOW')

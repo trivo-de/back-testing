@@ -286,11 +286,19 @@ Mỗi chỉ báo cần `type`, `source` và tham số theo bảng. Hàm tính n�
 | `HIGHEST` / `LOWEST`  | Một cột số OHLCV của trade_data/market_data   | `period`: số nguyên dương                                                                              | Tên chỉ báo                         |
 | `EMA`                   | Một cột giá của trade_data/market_data        | `period`: số nguyên dương                                                                              | Tên chỉ báo                         |
 | `BB`                    | Một cột giá của trade_data/market_data        | `period`,`stddev_multiplier` > 0                                                                         | tên.middle, tên.upper, tên.lower    |
-| `MACD`                  | Một cột giá của trade_data/market_data        | `fast_period`,`slow_period`,`signal_period`: fast < slow;`histogram`: chỉ`"line"` trong mẫu này | tên.line, tên.signal, tên.histogram |
+| `MACD`                  | Một cột giá của trade_data/market_data        | `fast_period`,`slow_period`,`signal_period`: fast < slow | tên.line, tên.signal, tên.histogram |
 | `MFI`                   | `"trade_data"`hoặc`"market_data"`, đủ HLCV | `period`: nguyên dương                                                                                  | Tên chỉ báo                         |
 
 Ví dụ v1: SMA20, EMA5, BB(20,2), MACD(12,26,9), MFI14. Keyword
-`histogram: "line"` nghĩa là histogram bằng MACD line theo quyết định v1.
+MACD Line = EMA nhanh − EMA chậm; Signal = EMA của MACD Line;
+Histogram = MACD Line − Signal. Signal và Histogram chưa có giá trị khi
+chưa đủ mẫu khởi tạo Signal; điều kiện dùng chúng chưa đánh giá được.
+
+- JSON mới không khai báo `histogram`; đây là đầu ra, không phải cách vẽ.
+- Trường cũ `histogram: "line"` vẫn được nhận để tương thích đầu vào,
+  nhưng luôn dùng công thức Histogram đã sửa, không khôi phục công thức cũ.
+- Chạy lại payload dùng `macd.histogram` có thể đổi tín hiệu và kết quả.
+  Kết quả đã lưu không tự tính lại; biểu đồ dựng lại dùng công thức hiện tại.
 
 ## 6. Điền entry
 
