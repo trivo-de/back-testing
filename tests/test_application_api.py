@@ -64,9 +64,23 @@ class ApplicationApiTest(unittest.TestCase):
         old = self.client.post("/api/backtests", json=self.payload)
         missing = self.client.get(f"/api/backtests/{uuid4()}")
         self.assertEqual((old.status_code, missing.status_code), (422, 404))
-        locations = [item['loc'] for item in old.json()['detail']]
-        self.assertIn(['body', 'dataset_version'], locations)
-        self.assertIn(['body', 'strategy_id'], locations)
+        self.assertIn('LEGACY_OR_DATA_FIELD_NOT_ALLOWED', old.text)
+
+    def test_public_post_rejects_every_legacy_data_shape_before_running(self):
+        """Keep legacy regression routes private and forbid all public data-input variants."""
+        minimal = {'symbol': 'VN30F1M', 'entry': {'long': {'gt': [1, 0]}}, 'risk': {'sl': 6}}
+        variants = [self.payload, *[{**minimal, key: value} for key, value in (
+            ('trade_data', {'bars': []}), ('market_data', {'raw': {}}), ('bars', []), ('raw', {}),
+            ('file', 'source.json'), ('auto_fetch_data', True), ('accounting', {'model': 'contract'}),
+            ('execution', {'matching_model': 'hnx_sessions_v1'}), ('strategy', {}))]]
+        for route in ('/api/backtests', '/api/backtests/validate'):
+            for payload in variants:
+                with self.subTest(route=route, payload=payload):
+                    response = self.client.post(route, json=payload)
+                    self.assertEqual(response.status_code, 422, response.text)
+                    self.assertIn('LEGACY_OR_DATA_FIELD_NOT_ALLOWED', response.text)
+        self.assertEqual(self.repository.runs, {})
+        self.assertEqual(self.client.post('/internal-test/legacy/backtests', json=self.payload).status_code, 404)
 
     def test_minimal_ui_is_served(self):
         response = self.client.get("/")

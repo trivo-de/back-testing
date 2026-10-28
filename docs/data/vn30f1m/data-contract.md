@@ -1,5 +1,15 @@
 # Hợp đồng dữ liệu JSON — VN30F1M
 
+API hiện tại theo [hợp đồng khớp ngay hoặc LO](../../design/price-only-contract.md),
+đã triển khai B–D: máy chủ luôn lấy dữ liệu 5 phút; POST không nhận nến/file hoặc cờ tự lấy.
+Bỏ cả hai ngày dùng sáu tháng gần nhất; có đủ cặp ngày dùng kỳ báo cáo và lịch sử cần thiết.
+Chỉ dùng nến đã khả dụng, giữ khoảng thiếu, nguồn và bản ghim để kiểm chứng.
+Chính sách không giữ qua ngày yêu cầu lịch phiên nội bộ có độ phủ.
+[Kiểm chứng C–D](../../testing/price-only-cd.md) dùng nguồn kiểm thử cố định, chưa nghiệm thu nguồn thật.
+
+**Các mục bên dưới mô tả cấu trúc dữ liệu nội bộ và đầu vào cũ để đối chiếu lịch sử.**
+Các ví dụ gửi trực tiếp `trade_data`/`market_data` không còn là request công khai hợp lệ.
+
 API nhận `trade_data`, `market_data` trực tiếp hoặc tự lấy khi `auto_fetch_data=true`. Các trường chi tiết tại [đặc tả API](../../design/backtest-api-specification.md).
 
 ## 1. Nến, thời gian và khả dụng

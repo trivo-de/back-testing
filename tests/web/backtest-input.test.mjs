@@ -1,329 +1,104 @@
 import assert from 'node:assert/strict';
-import {existsSync, readFileSync} from 'node:fs';
 import test from 'node:test';
-import {assemblePayload, dataSource, mountInputForm, sourceInfo, splitPayload} from '../../src/backtesting_api/web/backtest-input.mjs';
+import {DEFAULT_STRATEGY, mountInputForm, strategyConfig} from '../../src/backtesting_api/web/backtest-input.mjs';
 
-test('auction records and contract dates remain data when splitting and assembling payloads', () => {
-    const value = {execution: {matching_model: 'hnx_sessions_v1'}, trade_data: {
-        bars: [{time: 1774423500}], auctions: [{match_time: 1774424700, price: '1002'}],
-        contract_dates: [{date: '2026-03-25', contract_code: 'VN30F2604'}],
-        provenance: {provider: 'fixture', timestamp_convention: 'bar_open', note: 'synthetic'}}};
-    const {config, data} = splitPayload(value);
-    assert.equal(config.trade_data.auctions, undefined);
-    assert.equal(config.trade_data.contract_dates, undefined);
-    assert.deepEqual(assemblePayload(config, data), value);
-    assert.match(sourceInfo(value.trade_data), /1 bản ghi ATC/);
-});
-
+/** Supply only the native control operations exercised by the editor. */
 class Element {
-    constructor(tag = 'div') {this.tagName = tag.toUpperCase(); this.children = []; this.value = ''; this.textContent = ''; this.validationMessage = '';}
+    constructor(tag = 'div') {this.tagName = tag.toUpperCase(); this.children = []; this.value = ''; this.textContent = ''; this.disabled = false;}
     append(...items) {for (const item of items) {item.parentElement = this; this.children.push(item);}}
     replaceChildren() {this.children = [];}
-    setAttribute() {}
-    setCustomValidity(value) {this.validationMessage = value;}
-    remove() {this.parentElement.children = this.parentElement.children.filter(item => item !== this);}
 }
-function editor(getJSON = () => {throw Error('Không được tự tải dữ liệu.');}) {
+/** Mount the actual editor against a small native-control test surface. */
+function editor(t) {
     const elements = new Map(), form = new Element('form');
     form.querySelector = selector => {
-        if (selector.includes(':invalid')) return null;
-        if (!elements.has(selector)) {
-            const element = new Element(); elements.set(selector, element);
-            const parent = selector.startsWith('#trade_data-') ? form.querySelector('#input-trade')
-                : selector.startsWith('#market_data-') ? form.querySelector('#input-market') : form;
-            parent.append(element);
-        }
+        if (!elements.has(selector)) {const element = new Element(); elements.set(selector, element); form.append(element);}
         return elements.get(selector);
     };
-    form.querySelectorAll = () => [];
-    const walk = element => [element, ...element.children.flatMap(walk)];
-    form.reportValidity = () => walk(form).every(element => {
-        for (let parent = element; parent; parent = parent.parentElement) if (parent.disabled) return true;
-        return !element.validationMessage && (!element.required || element.value);
-    });
     const previous = globalThis.document;
     globalThis.document = {createElement: tag => new Element(tag)};
-    try {
-        const input = mountInputForm(form, getJSON);
-        return {form, input, walk: () => walk(form), field: label => walk(form).find(element => element.tagName === 'LABEL' && element.textContent === label).children[0]};
-    } finally {globalThis.document = previous;}
+    t.after(() => {globalThis.document = previous;});
+    const input = mountInputForm(form);
+    const walk = element => [element, ...element.children.flatMap(walk)];
+    return {input, element: selector => form.querySelector(selector), field: name => walk(form).find(element => element.name === name)};
 }
-const files = ['payload-hpg-canslim-v0-daily.json', 'payload-vn30f1m-canslim-v0.json', 'payload.json', 'payload_raw.json', 'payload_continuous_lo.json', 'payload_continuous_lo_auto.json', 'payload_ato_atc_partial_auto.json'];
-const payload = name => JSON.parse(readFileSync(new URL(`../../data/payload_examples/${name}`, import.meta.url), 'utf8'));
-const sample = () => JSON.parse(readFileSync(new URL('../../src/backtesting_api/web/canslim-v1-example.json', import.meta.url), 'utf8'));
 
-test('MACD has no histogram mode control and preserves the legacy input field', () => {
-    const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
-    try {
-        const ui = editor(), value = sample();
-        ui.input.setPayload(value);
-        assert.deepEqual(ui.input.read(), value);
-        assert.ok(!ui.walk().some(element => element.textContent === 'Dạng histogram'));
-        assert.equal(ui.input.read().strategy.indicators.macd.histogram, undefined);
-        value.strategy.indicators.macd.histogram = 'line';
-        ui.input.setPayload(value);
-        assert.deepEqual(ui.input.read(), value);
-        assert.ok(!ui.walk().some(element => element.textContent === 'Dạng histogram'));
-    } finally {globalThis.document = previous;}
+test('default strategy contains configuration only and preserves omitted defaults', t => {
+    const ui = editor(t);
+    assert.deepEqual(ui.input.read(), DEFAULT_STRATEGY);
+    assert.equal(ui.field('quantity').value, '1');
+    assert.equal(ui.field('order.type').value, 'IMMEDIATE');
+    assert.equal(ui.field('order.limit_price').parentElement.hidden, true);
+    assert.match(ui.element('#order-help').textContent, /Close/);
+    for (const key of ['accounting', 'initial_cash', 'trade_data', 'market_data', 'auto_fetch_data']) assert.equal(key in ui.input.read(), false);
 });
 
-test('market order controls preserve sourced bounds and reject unsupported pending or models', () => {
-    const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
-    try {
-        const ui = editor(), value = sample();
-        value.execution = {matching_model: 'hnx_sessions_v1', slippage_rate: 0, continuous_match_quantity: 2};
-        delete value.strategy.entry.pending;
-        delete value.strategy.exit.bar_close.fill_policy;
-        value.strategy.entry.order = {type: 'MTL'};
-        value.strategy.exit.bar_close.order = {type: 'MAK'};
-        value.trade_data.price_limits = [{trading_date: '2026-03-25', contract_code: 'VN30F2604',
-            floor_price: '900', ceiling_price: '1100', available_at: 1774403100, source: 'synthetic'}];
-        ui.input.setPayload(value);
-        assert.deepEqual(ui.input.read(), value);
-        assert.ok(ui.walk().some(e => e.value === 'MOK'));
-        ui.field('Số nến chờ khớp tối đa').value = '3'; ui.field('Số nến chờ khớp tối đa').onchange();
-        ui.field('Loại lệnh').value = 'MAK'; ui.field('Loại lệnh').onchange();
-        assert.throws(() => ui.input.read(), /MAK\/MOK không nhận số nến chờ/);
-        ui.field('Số nến chờ khớp tối đa').value = ''; ui.field('Số nến chờ khớp tối đa').onchange();
-        assert.equal(ui.input.read().strategy.entry.actions[value.strategy.entry.any[0]].order.type, 'MAK');
-        ui.field('Mô hình khớp lệnh').value = 'next_open'; ui.field('Mô hình khớp lệnh').onchange();
-        assert.throws(() => ui.input.read(), /cần mô hình khớp theo phiên HNX/);
-        assert.equal(ui.field('Loại lệnh').value, 'MAK');
-    } finally {globalThis.document = previous;}
-});
-
-test('order controls migrate legacy settings, preserve parameters and synchronize JSON', () => {
-    const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
-    try {
-        const ui = editor(), value = sample();
-        value.execution.matching_model = 'hnx_sessions_v1';
-        value.strategy.entry.pending.max_execution_bars = 4;
-        ui.input.setPayload(value);
-        assert.deepEqual(ui.input.read(), value);
-        assert.ok(!ui.walk().some(element => element.textContent === 'Thời điểm khớp lệnh'));
-        ui.field('Loại lệnh').value = 'LO'; ui.field('Loại lệnh').onchange();
-        assert.throws(() => ui.input.read(), /LO cần biểu thức giá/);
-        ui.field('Biểu thức giá giới hạn').value = '{"ref":"trade_data.close"}';
-        ui.field('Biểu thức giá giới hạn').oninput();
-        const edited = ui.input.read(), name = edited.strategy.entry.any[0];
-        assert.equal(edited.execution.entry_fill_policy, undefined);
-        assert.equal(edited.strategy.entry.pending, undefined);
-        assert.equal(edited.strategy.entry.actions[name].order.type, 'LO');
-        assert.equal(edited.strategy.entry.actions[name].order.pending.max_execution_bars, 4);
-        assert.ok(Object.values(edited.strategy.exit.bar_close.actions).every(action => action.order.pending.max_execution_bars === 4));
-        ui.field('Loại lệnh').value = 'ATO'; ui.field('Loại lệnh').onchange();
-        assert.deepEqual(ui.input.read(false).strategy.entry.actions[name].order.limit_price, {ref: 'trade_data.close'});
-        assert.throws(() => ui.input.read(), /không nhận giá giới hạn/);
-        ui.field('Biểu thức giá giới hạn').value = ''; ui.field('Biểu thức giá giới hạn').onchange();
-        ui.field('Số nến chờ khớp tối đa').value = ''; ui.field('Số nến chờ khớp tối đa').onchange();
-        assert.equal(ui.input.read().strategy.entry.actions[name].order.type, 'ATO');
-        const entry = JSON.parse(ui.field('Điều kiện vào lệnh (entry)').value);
-        entry.actions[name].order = {type: 'SIMULATED'};
-        ui.field('Điều kiện vào lệnh (entry)').value = JSON.stringify(entry);
-        ui.field('Điều kiện vào lệnh (entry)').oninput();
-        assert.equal(ui.field('Loại lệnh').value, 'SIMULATED');
-        ui.field('Mô hình khớp lệnh').value = 'next_open'; ui.field('Mô hình khớp lệnh').onchange();
-        assert.equal(ui.input.read().execution.matching_model, 'next_open');
-        ui.field('Số nến chờ khớp tối đa').value = '1';
-        ui.field('Số nến chờ khớp tối đa').oninput();
-        assert.deepEqual(ui.input.read().strategy.entry.actions[name].order.pending,
-            {max_execution_bars: 1, cross_lunch: false, cross_cutoff: false, cross_session: false});
-        ui.field('Biểu thức giá giới hạn').value = '{';
-        ui.field('Biểu thức giá giới hạn').oninput();
-        ui.field('Mô hình khớp lệnh').value = 'hnx_sessions_v1'; ui.field('Mô hình khớp lệnh').onchange();
-        assert.equal(ui.field('Biểu thức giá giới hạn').value, '{');
-        assert.throws(() => ui.input.read());
-    } finally {globalThis.document = previous;}
-});
-const raw = key => {
-    const path = new URL(key === 'trade_data'
-        ? '../../data/trade/vn30f1m-5m-20260316-20260915.json'
-        : '../../data/market/VNINDEX_5&from=1772323200&to=1789516800.json', import.meta.url);
-    if (existsSync(path)) return JSON.parse(readFileSync(path, 'utf8'));
-    const bars = sample()[key].bars;
-    return {s: 'ok', ...Object.fromEntries(['time', 'open', 'high', 'low', 'close', 'volume'].map((field, index) =>
-        [['t', 'o', 'h', 'l', 'c', 'v'][index], bars.map(bar => bar[field])]))};
-};
-
-test('all supplied payloads fill the form and round-trip exactly without candles in textareas', () => {
-    const originalDocument = globalThis.document;
-    // setPayload creates controls after the editor has mounted.
-    globalThis.document = {createElement: tag => new Element(tag)};
-    try {
-        const examples = ['lo-auto.json', 'ato-atc-partial-auto.json'].map(name =>
-            JSON.parse(readFileSync(new URL(`../../docs/examples/orders/${name}`, import.meta.url), 'utf8')));
-        const values = [sample(), ...examples, ...files.filter(name => existsSync(new URL(`../../data/payload_examples/${name}`, import.meta.url))).map(payload)];
-        for (const value of values) {
-            const ui = editor();
-            ui.input.setPayload(value);
-            assert.deepEqual(ui.input.read(), value);
-            const textareas = ui.walk().filter(element => element.tagName === 'TEXTAREA');
-            assert.ok(textareas.every(element => element.value.length <= 65536));
-            assert.ok(textareas.every(element => !element.value.includes('"bars"') && !element.value.includes('"t":')));
-            assert.ok(ui.walk().length < 500, 'DOM size must not scale with candle count');
-        }
-    } finally {globalThis.document = originalDocument;}
-});
-
-test('editing a parameter changes only that field, keeps decimal text and validates report dates', () => {
-    const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
-    try {
-        const ui = editor(), value = sample();
-        value.report = {start_date: '2026-03-18', end_date: '2026-09-15'};
-        ui.input.setPayload(value);
-        ui.field('Vốn ban đầu').value = '100000000.123456789';
-        const edited = ui.input.read();
-        assert.equal(edited.initial_cash, '100000000.123456789');
-        assert.deepEqual({...edited, initial_cash: value.initial_cash}, value);
-        assert.equal(edited.trade_data.bars, value.trade_data.bars);
-        assert.throws(() => ui.input.setPayload({...value, strategy: {...value.strategy, indicators: {broken: null}}}), /Mỗi chỉ báo/);
-        assert.deepEqual(ui.input.read(), edited, 'bad import must preserve current edits');
-        ui.field('Ngày kết thúc báo cáo').value = '';
-        assert.throws(() => ui.input.read(), /cả ngày bắt đầu/);
-    } finally {globalThis.document = previous;}
-});
-
-test('both preset formats use existing API data shapes and config-only import retains no displayed price array', () => {
-    for (const key of ['trade_data', 'market_data']) {
-        const value = raw(key);
-        assert.deepEqual(dataSource(value, key), value);
-        const split = splitPayload({[key]: {resolution: '5', ...value}});
-        assert.deepEqual(split.config[key], {resolution: '5'});
-        assert.equal(split.data[key].t, value.t);
-        assert.deepEqual(assemblePayload(split.config, split.data)[key], {resolution: '5', ...value});
-        assert.match(sourceInfo(value), /nến/);
-        assert.match(sourceInfo({...value, timezone: 'invalid-timezone'}), /\?/);
-        assert.equal(dataSource({[key]: {bars: value}}, key).bars, value);
+test('legacy payloads and source arrays are rejected instead of silently converted', () => {
+    for (const key of ['accounting', 'initial_cash', 'trade_data', 'market_data', 'bars', 'raw', 'file', 'auto_fetch_data', 'strategy']) {
+        assert.throws(() => strategyConfig({...DEFAULT_STRATEGY, [key]: {}}), /không được hỗ trợ/);
     }
-    assert.throws(() => dataSource({strategy: {}}, 'trade_data'), /Không tìm thấy/);
-    assert.throws(() => splitPayload([]), /object JSON/);
+    assert.throws(() => strategyConfig([]));
 });
 
-test('loading both presets then the sample preserves real raw candles without mixing demo bars', async () => {
-    const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
-    try {
-        const ui = editor(url => url.startsWith('/ui-data/') ? raw(url.split('/').at(-1))
-            : sample());
-        for (const key of ['trade_data', 'market_data']) {
-            const button = ui.form.querySelector(`#${key}-preset`);
-            await button.onclick({currentTarget: button});
-        }
-        const button = ui.form.querySelector('#load-example');
-        await button.onclick({currentTarget: button});
-        const result = ui.input.read();
-        assert.equal(result.trade_data.t.length, raw('trade_data').t.length);
-        assert.equal(result.market_data.t.length, raw('market_data').t.length);
-        assert.equal(Object.hasOwn(result.trade_data, 'bars'), false);
-        assert.equal(Object.hasOwn(result.market_data, 'bars'), false);
-        assert.deepEqual(result.trade_data.t, raw('trade_data').t);
-        assert.ok(ui.form.querySelector('#trade_data-summary').textContent.startsWith(raw('trade_data').t.length.toLocaleString('vi-VN')));
-        const before = ui.input.read();
-        ui.field('Điều kiện vào lệnh (entry)').value = '{';
-        const clear = ui.form.querySelector('#trade_data-clear');
-        await clear.onclick({currentTarget: clear});
-        assert.match(ui.form.querySelector('#input-status').textContent, /JSON không hợp lệ/);
-        ui.field('Điều kiện vào lệnh (entry)').value = JSON.stringify(before.strategy.entry);
-        ui.field('Điều kiện vào lệnh (entry)').oninput();
-        assert.deepEqual(ui.input.read(), before);
-    } finally {globalThis.document = previous;}
+test('form edits preserve exact decimal strings and untouched advanced configuration', t => {
+    const ui = editor(t), value = {...DEFAULT_STRATEGY, risk: {sl: '6.000000000000000001', tp: '12.50'},
+        quantity: 3, indicators: {custom: {type: 'EMA', period: 7, source: 'market_data.close'}},
+        exit: {long: {condition: {gte: [{ref: 'position.held_bars'}, 18]}, order: {type: 'LO', limit_price: {ref: 'price'}}}}};
+    ui.input.setPayload(value); assert.deepEqual(ui.input.read(), value);
+    ui.field('risk.tp').value = '13.000000000000000001'; ui.field('risk.tp').onchange();
+    assert.equal(ui.input.read().risk.tp, '13.000000000000000001');
+    assert.equal(ui.input.read().risk.sl, value.risk.sl);
+    assert.deepEqual(ui.input.read().exit, value.exit);
+    assert.equal(JSON.parse(ui.element('#strategy-json').value).risk.tp, '13.000000000000000001');
 });
 
-test('auto fetch skips manual data validation and preserves manual data and other edits when toggled', () => {
-    const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
-    try {
-        const ui = editor(), value = sample(); ui.input.setPayload(value);
-        const checkbox = ui.form.querySelector('#auto-fetch-data');
-        assert.equal(checkbox.checked, false);
-        ui.field('Vốn ban đầu').value = '123456789';
-        const map = ui.field('Bảng mã hợp đồng và đáo hạn (contract_map)');
-        map.value = '{';
-        assert.throws(() => ui.input.read(), /JSON không hợp lệ/);
-        checkbox.checked = true; checkbox.onchange();
-        assert.equal(ui.form.querySelector('#input-trade').disabled, true);
-        assert.equal(ui.form.querySelector('#input-market').disabled, true);
-        const {trade_data, market_data, ...config} = value;
-        assert.deepEqual(ui.input.read(), {...config, initial_cash: '123456789', auto_fetch_data: true});
-        ui.field('Điều kiện vào lệnh (entry)').value = '{';
-        assert.throws(() => ui.input.read(), /JSON không hợp lệ/);
-        ui.field('Điều kiện vào lệnh (entry)').value = JSON.stringify(value.strategy.entry);
-        ui.field('Điều kiện vào lệnh (entry)').oninput();
-        checkbox.checked = false; checkbox.onchange();
-        assert.equal(ui.form.querySelector('#input-trade').disabled, false);
-        assert.equal(ui.form.querySelector('#input-market').disabled, false);
-        assert.equal(map.value, '{', 'toggling must retain unfinished manual edits');
-        map.value = JSON.stringify(value.trade_data.contract_map); map.oninput();
-        assert.deepEqual(ui.input.read(), {...value, initial_cash: '123456789'});
-        assert.equal(ui.input.read().trade_data.bars, trade_data.bars);
-        assert.equal(ui.input.read().market_data.bars, market_data.bars);
-    } finally {globalThis.document = previous;}
+test('LO shows its limit, pins the chosen type and never silently changes it to immediate', t => {
+    const ui = editor(t);
+    ui.field('order.type').value = 'LO'; ui.field('order.type').onchange();
+    assert.throws(() => ui.input.read(), /LO cần/);
+    ui.field('order.limit_price').value = '{"ref":"trade_data.close"}'; ui.field('order.limit_price').onchange();
+    assert.deepEqual(ui.input.read().order, {type: 'LO', limit_price: {ref: 'trade_data.close'}});
+    assert.match(ui.element('#order-help').textContent, /3 nến.*trong ngày/);
+    ui.field('order.type').value = 'IMMEDIATE'; ui.field('order.type').onchange();
+    assert.equal('order' in ui.input.read(), false);
 });
 
-test('auto fetch submits report dates without loaded price data', () => {
-    const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
-    try {
-        const ui = editor();
-        const {trade_data, market_data, report, ...config} = sample();
-        ui.input.setPayload({...config, auto_fetch_data: true});
-        ui.field('Ngày bắt đầu báo cáo').value = '2026-04-01';
-        ui.field('Ngày kết thúc báo cáo').value = '2026-09-30';
-        const request = ui.input.read();
-        assert.deepEqual(request.report, {start_date: '2026-04-01', end_date: '2026-09-30'});
-        assert.equal(request.auto_fetch_data, true);
-        assert.equal(request.trade_data, undefined);
-        assert.equal(request.market_data, undefined);
-    } finally {globalThis.document = previous;}
+test('date pair and positive integer quantity are checked before sending', t => {
+    const ui = editor(t);
+    ui.field('from').value = '2026-04-01';
+    assert.throws(() => ui.input.read(), /cả hai ngày/);
+    ui.field('to').value = '2026-04-01';
+    assert.equal(ui.input.read().from, '2026-04-01');
+    ui.field('to').value = '2026-03-31'; assert.throws(() => ui.input.read(), /không hợp lệ/);
+    ui.field('to').value = '2026-04-01'; ui.field('quantity').value = '1.5'; assert.throws(() => ui.input.read(), /nguyên dương/);
 });
 
-test('payload import restores auto fetch and loading the example keeps the selected data mode', async () => {
-    const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
-    try {
-        let requests = 0;
-        const ui = editor(() => {requests += 1; return sample();});
-        const {trade_data, market_data, ...config} = sample();
-        ui.input.setPayload({...config, auto_fetch_data: true});
-        const checkbox = ui.form.querySelector('#auto-fetch-data');
-        assert.equal(checkbox.checked, true);
-        assert.deepEqual(ui.input.read(), {...config, auto_fetch_data: true});
-        assert.equal(requests, 0, 'import and checkbox changes must not fetch data');
-        const button = ui.form.querySelector('#load-example');
-        await button.onclick({currentTarget: button});
-        assert.equal(requests, 1);
-        assert.equal(checkbox.checked, true);
-        assert.deepEqual(ui.input.read(), {...config, auto_fetch_data: true});
-        checkbox.checked = false; checkbox.onchange();
-        assert.deepEqual(ui.input.read(), {...config, trade_data, market_data, auto_fetch_data: false});
-    } finally {globalThis.document = previous;}
+test('JSON edits update form before validation and malformed drafts do not replace the valid state', t => {
+    const ui = editor(t), value = {...DEFAULT_STRATEGY, quantity: 5, risk: {trailing: '6.2'}};
+    ui.element('#strategy-json').value = JSON.stringify(value);
+    assert.deepEqual(ui.input.read(), value);
+    assert.equal(ui.field('quantity').value, '5');
+    ui.element('#strategy-json').value = '{';
+    assert.throws(() => ui.input.read(), /JSON chiến lược chưa hợp lệ/);
+    assert.equal(ui.field('quantity').value, '5');
+    ui.input.setPayload(value); assert.deepEqual(ui.input.read(), value);
 });
 
-test('HNX continuous matching supports automatic fetch and preserves cached manual sources', () => {
-    const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
-    try {
-        const ui = editor(), value = sample();
-        value.auto_fetch_data = false;
-        value.execution.matching_model = 'hnx_sessions_v1';
-        value.execution.entry_fill_policy = 'limit';
-        value.execution.auction_match_quantity = 0;
-        value.strategy.entry.limit_price = {ref: 'trade_data.close'};
-        value.trade_data.contract_dates = [{date: '2026-03-25', contract_code: 'VN30F2604'}];
-        value.trade_data.provenance = {provider: 'fixture', timestamp_convention: 'bar_open', note: 'synthetic'};
-        ui.input.setPayload(value);
-        const checkbox = ui.form.querySelector('#auto-fetch-data');
-        assert.notEqual(checkbox.disabled, true);
-        assert.equal(checkbox.checked, false);
-        assert.equal(ui.form.querySelector('#input-trade').disabled, false);
-        assert.equal(ui.field('Giới hạn khớp mỗi đợt đấu giá').value, '0');
-        assert.deepEqual(ui.input.read(), value);
+test('TP tiers and trailing after TP1 remain explicit JSON instead of conflicting simple controls', t => {
+    const ui = editor(t), value = {...DEFAULT_STRATEGY, quantity: 3, risk: {sl: 6, targets: [
+        {quantity: 1, pct: 6}, {quantity: 'remaining', pct: 12}], trailing_after_tp1: '6'}};
+    ui.input.setPayload(value);
+    assert.equal(ui.field('risk.tp').disabled, true);
+    assert.equal(ui.field('risk.trailing').disabled, true);
+    assert.deepEqual(ui.input.read(), value);
+});
 
-        checkbox.checked = true; checkbox.onchange();
-        const {trade_data, market_data, ...config} = value;
-        assert.deepEqual(ui.input.read(), {...config, auto_fetch_data: true});
-        assert.equal(ui.form.querySelector('#input-trade').disabled, true);
-        assert.equal(ui.form.querySelector('#input-market').disabled, true);
-        checkbox.checked = false; checkbox.onchange();
-        assert.deepEqual(ui.input.read(), value, 'manual data and contract provenance must survive auto mode');
-        ui.input.setPayload({...config, auto_fetch_data: true});
-        assert.equal(checkbox.checked, true);
-        assert.notEqual(checkbox.disabled, true);
-        assert.deepEqual(ui.input.read(), {...config, auto_fetch_data: true});
-    } finally {globalThis.document = previous;}
+test('submitting form edits synchronizes the visible JSON even before a change event', t => {
+    const ui = editor(t);
+    ui.field('order.type').value = 'LO';
+    ui.field('order.limit_price').value = '100';
+    const value = ui.input.read();
+    assert.deepEqual(value.order, {type: 'LO', limit_price: 100});
+    assert.deepEqual(JSON.parse(ui.element('#strategy-json').value), value);
+    assert.doesNotMatch(ui.element('#input-status').textContent, /LO cần/);
 });

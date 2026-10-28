@@ -7,6 +7,9 @@ from .portfolio import decimal
 NUMERIC = {'add': operator.add, 'sub': operator.sub, 'mul': operator.mul,
            'div': operator.truediv, 'min': min, 'max': max}
 COMPARE = {'gt': operator.gt, 'gte': operator.ge, 'lt': operator.lt, 'lte': operator.le}
+CROSS = {'cross_up', 'cross_down'}
+MAX_EXPRESSION_DEPTH = 32
+MAX_EXPRESSION_NODES = 4096
 STATE_REFS = {'position.entry_price', 'position.initial_quantity', 'position.held_bars',
               'account.equity', 'account.required_margin', 'day.net_pnl',
               'day.start_equity', 'day.entry_fill_count', 'clock.local_time'}
@@ -22,11 +25,11 @@ class MissingValue(ValueError):
 
 # Validate expression structure, types, reference shifts, and recursion limits.
 def validate_expression(node, references, conditions=None, expected=None, *, depth=0, trail=(), _budget=None):
-    _budget = [4096] if _budget is None else _budget
+    _budget = [MAX_EXPRESSION_NODES] if _budget is None else _budget
     _budget[0] -= 1
     if _budget[0] < 0:
         raise ValueError('EXPRESSION_TOO_LARGE')
-    if depth > 32:
+    if depth > MAX_EXPRESSION_DEPTH:
         raise ValueError('EXPRESSION_TOO_DEEP')
     conditions = conditions or {}
     if isinstance(node, str):
@@ -56,7 +59,7 @@ def validate_expression(node, references, conditions=None, expected=None, *, dep
         kind = 'time' if node['ref'] == 'clock.local_time' else 'number'
     elif isinstance(node, dict) and len(node) == 1:
         op, args = next(iter(node.items()))
-        if op not in {*NUMERIC, *COMPARE, 'floor', 'all', 'any'} or not isinstance(args, list):
+        if op not in {*NUMERIC, *COMPARE, *CROSS, 'floor', 'all', 'any'} or not isinstance(args, list):
             raise ValueError('UNSUPPORTED_OPERATOR')
         count = 1 if op == 'floor' else 2
         if not args or (op not in ('all', 'any') and len(args) != count):
@@ -66,10 +69,21 @@ def validate_expression(node, references, conditions=None, expected=None, *, dep
             if any(k != 'bool' for k in kinds):
                 raise ValueError('BOOLEAN_REQUIRED')
             kind = 'bool'
-        elif op in COMPARE:
+        elif op in COMPARE or op in CROSS:
             if kinds[0] != kinds[1] or kinds[0] not in ('number', 'time'):
                 raise ValueError('COMPARISON_TYPE_MISMATCH')
             kind = 'bool'
+            if op in CROSS:
+                # State has no source series and cannot supply an earlier sample.
+                def has_state(value):
+                    """Reject state references inside either crossing operand."""
+                    if isinstance(value, dict):
+                        return (value.get('ref') in STATE_REFS or
+                                str(value.get('ref', '')).startswith('position.') or
+                                any(has_state(child) for child in value.values()))
+                    return isinstance(value, list) and any(has_state(child) for child in value)
+                if kinds != ['number', 'number'] or has_state(args):
+                    raise ValueError('CROSS_REQUIRES_SERIES')
         else:
             if any(k != 'number' for k in kinds):
                 raise ValueError('NUMBER_REQUIRED')
@@ -89,20 +103,20 @@ def evaluate_expression(node, values, conditions=None):
     validate_expression(node, set(values), conditions)
 
     # Evaluate one expression node using the supplied available values.
-    def evaluate(item):
+    def evaluate(item, offset=0):
         if isinstance(item, str):
-            return evaluate(conditions[item]) if item in conditions else time.fromisoformat(item)
+            return evaluate(conditions[item], offset) if item in conditions else time.fromisoformat(item)
         if type(item) in (int, float, Decimal):
             return decimal(item)
         if 'ref' in item:
             name = item['ref']
             value = values[name]
             if isinstance(value, (list, tuple)):
-                shift = item.get('shift', 0)
+                shift = item.get('shift', 0) + offset
                 if len(value) <= shift:
                     raise MissingValue(name)
                 value = value[-1-shift]
-            elif item.get('shift', 0):
+            elif item.get('shift', 0) or offset:
                 raise MissingValue(name)
             if value is None:
                 raise MissingValue(name)
@@ -112,8 +126,14 @@ def evaluate_expression(node, values, conditions=None):
                 raise ValueError('NUMBER_REQUIRED')
             return decimal(value)
         op, args = next(iter(item.items()))
+        if op in CROSS:
+            previous = [evaluate(arg, offset + 1) for arg in args]
+            current = [evaluate(arg, offset) for arg in args]
+            if op == 'cross_up':
+                return previous[0] <= previous[1] and current[0] > current[1]
+            return previous[0] >= previous[1] and current[0] < current[1]
         # Evaluate operands recursively
-        operands = [evaluate(arg) for arg in args]
+        operands = [evaluate(arg, offset) for arg in args]
         if op == 'all': return all(operands)
         if op == 'any': return any(operands)
         if op == 'floor': return operands[0].to_integral_value(rounding=ROUND_FLOOR)

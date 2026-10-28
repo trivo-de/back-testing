@@ -1,4 +1,4 @@
-"""Synthetic U05/U06 integration checks; the fixture runner is not a production strategy."""
+'Legacy internal engine/normalization/storage regressions; production POST accepts only price-only requests. Synthetic U05/U06 integration checks; the fixture runner is not a production strategy.'
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from decimal import Decimal as D
@@ -11,7 +11,7 @@ from unittest.mock import patch
 from uuid import UUID
 from zoneinfo import ZoneInfo
 from fastapi.testclient import TestClient
-from backtesting_api.api.app import create_app
+from legacy_inline_app import legacy_inline_app
 from backtesting_api.api.inline_schemas import InlineRunRequest
 from backtesting_api.application.inline_data import resolve_inline
 from backtesting_api.application.run_backtest import BacktestService
@@ -66,10 +66,10 @@ class InlinePipelineTest(unittest.TestCase):
         self.store = Path(temporary.name)
         self.repository = FileRunRepository(self.store, self.store / 'unused-v0-policy.json')
         self.service = BacktestService(self.repository, inline_runner=fixture_runner)
-        self.client = TestClient(create_app(self.service))
+        self.client = TestClient(legacy_inline_app(self.service))
 
     def test_json_engine_storage_reload_and_same_bar_exit_links(self):
-        response = self.client.post('/api/backtests', json=payload())
+        response = self.client.post('/internal-test/legacy/backtests', json=payload())
         self.assertEqual(response.status_code, 201, response.text)
         result = response.json()
         self.assertEqual(result['schema_version'], 2)
@@ -83,7 +83,7 @@ class InlinePipelineTest(unittest.TestCase):
         self.assertIsNone(result['open_position'])
         self.assertIn('required_margin', result['equity_history'][0])
         run_id = result['metadata']['run_id']
-        fresh = TestClient(create_app(BacktestService(FileRunRepository(self.store, self.store / 'unused'))))
+        fresh = TestClient(legacy_inline_app(BacktestService(FileRunRepository(self.store, self.store / 'unused'))))
         self.assertEqual(fresh.get('/api/backtests/' + run_id).json(), result)
         self.assertEqual(fresh.get('/api/backtests').json(), [result])
         document = fresh.get(f'/api/backtests/{run_id}/input').json()
@@ -92,13 +92,13 @@ class InlinePipelineTest(unittest.TestCase):
         chart = fresh.get(f'/api/backtests/{run_id}/chart').json()
         self.assertEqual(len(chart['bars']), 3)
         self.assertIsNone(chart['bars'][0]['volume'])
-        repeated = self.client.post('/api/backtests', json=payload()).json()
+        repeated = self.client.post('/internal-test/legacy/backtests', json=payload()).json()
         self.assertEqual(repeated['summary'], result['summary'])
         self.assertEqual(repeated['equity_history'], result['equity_history'])
         self.assertEqual(repeated['metadata']['input_hash'], result['metadata']['input_hash'])
 
     def test_corrupt_input_result_and_schema_are_not_silently_accepted(self):
-        result = self.client.post('/api/backtests', json=payload()).json()
+        result = self.client.post('/internal-test/legacy/backtests', json=payload()).json()
         run_id = result['metadata']['run_id']
         input_path = self.store / 'inputs' / (result['metadata']['input_hash'] + '.json')
         raw = input_path.read_bytes()
@@ -121,19 +121,19 @@ class InlinePipelineTest(unittest.TestCase):
     def test_failed_run_and_atomic_write_failure_never_publish_success(self):
         def broken(data, p): raise ValueError('FIXTURE_FAILURE')
         self.service.inline_runner = broken
-        self.assertEqual(self.client.post('/api/backtests', json=payload()).status_code, 422)
+        self.assertEqual(self.client.post('/internal-test/legacy/backtests', json=payload()).status_code, 422)
         records = [json.loads(p.read_bytes()) for p in (self.store / 'runs').glob('*.json')]
         self.assertEqual([v['status'] for v in records], ['failed'])
         self.assertIn('input_hash', records[0])
         self.assertEqual(self.client.get('/api/backtests').json(), [])
         self.service.inline_runner = fixture_runner
         with patch('backtesting_api.infrastructure.file_repository.os.replace', side_effect=OSError('disk unavailable')):
-            self.assertEqual(self.client.post('/api/backtests', json=payload()).status_code, 503)
+            self.assertEqual(self.client.post('/internal-test/legacy/backtests', json=payload()).status_code, 503)
         self.assertFalse(list(self.store.rglob('*.tmp')))
 
     def test_no_production_runner_rejects_without_starting_or_falling_back(self):
         self.service.inline_runner = None
-        response = self.client.post('/api/backtests', json=payload())
+        response = self.client.post('/internal-test/legacy/backtests', json=payload())
         self.assertEqual(response.status_code, 422)
         self.assertIn('INLINE_STRATEGY_RUNTIME_NOT_IMPLEMENTED', response.json()['detail'])
         self.assertFalse((self.store / 'runs').exists())
@@ -143,7 +143,7 @@ class InlinePipelineTest(unittest.TestCase):
         run_id = UUID(legacy['metadata']['run_id'])
         self.repository.complete_run(run_id, None, legacy)
         self.assertEqual(self.client.get('/api/backtests/' + str(run_id)).json(), legacy)
-        created = self.client.post('/api/backtests', json=payload())
+        created = self.client.post('/internal-test/legacy/backtests', json=payload())
         self.assertEqual(created.status_code, 201, created.text)
         self.assertEqual(len(self.client.get('/api/backtests').json()), 2)
 
@@ -155,7 +155,7 @@ class InlinePipelineTest(unittest.TestCase):
                               execution=lambda cash: ContractExecution(cash, ContractAccounting(**{
                                   key: value for key, value in p['accounting'].items() if key != 'model'})))
         self.service.inline_runner = short_runner
-        result = self.client.post('/api/backtests', json=payload()).json()
+        result = self.client.post('/internal-test/legacy/backtests', json=payload()).json()
         self.assertEqual(result['open_position']['direction'], 'SHORT')
         self.assertEqual(result['open_position']['quantity'], 2)
         self.assertEqual(result['orders'][-1]['status'], 'pending')
@@ -163,7 +163,7 @@ class InlinePipelineTest(unittest.TestCase):
         self.assertEqual(result['equity_history'][-1]['unrealized_pnl'], '-2400000')
         p = payload()
         p['initial_cash'] = '1'
-        rejected = self.client.post('/api/backtests', json=p)
+        rejected = self.client.post('/internal-test/legacy/backtests', json=p)
         self.assertEqual(rejected.status_code, 422)  # Fixture cannot close a rejected entry.
 
 

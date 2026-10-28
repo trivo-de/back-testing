@@ -1,5 +1,12 @@
 # Thiết kế hệ thống — Backtesting API
 
+API hiện tại theo [hợp đồng khớp ngay hoặc LO, một vị thế và điểm](price-only-contract.md),
+đã triển khai B–D. POST/validate chỉ nhận cấu hình, máy chủ luôn lấy dữ liệu; kết quả mới là schema 3.
+[Kiểm chứng C–D](../testing/price-only-cd.md) ghi phạm vi đã kiểm tra. Lịch sử cũ vẫn đọc theo đơn vị gốc.
+
+**Các mục bên dưới là tài liệu đường cũ để đối chiếu lịch sử**, không phải cấu trúc POST
+đang được chấp nhận. Việc dọn đầy đủ tài liệu và mã cũ thuộc phần F.
+
 ## 1. Mục tiêu và luồng xử lý
 
 Ứng dụng nhận JSON và xử lý theo các lớp:

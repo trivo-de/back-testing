@@ -1,4 +1,4 @@
-"""Offline checks of source selection, upstream errors and snapshot replay."""
+'Legacy internal engine/normalization/storage regressions; production POST accepts only price-only requests. Offline checks of source selection, upstream errors and snapshot replay.'
 from datetime import datetime
 from decimal import Decimal
 import hashlib
@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
-from backtesting_api.api.app import create_app
+from legacy_inline_app import legacy_inline_app
 from backtesting_api.api.inline_schemas import InlineRunRequest
 from backtesting_api.application.inline_strategy import run_inline_strategy
 from backtesting_api.application.inline_data import resolve_inline
@@ -60,7 +60,7 @@ class AutoFetchTest(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.repository = FileRunRepository(Path(temporary.name))
         self.service = BacktestService(self.repository, inline_runner=run_inline_strategy, data_fetcher=self.fetcher)
-        self.client = TestClient(create_app(self.service))
+        self.client = TestClient(legacy_inline_app(self.service))
 
     def test_session_lo_auto_fetch_validates_executes_and_replays(self):
         p = session_payload()
@@ -71,7 +71,7 @@ class AutoFetchTest(unittest.TestCase):
         self.raw = json.dumps(raw).encode()
         self.fetcher.clock = lambda: NOW.replace(hour=15, minute=0, second=0)
 
-        response = self.client.post('/api/backtests/validate', json=p)
+        response = self.client.post('/internal-test/legacy/backtests/validate', json=p)
         self.assertEqual(response.status_code, 200, response.text)
         prepared = response.json()['payload']
         self.assertFalse(prepared['auto_fetch_data'])
@@ -82,7 +82,7 @@ class AutoFetchTest(unittest.TestCase):
         self.assertEqual(response.json()['data']['auto_fetch']['contract_mapping_assumption'], 'expiry_inclusive')
         InlineRunRequest.model_validate(prepared)
 
-        run = self.client.post('/api/backtests', json=p)
+        run = self.client.post('/internal-test/legacy/backtests', json=p)
         self.assertEqual(run.status_code, 201, run.text)
         result = run.json()
         self.assertEqual(result['metadata']['input_origin'], 'auto_fetch')
@@ -91,7 +91,7 @@ class AutoFetchTest(unittest.TestCase):
         document = self.client.get('/api/backtests/' + result['metadata']['run_id'] + '/input').json()
         self.assertEqual(document['payload'], prepared)
         self.opener.reset_mock()
-        replay = self.client.post('/api/backtests', json=document['payload'])
+        replay = self.client.post('/internal-test/legacy/backtests', json=document['payload'])
         self.assertEqual(replay.status_code, 201, replay.text)
         self.opener.assert_not_called()
         self.assertEqual(replay.json()['summary'], result['summary'])
@@ -105,7 +105,7 @@ class AutoFetchTest(unittest.TestCase):
         p['auto_fetch_data'] = True
         self.fetcher.clock = lambda: NOW.replace(day=20, hour=15, minute=0, second=0)
         self.raw = raw_source([int(NOW.replace(day=day, hour=9, minute=0, second=0).timestamp()) for day in (15, 16)])
-        response = self.client.post('/api/backtests/validate', json=p)
+        response = self.client.post('/internal-test/legacy/backtests/validate', json=p)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()['payload']['trade_data']['contract_dates'], [
             {'date': '2026-10-15', 'contract_code': 'VN30F2610'},
@@ -115,7 +115,7 @@ class AutoFetchTest(unittest.TestCase):
         path = self.repository.store / 'mapping-policy.json'
         path.write_text(json.dumps(policy), encoding='utf-8')
         self.service.auto_fetch_policy_path = path
-        response = self.client.post('/api/backtests/validate', json=p)
+        response = self.client.post('/internal-test/legacy/backtests/validate', json=p)
         self.assertEqual(response.status_code, 422, response.text)
         self.assertIn('CONTRACT_MAP_MONTH_MISSING', response.json()['detail'])
 
@@ -123,7 +123,7 @@ class AutoFetchTest(unittest.TestCase):
         p = session_payload(atc=True)
         p.pop('trade_data'); p.pop('market_data', None)
         p['auto_fetch_data'] = True
-        response = self.client.post('/api/backtests/validate', json=p)
+        response = self.client.post('/internal-test/legacy/backtests/validate', json=p)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertFalse(response.json()['payload']['auto_fetch_data'])
         self.opener.reset_mock()
@@ -131,7 +131,7 @@ class AutoFetchTest(unittest.TestCase):
         p.pop('trade_data'); p.pop('market_data', None)
         p['auto_fetch_data'] = True
         p['execution']['slippage_rate'] = '.001'
-        response = self.client.post('/api/backtests/validate', json=p)
+        response = self.client.post('/internal-test/legacy/backtests/validate', json=p)
         self.assertEqual(response.status_code, 422, response.text)
         self.assertIn('SESSION_MATCHING_REQUIRES_CONTRACT_5M_ZERO_SLIPPAGE', response.text)
         self.opener.assert_not_called()
@@ -199,7 +199,7 @@ class AutoFetchTest(unittest.TestCase):
                 p['auto_fetch_data'] = True
                 p['report'] = {'start_date': '2026-04-15', 'end_date': '2026-10-14'}
                 p['strategy']['warmup_bars'] = 150
-                validated = self.client.post('/api/backtests/validate', json=p)
+                validated = self.client.post('/internal-test/legacy/backtests/validate', json=p)
                 self.assertEqual(validated.status_code, 200, validated.text)
                 data, prepared = validated.json()['data'], validated.json()['payload']
                 self.assertEqual(data['report_range'], {'start': '2026-04-15', 'end': '2026-10-14'})
@@ -210,14 +210,14 @@ class AutoFetchTest(unittest.TestCase):
                     self.assertEqual([row['time'] for row in prepared[name]['bars']], stamps[3:])
                 self.assertEqual(data['warmup_bars'], {'trade_data': 0, 'market_data': 0})
                 InlineRunRequest.model_validate(prepared)
-                run = self.client.post('/api/backtests', json=p)
+                run = self.client.post('/internal-test/legacy/backtests', json=p)
                 self.assertEqual(run.status_code, 201, run.text)
                 result = run.json()
                 self.assertEqual(result['evaluation_status']['status'], 'UNEVALUABLE')
                 self.assertEqual(result['signals'], [])
                 self.assertEqual(result['metadata']['report_range'], data['report_range'])
                 self.opener.reset_mock()
-                replay = self.client.post('/api/backtests', json=prepared)
+                replay = self.client.post('/internal-test/legacy/backtests', json=prepared)
                 self.assertEqual(replay.status_code, 201, replay.text)
                 self.assertEqual(replay.json()['summary'], result['summary'])
                 self.opener.assert_not_called()
@@ -237,7 +237,7 @@ class AutoFetchTest(unittest.TestCase):
         p['auto_fetch_data'] = True
         p['report'] = {'start_date': '2026-04-15', 'end_date': '2026-04-15'}
         p['strategy']['warmup_bars'] = 10000
-        response = self.client.post('/api/backtests/validate', json=p)
+        response = self.client.post('/internal-test/legacy/backtests/validate', json=p)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()['data']['auto_fetch']['history_start_limit'], '2026-04-01')
         self.assertEqual(datetime.fromtimestamp(response.json()['data']['auto_fetch']['from'], ZONE),
@@ -247,14 +247,14 @@ class AutoFetchTest(unittest.TestCase):
         p['report'] = {'start_date': '2026-03-25', 'end_date': '2026-04-15'}
         self.raw = raw_source([int(datetime(2026, month, day, 9, 5, tzinfo=ZONE).timestamp())
                                for month, day in ((3, 25), (4, 15))])
-        response = self.client.post('/api/backtests/validate', json=p)
+        response = self.client.post('/internal-test/legacy/backtests/validate', json=p)
         self.assertEqual(response.status_code, 422, response.text)
         self.assertEqual(response.json()['detail'], 'CONTRACT_MAP_COVERAGE_MISSING')
 
         policy['rollover'] = []
         path.write_text(json.dumps(policy), encoding='utf-8')
         self.opener.reset_mock()
-        response = self.client.post('/api/backtests/validate', json=p)
+        response = self.client.post('/internal-test/legacy/backtests/validate', json=p)
         self.assertEqual(response.status_code, 422, response.text)
         self.assertEqual(response.json()['detail'], 'CONTRACT_MAP_COVERAGE_MISSING')
         self.opener.assert_not_called()
@@ -276,14 +276,14 @@ class AutoFetchTest(unittest.TestCase):
         ])
         payload = automatic_payload()
         payload['report'] = {'start_date': '2026-10-07', 'end_date': '2026-10-08'}
-        response = self.client.post('/api/backtests/validate', json=payload)
+        response = self.client.post('/internal-test/legacy/backtests/validate', json=payload)
         self.assertEqual(response.status_code, 200, response.text)
         metadata = response.json()['data']['auto_fetch']
         self.assertEqual(datetime.fromtimestamp(metadata['from'], ZONE),
                          datetime(2026, 10, 7, tzinfo=ZONE))
         self.assertEqual(datetime.fromtimestamp(metadata['to'], ZONE),
                          datetime(2026, 10, 8, 23, 59, 59, tzinfo=ZONE))
-        run = self.client.post('/api/backtests', json=payload)
+        run = self.client.post('/internal-test/legacy/backtests', json=payload)
         self.assertEqual(run.status_code, 201, run.text)
         self.assertEqual(run.json()['metadata']['auto_fetch'], metadata)
 
@@ -349,7 +349,7 @@ class AutoFetchTest(unittest.TestCase):
         self.opener.side_effect = upstream
         p.pop('trade_data'); p.pop('market_data', None)
         p['auto_fetch_data'] = True
-        validated = self.client.post('/api/backtests/validate', json=p)
+        validated = self.client.post('/internal-test/legacy/backtests/validate', json=p)
         self.assertEqual(validated.status_code, 200, validated.text)
         prepared = validated.json()['payload']
         self.assertEqual([r['time'] for r in prepared['market_data']['bars']], history[1:] + [report])
@@ -358,7 +358,7 @@ class AutoFetchTest(unittest.TestCase):
         self.assertIn('2026-03-25T14:30:00+07:00', data.metadata['data_gaps']['market_data'])
         self.assertIn('2026-03-26T09:00:00+07:00', data.metadata['data_gaps']['trade_data'])
         self.opener.reset_mock()
-        response = self.client.post('/api/backtests', json=prepared)
+        response = self.client.post('/internal-test/legacy/backtests', json=prepared)
         self.assertEqual(response.status_code, 201, response.text)
         self.assertEqual(response.json()['signals'], [])
         self.opener.assert_not_called()
@@ -376,12 +376,12 @@ class AutoFetchTest(unittest.TestCase):
                 p['strategy']['warmup_bars'] = 150
                 if factory is session_payload:
                     p['strategy']['entry']['conditions']['LONG'] = {'gt': [{'ref': 'market_data.close'}, 0]}
-                validated = self.client.post('/api/backtests/validate', json=p)
+                validated = self.client.post('/internal-test/legacy/backtests/validate', json=p)
                 self.assertEqual(validated.status_code, 200, validated.text)
                 metadata = validated.json()['data']
                 self.assertEqual(metadata['report_range'], {'start': '2026-04-10', 'end': '2026-10-14'})
                 self.assertEqual(metadata['available_range'], {'start': '2026-04-15', 'end': '2026-10-14'})
-                run = self.client.post('/api/backtests', json=p)
+                run = self.client.post('/internal-test/legacy/backtests', json=p)
                 self.assertEqual(run.status_code, 201, run.text)
                 result = run.json()
                 self.assertEqual(result['signals'], [])
@@ -389,7 +389,7 @@ class AutoFetchTest(unittest.TestCase):
                 self.assertEqual(result['metadata']['available_range'], metadata['available_range'])
                 document = self.client.get('/api/backtests/' + result['metadata']['run_id'] + '/input').json()
                 self.opener.reset_mock()
-                replay = self.client.post('/api/backtests', json=document['payload'])
+                replay = self.client.post('/internal-test/legacy/backtests', json=document['payload'])
                 self.assertEqual(replay.status_code, 201, replay.text)
                 self.assertEqual(replay.json()['summary'], result['summary'])
                 self.assertEqual(replay.json()['metadata']['available_range'], metadata['available_range'])
@@ -408,11 +408,11 @@ class AutoFetchTest(unittest.TestCase):
         for raw in invalid:
             with self.subTest(raw=raw):
                 self.raw = raw
-                response = self.client.post('/api/backtests/validate', json=automatic_payload())
+                response = self.client.post('/internal-test/legacy/backtests/validate', json=automatic_payload())
                 self.assertEqual(response.status_code, 422)
                 self.assertIn('AUTO_FETCH_INVALID_SOURCE:trade_data', response.json()['detail'])
         self.raw = raw_source([TIMES[-1]])
-        response = self.client.post('/api/backtests', json=automatic_payload())
+        response = self.client.post('/internal-test/legacy/backtests', json=automatic_payload())
         self.assertEqual(response.status_code, 422)
         self.assertIn('AUTO_FETCH_NO_CLOSED_BARS', response.json()['detail'])
         self.assertEqual(self.repository.list_runs(), [])
@@ -421,12 +421,12 @@ class AutoFetchTest(unittest.TestCase):
         for error, code in [(HTTPError('url', 500, 'error', {}, None), 'AUTO_FETCH_HTTP_ERROR:trade_data:500'),
                             (URLError('offline'), 'AUTO_FETCH_NETWORK_ERROR:trade_data')]:
             self.opener.side_effect = error
-            for route in ('/api/backtests/validate', '/api/backtests'):
+            for route in ('/internal-test/legacy/backtests/validate', '/internal-test/legacy/backtests'):
                 response = self.client.post(route, json=automatic_payload())
                 self.assertEqual(response.status_code, 503)
                 self.assertEqual(response.json()['detail'], code)
         self.service.data_fetcher = None
-        response = self.client.post('/api/backtests', json=automatic_payload())
+        response = self.client.post('/internal-test/legacy/backtests', json=automatic_payload())
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()['detail'], 'AUTO_FETCH_UNAVAILABLE')
 
@@ -451,21 +451,21 @@ class AutoFetchTest(unittest.TestCase):
         for supplied in (json.loads(self.raw), {'bars': []}, 'invalid', []):
             p = {**automatic_payload(), 'trade_data': supplied, 'market_data': supplied}
             with self.subTest(supplied=supplied):
-                validation = self.client.post('/api/backtests/validate', json=p)
+                validation = self.client.post('/internal-test/legacy/backtests/validate', json=p)
                 self.assertEqual(validation.status_code, 200, validation.text)
                 prepared = validation.json()['payload']
                 for name, symbol in (('trade_data', 'VN30F1M'), ('market_data', 'VNINDEX')):
                     self.assertEqual(prepared[name]['symbol'], symbol)
                     self.assertEqual([b['time'] for b in prepared[name]['bars']], TIMES[:2])
-                run = self.client.post('/api/backtests', json=p)
+                run = self.client.post('/internal-test/legacy/backtests', json=p)
                 self.assertEqual(run.status_code, 201, run.text)
                 self.assertEqual(run.json()['metadata']['input_origin'], 'auto_fetch')
         self.opener.reset_mock()
         p['auto_fetch_data'] = False
-        for route in ('/api/backtests/validate', '/api/backtests'):
+        for route in ('/internal-test/legacy/backtests/validate', '/internal-test/legacy/backtests'):
             self.assertEqual(self.client.post(route, json=p).status_code, 422)
         p.pop('auto_fetch_data')
-        self.assertEqual(self.client.post('/api/backtests', json=p).status_code, 422)
+        self.assertEqual(self.client.post('/internal-test/legacy/backtests', json=p).status_code, 422)
         self.opener.assert_not_called()
 
     def test_service_overwrites_manual_sources_and_fetch_failure_never_uses_them(self):
@@ -478,7 +478,7 @@ class AutoFetchTest(unittest.TestCase):
         manual = {**automatic_payload(), 'trade_data': json.loads(self.raw),
                   'market_data': json.loads(self.raw)}
         self.opener.side_effect = HTTPError('url', 500, 'error', {}, None)
-        for route in ('/api/backtests/validate', '/api/backtests'):
+        for route in ('/internal-test/legacy/backtests/validate', '/internal-test/legacy/backtests'):
             response = self.client.post(route, json=manual)
             self.assertEqual(response.status_code, 503, response.text)
             self.assertEqual(response.json()['detail'], 'AUTO_FETCH_HTTP_ERROR:trade_data:500')
@@ -486,7 +486,7 @@ class AutoFetchTest(unittest.TestCase):
 
     def test_second_source_failure_does_not_start_a_run(self):
         self.opener.side_effect = [io.BytesIO(self.raw), HTTPError('url', 500, 'error', {}, None)]
-        response = self.client.post('/api/backtests', json=automatic_payload())
+        response = self.client.post('/internal-test/legacy/backtests', json=automatic_payload())
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()['detail'], 'AUTO_FETCH_HTTP_ERROR:market_data:500')
         self.assertEqual(list(self.repository.store.iterdir()), [])
@@ -500,14 +500,14 @@ class AutoFetchTest(unittest.TestCase):
         self.assertIs(schema['properties']['auto_fetch_data']['default'], False)
 
     def test_validate_returns_replayable_sources_and_run_pins_provenance(self):
-        response = self.client.post('/api/backtests/validate', json=automatic_payload())
+        response = self.client.post('/internal-test/legacy/backtests/validate', json=automatic_payload())
         self.assertEqual(response.status_code, 200, response.text)
         prepared = response.json()['payload']
         self.assertFalse(prepared['auto_fetch_data'])
         InlineRunRequest.model_validate(prepared)
         self.assertEqual(response.json()['data']['input_origin'], 'auto_fetch')
         self.assertEqual(self.repository.list_runs(), [])
-        automatic = self.client.post('/api/backtests', json=automatic_payload())
+        automatic = self.client.post('/internal-test/legacy/backtests', json=automatic_payload())
         self.assertEqual(automatic.status_code, 201, automatic.text)
         result = automatic.json()
         self.assertIsNotNone(datetime.fromisoformat(result['metadata']['run_at']).tzinfo)
@@ -522,7 +522,7 @@ class AutoFetchTest(unittest.TestCase):
         self.assertEqual(chart.status_code, 200, chart.text)
         self.assertEqual(len(chart.json()['bars']), 2)
         self.opener.reset_mock()
-        replay = self.client.post('/api/backtests', json=document['payload'])
+        replay = self.client.post('/internal-test/legacy/backtests', json=document['payload'])
         self.assertEqual(replay.status_code, 201, replay.text)
         self.opener.assert_not_called()
         for field in ('summary', 'signals', 'fills', 'equity_history'):
@@ -536,12 +536,12 @@ class AutoFetchTest(unittest.TestCase):
     def test_explicit_report_must_fit_and_contract_calendar_covers_october(self):
         invalid = automatic_payload()
         invalid['report'] = {'start_date': '2027-04-09', 'end_date': '2027-10-09'}
-        response = self.client.post('/api/backtests', json=invalid)
+        response = self.client.post('/internal-test/legacy/backtests', json=invalid)
         self.assertEqual(response.status_code, 422)
         self.assertIn('end_date must be less than or equal to now', response.json()['detail'])
         contract = sample()
         contract.pop('trade_data'); contract.pop('market_data'); contract['auto_fetch_data'] = True
-        response = self.client.post('/api/backtests/validate', json=contract)
+        response = self.client.post('/internal-test/legacy/backtests/validate', json=contract)
         self.assertEqual(response.status_code, 200, response.text)
         data = response.json()['data']
         self.assertEqual(data['input_origin'], 'auto_fetch')

@@ -117,7 +117,8 @@ class FileRunRepository:
 
     def start_inline(self, payload, policy, data):
         """Pin the complete request and policy without requiring a registered dataset."""
-        document = {'schema_version': 1, 'payload': payload, 'policy': policy, 'data_metadata': data.metadata}
+        version = 2 if 'request' in payload and 'sources' in payload else 1
+        document = {'schema_version': version, 'payload': payload, 'policy': policy, 'data_metadata': data.metadata}
         raw = _json_bytes(document)
         input_hash = hashlib.sha256(raw).hexdigest()
         path = self.store / 'inputs' / f'{input_hash}.json'
@@ -125,7 +126,7 @@ class FileRunRepository:
         if path.read_bytes() != raw: raise ValueError('INPUT_INTEGRITY_ERROR')
         run_id = uuid4()
         _publish_json(self.store / 'runs' / f'{run_id}.json', {
-            'schema_version': 2, 'status': 'running', 'input_hash': input_hash})
+            'schema_version': 3 if version == 2 else 2, 'status': 'running', 'input_hash': input_hash})
         return run_id, input_hash, hashlib.sha256(_json_bytes(policy)).hexdigest()
 
     # Read and verify the input document identified by its pinned hash.
@@ -139,14 +140,14 @@ class FileRunRepository:
             raise ValueError('INPUT_ARTIFACT_MISSING') from None
         if hashlib.sha256(raw).hexdigest() != input_hash: raise ValueError('INPUT_INTEGRITY_ERROR')
         document = json.loads(raw)
-        if document.get('schema_version') != 1: raise ValueError('INPUT_SCHEMA_UNSUPPORTED')
+        if document.get('schema_version') not in (1, 2): raise ValueError('INPUT_SCHEMA_UNSUPPORTED')
         return document
 
     # Return verified inline inputs for a saved run.
     def get_input(self, run_id):
         response = self.get_run(run_id)
         if response is None: return None
-        if response.get('schema_version') != 2: raise ValueError('INLINE_INPUT_NOT_AVAILABLE_FOR_LEGACY_RUN')
+        if response.get('schema_version') not in (2, 3): raise ValueError('INLINE_INPUT_NOT_AVAILABLE_FOR_LEGACY_RUN')
         return self._inline_input(response['metadata']['input_hash'])
 
     # ============================== State and results ==============================
@@ -158,12 +159,20 @@ class FileRunRepository:
             raise ValueError("RUN_ID_MISMATCH")
         version = response.get('schema_version', 1)
         extra = {}
-        if version == 2:
+        if version in (2, 3):
         # v1 results must match the input_hash pinned when the run started.
             current = json.loads((self.store / 'runs' / f'{run_id}.json').read_bytes())
-            if current.get('status') != 'running' or current.get('input_hash') != response['metadata']['input_hash']:
+            if (current.get('status') != 'running' or current.get('schema_version') != version
+                    or current.get('input_hash') != response['metadata']['input_hash']):
                 raise ValueError('RUN_INPUT_MISMATCH')
-            self._inline_input(current['input_hash'])
+            document = self._inline_input(current['input_hash'])
+            if document.get('schema_version') != version - 1:
+                raise ValueError('INPUT_SCHEMA_UNSUPPORTED')
+            if hashlib.sha256(_json_bytes(document['policy'])).hexdigest() != response['metadata']['policy_hash']:
+                raise ValueError('POLICY_INTEGRITY_ERROR')
+            if version == 3 and (document['payload']['effective_config'] != response['metadata']['effective_config']
+                    or document['payload']['effective_config']['default_profile_version'] != response['metadata']['default_profile_version']):
+                raise ValueError('EFFECTIVE_CONFIG_MISMATCH')
             extra['input_hash'] = current['input_hash']
         elif version != 1:
             raise ValueError('RESULT_SCHEMA_UNSUPPORTED')
@@ -176,7 +185,7 @@ class FileRunRepository:
     def fail_run(self, run_id: UUID, error: Exception) -> None:
         path = self.store / 'runs' / f'{run_id}.json'
         current = json.loads(path.read_bytes())
-        if current.get('schema_version') == 2:
+        if current.get('schema_version') in (2, 3):
             if current.get('status') != 'running': raise ValueError('RUN_ALREADY_FINALIZED')
             _publish_json(path, {**current, 'status': 'failed', 'error_type': type(error).__name__})
             return
@@ -190,7 +199,7 @@ class FileRunRepository:
         if not path.exists():
             return None
         value = json.loads(path.read_bytes())
-        if value.get("schema_version") not in (1, 2):
+        if value.get("schema_version") not in (1, 2, 3):
             raise ValueError("RESULT_SCHEMA_UNSUPPORTED")
         if value.get("status") not in ("running", "failed", "succeeded"):
             raise ValueError("RESULT_STATUS_INVALID")
@@ -200,13 +209,18 @@ class FileRunRepository:
         if (hashlib.sha256(_json_bytes(response)).hexdigest() != value["result_hash"]
                 or response["metadata"]["run_id"] != str(run_id)):
             raise ValueError("RESULT_INTEGRITY_ERROR")
-        if value['schema_version'] == 2:
+        if value['schema_version'] in (2, 3):
             # Inline runs verify the stored payload without opening a dataset manifest.
-            if response.get('schema_version') != 2 or response['metadata'].get('input_hash') != value.get('input_hash'):
+            if response.get('schema_version') != value['schema_version'] or response['metadata'].get('input_hash') != value.get('input_hash'):
                 raise ValueError('RUN_INPUT_MISMATCH')
             document = self._inline_input(value['input_hash'])
+            if document.get('schema_version') != value['schema_version'] - 1:
+                raise ValueError('INPUT_SCHEMA_UNSUPPORTED')
             if hashlib.sha256(_json_bytes(document['policy'])).hexdigest() != response['metadata']['policy_hash']:
                 raise ValueError('POLICY_INTEGRITY_ERROR')
+            if value['schema_version'] == 3 and (document['payload']['effective_config'] != response['metadata']['effective_config']
+                    or document['payload']['effective_config']['default_profile_version'] != response['metadata']['default_profile_version']):
+                raise ValueError('EFFECTIVE_CONFIG_MISMATCH')
         return response
 
     # List saved successful runs in repository order.
@@ -216,7 +230,7 @@ class FileRunRepository:
 
     # Yield compact run summaries after the requested continuation cursor.
     def iter_run_summaries(self, after: UUID | None = None):
-        # ponytail: reads one full file at a time; add a summary index if disk scans become slow.
+        # shortcut: reads one full file at a time, add a summary index if disk scans become slow.
         for path in sorted((self.store / 'runs').glob('*.json'), reverse=True):
             if after is not None and path.stem >= str(after):
                 continue
@@ -230,15 +244,37 @@ class FileRunRepository:
             if run_at is None:
                 stat = path.stat()
                 run_at = datetime.fromtimestamp(getattr(stat, 'st_birthtime', stat.st_mtime), timezone.utc).isoformat()
-            item = {'run_id': metadata['run_id'],
+            version = run.get('schema_version', 1)
+            item = {'run_id': metadata['run_id'], 'schema_version': version,
                     'run_at': run_at,
                     'symbol': metadata.get('symbol', config.get('symbol')),
                     'resolution': metadata.get('resolution', metadata.get('timeframe')),
                     'start_date': report.get('start', metadata.get('start_date', config.get('start_date'))),
                     'end_date': report.get('end', metadata.get('end_date', config.get('end_date'))),
-                    'money_unit': metadata.get('money_unit'),
-                    'total_return': str(summary['total_return']),
-                    'final_equity': str(summary['final_equity'])}
+                    'money_unit': metadata.get('money_unit') if version != 3 else None,
+                    'pnl_unit': summary['pnl_unit'] if version == 3 else None}
+            if version == 3:
+                if summary['pnl_unit'] != 'point_quantity':
+                    raise ValueError('RESULT_SUMMARY_INVALID')
+                for name in ('realized_pnl', 'unrealized_pnl', 'total_pnl', 'max_drawdown'):
+                    value = Decimal(str(summary[name]))
+                    if not value.is_finite() or (name == 'max_drawdown' and value < 0):
+                        raise ValueError('RESULT_SUMMARY_INVALID')
+                    item[name] = str(summary[name])
+                if Decimal(item['total_pnl']) != Decimal(item['realized_pnl']) + Decimal(item['unrealized_pnl']):
+                    raise ValueError('RESULT_SUMMARY_INVALID')
+                for name in ('closed_positions', 'open_positions'):
+                    if type(summary[name]) is not int or summary[name] < 0:
+                        raise ValueError('RESULT_SUMMARY_INVALID')
+                    item[name] = summary[name]
+                rate = summary['win_rate']
+                if (summary['open_positions'] > 1 or (summary['closed_positions'] == 0 and rate is not None)
+                        or (summary['closed_positions'] > 0 and rate is None)
+                        or (rate is not None and (not Decimal(str(rate)).is_finite() or not 0 <= Decimal(str(rate)) <= 1))):
+                    raise ValueError('RESULT_SUMMARY_INVALID')
+                item['win_rate'] = str(rate) if rate is not None else None
+            else:
+                item.update(total_return=str(summary['total_return']), final_equity=str(summary['final_equity']))
             del run
             yield item
 
@@ -248,6 +284,21 @@ class FileRunRepository:
         if response is None:
             return None
         metadata = response["metadata"]
+        if response.get('schema_version') == 3:
+            from ..application.price_strategy import resolve_price_data
+            document = self._inline_input(metadata['input_hash'])
+            sources = document['payload']['sources']
+            data = resolve_price_data(sources, document['payload']['request'], document['policy'],
+                                      document['data_metadata']['auto_fetch'])
+            # Preserve source records, including auction observations, without changing old charts.
+            def price_rows(rows):
+                """Serialize only the pinned source candles inside this run's report."""
+                return [{'time': int(bar.trading_date.timestamp()), 'open': str(bar.open), 'high': str(bar.high),
+                         'low': str(bar.low), 'close': str(bar.close), 'volume': str(bar.volume) if bar.volume is not None else None,
+                         'close_time': bar.closed_at.isoformat(), 'available_at': bar.available_at.isoformat(),
+                         'contract_code': bar.contract_code}
+                        for bar in rows if data.start_date <= bar.trading_date.date() <= data.end_date]
+            return {'metadata': metadata, 'bars': price_rows(data.bars), 'market_bars': price_rows(data.market_bars)}
         if response.get('schema_version') == 2:
             # build chart data from the pinned input payload
             document = self._inline_input(metadata['input_hash'])

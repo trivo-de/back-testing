@@ -139,7 +139,7 @@ export function renderCharts(data, metadata, onFillSelect = /* Ignore fill selec
     }
     if (marketChart) $('#market-chart').style.height = `${240 + (marketChart.panes().length - 1) * 120}px`;
     equityChart = createChart($('#equity-chart'), options);
-    equityChart.addSeries(LineSeries, {color: '#245ea8'}).setData(data.equity);
+    equityChart.addSeries(LineSeries, {color: '#245ea8', title: data.priceOnly ? 'Lãi/lỗ (điểm × lượng)' : 'Vốn theo đơn vị gốc'}).setData(data.equity);
     /** Hide the fill tooltip. */
     const hideTooltip = () => { $('#fill-tooltip').hidden = true; };
     /** Show details for a fill at the supplied chart point. */
@@ -149,7 +149,7 @@ export function renderCharts(data, metadata, onFillSelect = /* Ignore fill selec
         const tooltip = $('#fill-tooltip');
         const title = document.createElement('strong'); title.textContent = `${fill.side} đã khớp`;
         const details = document.createElement('dl');
-        for (const [label, value] of [['Ngày khớp', fill.fill_time], ['Giá', fill.fill_price], ['Số lượng', fill.quantity], ['Phí', fill.fee], ['Signal', fill.signal_time], ['Lý do', fill.reason]]) {
+        for (const [label, value] of [['Ngày khớp', fill.fill_time], ['Giá', fill.fill_price], ['Số lượng', fill.quantity], ...(data.priceOnly ? [] : [['Phí', fill.fee]]), ['Tín hiệu', fill.signal_time ?? fill.decision_time], ['Lý do', fill.reason]]) {
             const term = document.createElement('dt'); term.textContent = label;
             const description = document.createElement('dd'); description.textContent = value;
             details.append(term, description);

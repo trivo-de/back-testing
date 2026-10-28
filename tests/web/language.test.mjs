@@ -31,3 +31,22 @@ test('labels, metrics and live messages use either language while raw values sta
     assert.equal(translate('BUY đã khớp'), 'Mua đã khớp');
     for (const raw of ['VN30F1M', 'CHART_DATA_INCONSISTENT', '{"time":1770000000}', '11796021.628209']) assert.equal(translate(raw, 'en'), raw);
 });
+
+
+test('point P&L and protection labels keep percent separate from point quantity', () => {
+    assert.equal(translate('total_pnl'), 'Lãi/lỗ tổng');
+    assert.equal(translate('win_rate: 50%'), 'Tỷ lệ thắng: 50%');
+    assert.equal(translate('Cắt lỗ (%)', 'en'), 'Stop loss (%)');
+    assert.equal(translate('Lãi/lỗ tích lũy (điểm × lượng)', 'en'), 'Cumulative P/L (points × quantity)');
+    assert.equal(translate('risk.sl', 'en'), 'risk.sl');
+    assert.equal(translate('END_OF_DAY'), 'Hết ngày');
+    assert.equal(translate('END_OF_DAY', 'en'), 'End of day');
+    assert.equal(translate('Rút gọn', 'en'), 'Collapse');
+    assert.equal(translate('Mở rộng', 'en'), 'Expand');
+    assert.equal(translate('Tín hiệu', 'en'), 'Signals');
+    assert.equal(translate('Lệnh', 'en'), 'Orders');
+    assert.equal(translate('Tra cứu tham số', 'en'), 'Browse parameters');
+    assert.equal(translate('Khi bỏ trống', 'en'), 'When omitted');
+    assert.equal(translate('Có 18 mục phù hợp.', 'en'), '18 matching items.');
+    assert.equal(translate('20 nến', 'en'), '20 candles');
+});

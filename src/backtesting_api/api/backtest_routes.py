@@ -1,11 +1,12 @@
 from uuid import UUID
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from typing import Literal
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from ..application.run_backtest import BacktestService
 from ..config import API
-from .inline_schemas import InlineRunRequest
+from .price_schemas import PriceRunRequest
 from ..infrastructure.auto_fetch_data import AutoFetchError
 
 
@@ -18,8 +19,17 @@ class HistoryItem(BaseModel):
     start_date: str | None = None
     end_date: str | None = None
     money_unit: str | None = None
-    total_return: str
-    final_equity: str
+    pnl_unit: str | None = None
+    schema_version: int | None = None
+    total_return: str | None = None
+    final_equity: str | None = None
+    realized_pnl: str | None = None
+    unrealized_pnl: str | None = None
+    total_pnl: str | None = None
+    max_drawdown: str | None = None
+    closed_positions: int | None = None
+    open_positions: int | None = None
+    win_rate: str | None = None
 
 
 # Describe a history page and its continuation cursor.
@@ -35,26 +45,25 @@ def create_backtest_router(service: BacktestService) -> APIRouter:
 
     # Validate request data and report whether the configured runner is available.
     @router.post('/validate')
-    def validate_inline(request: InlineRunRequest):
-        payload = request.model_dump(mode='json', by_alias=True, exclude_none=True)
+    def validate_inline(request: PriceRunRequest):
         try:
-            data, _ = service.validate_inline(payload)
+            data, _, _, spec, original = service.prepare_price(request)
+            from ..application.inline_results import exact_json
+            return exact_json({'valid': True, 'payload': original, 'effective_config': spec,
+                               'data_metadata': data.metadata, 'warnings': data.metadata['warnings']})
         except ValueError as error:
             raise HTTPException(422, detail=str(error)) from error
         except AutoFetchError as error:
             raise HTTPException(503, detail=str(error)) from error
         except OSError:
             raise HTTPException(503, detail='INLINE_POLICY_UNAVAILABLE') from None
-        return {'status': 'STRUCTURE_VALID', 'runnable': service.inline_runner is not None,
-                'data_status': 'RESOLVED', 'data': data.metadata,
-                'pending': [] if service.inline_runner is not None else ['U08_STRATEGY_RUNTIME'], 'payload': payload}
 
     @router.post("", status_code=201)
-    def run_backtest(request: InlineRunRequest):
+    def run_backtest(request: PriceRunRequest):
         """Validate and execute one synchronous backtest request."""
 
         try:
-            return service.run_inline(request.model_dump(mode='json', by_alias=True, exclude_none=True))
+            return service.run_price(request)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         except AutoFetchError as error:
@@ -77,14 +86,37 @@ def create_backtest_router(service: BacktestService) -> APIRouter:
                 max_total_return_pct: Decimal | None = Query(None, allow_inf_nan=False),
                 min_equity: Decimal | None = Query(None, allow_inf_nan=False),
                 max_equity: Decimal | None = Query(None, allow_inf_nan=False),
+                unit: Literal['all', 'point_quantity', 'legacy'] = 'all',
+                min_total_pnl: Decimal | None = Query(None, allow_inf_nan=False),
+                max_total_pnl: Decimal | None = Query(None, allow_inf_nan=False),
+                min_realized_pnl: Decimal | None = Query(None, allow_inf_nan=False),
+                max_realized_pnl: Decimal | None = Query(None, allow_inf_nan=False),
+                min_max_drawdown: Decimal | None = Query(None, ge=0, allow_inf_nan=False),
+                max_max_drawdown: Decimal | None = Query(None, ge=0, allow_inf_nan=False),
+                min_closed_positions: int | None = Query(None, ge=0),
+                max_closed_positions: int | None = Query(None, ge=0),
+                sort_by: Literal['run_id', 'total_pnl', 'realized_pnl', 'max_drawdown', 'closed_positions'] = 'run_id',
+                sort_order: Literal['asc', 'desc'] = 'desc',
                 limit: int = Query(20, ge=1, le=100), after: UUID | None = None):
-        for low, high in ((min_total_return_pct, max_total_return_pct), (min_equity, max_equity)):
+        point_pairs = ((min_total_pnl, max_total_pnl), (min_realized_pnl, max_realized_pnl),
+                       (min_max_drawdown, max_max_drawdown), (min_closed_positions, max_closed_positions))
+        legacy_pairs = ((min_total_return_pct, max_total_return_pct), (min_equity, max_equity))
+        for low, high in (*legacy_pairs, *point_pairs):
             if low is not None and high is not None and low > high:
                 raise HTTPException(422, detail='Giá trị từ phải nhỏ hơn hoặc bằng giá trị đến.')
+        has_points = any(value is not None for pair in point_pairs for value in pair) or sort_by != 'run_id'
+        has_legacy = any(value is not None for pair in legacy_pairs for value in pair)
+        if (has_points and (has_legacy or unit == 'legacy')) or (has_legacy and unit == 'point_quantity'):
+            raise HTTPException(422, detail='INCOMPATIBLE_HISTORY_UNITS')
         try:
             return service.history(min_total_return=min_total_return_pct / 100 if min_total_return_pct is not None else None,
                                    max_total_return=max_total_return_pct / 100 if max_total_return_pct is not None else None,
-                                   min_equity=min_equity, max_equity=max_equity, limit=limit, after=after)
+                                   min_equity=min_equity, max_equity=max_equity, unit=unit,
+                                   min_total_pnl=min_total_pnl, max_total_pnl=max_total_pnl,
+                                   min_realized_pnl=min_realized_pnl, max_realized_pnl=max_realized_pnl,
+                                   min_max_drawdown=min_max_drawdown, max_max_drawdown=max_max_drawdown,
+                                   min_closed_positions=min_closed_positions, max_closed_positions=max_closed_positions,
+                                   sort_by=sort_by, sort_order=sort_order, limit=limit, after=after)
         except (ValueError, InvalidOperation, OSError, KeyError, TypeError):
             raise HTTPException(409, detail={'code': 'RESULT_STORAGE_INVALID'}) from None
 

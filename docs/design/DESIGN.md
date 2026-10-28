@@ -37,7 +37,13 @@ Chart lấy màu từ theme hiện tại.
 - Mục lục dọc xuất hiện từ 1200 px, cửa sổ nhỏ dùng nút mở mục lục.
 - CSS riêng tại [backtest-navigation.css](../../src/backtesting_api/web/backtest-navigation.css).
 - Form nhập tham số dùng [backtest-input.css](../../src/backtesting_api/web/backtest-input.css).
-- Các bảng cuộn theo trang; equity có nút thu gọn riêng.
+- Tra cứu tham số mở trong cửa sổ rộng tối đa 900 px, ba nhóm và hai cột 230 px / phần còn lại.
+  Danh sách chọn có điểm nhấn ở cạnh trái; nội dung chỉ hiện mục đang chọn.
+  Màn hình nhỏ hơn 600 px xếp danh sách phía trên chi tiết; nút Đóng nhỏ, căn phải.
+- Các bảng cuộn theo trang; mỗi bảng kết quả có nút Rút gọn / Mở rộng riêng cạnh tiêu đề.
+  Mặc định mở bảng, thu gọn chỉ ẩn nội dung, giữ nguyên dữ liệu và các bảng khác.
+  Nút cỡ chữ 12 px, nền trong, không viền/bóng, có mũi tên và căn phải thống nhất.
+  Tiêu đề bảng 18 px; khi thu gọn chỉ còn hàng tiêu đề gọn, khoảng trong 12 × 16 px.
 
 VN / ENG và nút sáng/tối cùng nằm ở đầu trang. Ngôn ngữ hiện chọn được đánh
 dấu bằng chữ đậm/gạch chân; chọn ngôn ngữ hoặc theme không chạy lại backtest.

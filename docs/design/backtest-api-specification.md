@@ -1,5 +1,40 @@
 # Đặc tả API backtest
 
+API hiện tại theo [hợp đồng khớp ngay hoặc LO, một vị thế và điểm](price-only-contract.md),
+đã triển khai B–D. POST/validate chỉ nhận cấu hình, máy chủ luôn lấy dữ liệu; kết quả mới là schema 3.
+[Kiểm chứng C–D](../testing/price-only-cd.md) ghi phạm vi đã kiểm tra. Lịch sử cũ vẫn đọc theo đơn vị gốc.
+
+## Bề mặt API hiện tại
+
+| Endpoint | Kết quả |
+| --- | --- |
+| `POST /api/backtests/validate` | `valid`, cấu hình `payload`, `effective_config`, `data_metadata`, `warnings`; không tạo run |
+| `POST /api/backtests` | 201 và kết quả schema 3: signal/order/fill/trade/vị thế/P&L cùng metadata đã ghim |
+| `GET /api/backtests/{run_id}` | Kết quả đã lưu theo schema gốc |
+| `GET /api/backtests/{run_id}/input` | Request, nguồn, chính sách và cấu hình có hiệu lực từ bản ghim |
+| `GET /api/backtests/{run_id}/chart` | Nến và sự kiện cùng lần chạy, không chạy lại chiến lược |
+| `GET /api/backtests/history` | `items`, `next_cursor`; mặc định 20 mục theo run_id giảm dần |
+| `GET /api/strategy-parameters` | Schema, mặc định, tham số, alias, toán tử, giới hạn và ví dụ cấu hình |
+
+Cấu trúc POST, lỗi nghiệp vụ và đơn vị tại [hợp đồng hiện tại](price-only-contract.md).
+Đầu vào accounting/nến/file/cờ tự lấy cũ trả 422. Lỗi HTTP/mạng nguồn trả 503;
+không tự lấy nguồn khác hoặc chạy tiếp bằng dữ liệu thiếu.
+
+Lịch sử nhận `unit=all|point_quantity|legacy`, `limit`, `after` và:
+
+- `min_total_pnl`, `max_total_pnl`, `min_realized_pnl`, `max_realized_pnl`,
+  `min_max_drawdown`, `max_max_drawdown`, `min_closed_positions`, `max_closed_positions`.
+- `sort_by=run_id|total_pnl|realized_pnl|max_drawdown|closed_positions`, `sort_order=asc|desc`.
+  Sắp xếp chỉ số theo điểm tự giới hạn ở kết quả mới; run_id là khóa phụ khi bằng nhau.
+- Bộ lọc cũ `min_total_return`, `max_total_return`, `min_equity`, `max_equity`
+  chỉ xét kết quả cũ. Không kết hợp bộ lọc khác đơn vị; giới hạn đảo chiều trả 422.
+  Lấy trang sau bằng `next_cursor`, giữ nguyên các điều kiện lọc/sắp xếp.
+
+## Tài liệu đường cũ
+
+**Các mục bên dưới là tài liệu đường cũ để đối chiếu lịch sử**, không phải cấu trúc POST
+đang được chấp nhận. Việc dọn đầy đủ tài liệu và mã cũ thuộc phần F.
+
 ## 1. Tổng quan
 
 API nhận dữ liệu giá và chiến lược JSON, kiểm tra đầu vào, mô phỏng giao dịch và lưu kết quả.

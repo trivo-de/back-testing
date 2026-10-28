@@ -11,33 +11,11 @@ from .ports import RunRepository
 from ..infrastructure.auto_fetch_data import AutoFetchError
 from .inline_strategy import check_runtime
 from .order_config import strategy_orders
+from ..domain.strategy_terms import required_history
 
 # Compute required history from indicator seeds, warm-up, and shifted references.
 def _warmup_bars(strategy):
-    periods = {}
-    for name, indicator in strategy.get('indicators', {}).items():
-        if indicator['type'] == 'MACD':
-            periods[name] = indicator['slow_period'] + indicator['signal_period'] - 1
-        else:
-            periods[name] = indicator['period'] + (indicator['type'] == 'MFI')
-    required = max(strategy.get('warmup_bars') or 0, max(periods.values(), default=0))
-
-    # Include nested reference shifts when calculating the required history.
-    def collect(value):
-        nonlocal required
-        if isinstance(value, dict):
-            ref, shift = value.get('ref', ''), value.get('shift', 0)
-            name = ref.split('.')[0]
-            if name in periods:
-                required = max(required, periods[name] + shift)
-            elif name in ('trade_data', 'market_data') and shift:
-                required = max(required, shift + 1)
-            for child in value.values(): collect(child)
-        elif isinstance(value, list):
-            for child in value: collect(child)
-
-    collect(strategy)
-    return required
+    return required_history(strategy)
 
 
 class BacktestService:
@@ -141,27 +119,127 @@ class BacktestService:
         """Return one successful persisted run if it exists."""
         return self.repository.get_run(run_id)
 
+    def prepare_price(self, request):
+        """Fetch and validate a price-only snapshot without fabricating accounting."""
+        from ..api.inline_schemas import DataInput
+        from pydantic import ValidationError
+        from .price_strategy import resolve_price_data
+        spec = request.compiled()
+        if self.data_fetcher is None:
+            raise AutoFetchError('AUTO_FETCH_UNAVAILABLE')
+        policy = json.loads(self.inline_policy_path.read_bytes())
+        payload = request.model_dump(mode='json', by_alias=True, exclude_none=True, exclude_unset=True)
+        if request.from_ is not None:
+            sources, metadata = self.data_fetcher.fetch_by_range(
+                request.from_, request.to, warmup_bars=spec['required_history'], session_policy=policy,
+                continuous_only=True)
+        else:
+            sources, metadata = self.data_fetcher.fetch()
+        mapping = json.loads(self.auto_fetch_policy_path.read_bytes()).get('rollover', [])
+        if not isinstance(sources, dict) or not isinstance(sources.get('trade_data'), dict):
+            raise ValueError('AUTO_FETCH_INVALID_SOURCE')
+        sources['trade_data'] = {**sources['trade_data'], 'contract_map': [
+            {'contract_code': row['contract'], 'expiry_date': row['expiry'], 'expiry_unix': row['expiry_unix']}
+            for row in mapping]}
+        try:
+            sources = {name: DataInput.model_validate(source).model_dump(mode='json', exclude_none=True)
+                       for name, source in sources.items()}
+        except ValidationError as error:
+            raise ValueError('AUTO_FETCH_INVALID_SOURCE') from error
+        if any(source['resolution'] != '5' or source['timezone'] != 'Asia/Ho_Chi_Minh' for source in sources.values()):
+            raise ValueError('SOURCE_REQUIRES_5M_LOCAL_TIME')
+        data = resolve_price_data(sources, payload, policy, metadata)
+        return data, policy, sources, spec, payload
+
+    def run_price(self, request):
+        """Pin the request and source snapshot, run, and atomically save schema 3."""
+        from .price_strategy import run_price_strategy
+        from .inline_results import exact_json
+        data, policy, sources, spec, payload = self.prepare_price(request)
+        snapshot = {'request': payload, 'sources': sources, 'effective_config': exact_json(spec)}
+        run_id, input_hash, policy_hash = self.repository.start_inline(snapshot, policy, data)
+        try:
+            result = run_price_strategy(data, spec, sources, policy)
+            response = exact_json({'schema_version': 3, **result, 'metadata': {
+                **data.metadata, 'run_id': str(run_id), 'run_at': datetime.now(timezone.utc).isoformat(),
+                'input_hash': input_hash, 'policy_hash': policy_hash, 'effective_config': spec,
+                'default_profile_version': spec['default_profile_version'],
+                'engine_version': 'price-only-v2',
+                'assumptions': {'immediate': 'decision -> order -> full fill at same Close; zero latency',
+                                'lo': 'next observed bar; better Open or limit touch; 3 bars/DAY',
+                                'costs': 'no fees, slippage, margin or multiplier', 'allow_overnight': False,
+                                'session_end': 'expire pending orders; close remaining quantity at scheduled final continuous candle Close'}}})
+            self.repository.complete_run(run_id, result, response)
+            return response
+        except Exception as error:
+            self.repository.fail_run(run_id, error)
+            raise
+
     def list(self) -> Sequence[dict[str, Any]]:
         """Return successful persisted runs."""
         return self.repository.list_runs()
 
     def history(self, *, min_total_return=None, max_total_return=None,
-                min_equity=None, max_equity=None, limit=20, after=None):
-        """Filter stored summary values without retaining full results."""
-        items = []
-        for item in self.repository.iter_run_summaries(after):
-            total_return, equity = Decimal(item['total_return']), Decimal(item['final_equity'])
-            if not total_return.is_finite() or not equity.is_finite():
-                raise ValueError('RESULT_SUMMARY_INVALID')
-            if ((min_total_return is not None and total_return < min_total_return)
-                    or (max_total_return is not None and total_return > max_total_return)
-                    or (min_equity is not None and equity < min_equity)
-                    or (max_equity is not None and equity > max_equity)):
-                continue
-            if len(items) == limit:
-                return {'items': items, 'next_cursor': items[-1]['run_id']}
-            items.append(item)
-        return {'items': items, 'next_cursor': None}
+                min_equity=None, max_equity=None, unit='all',
+                min_total_pnl=None, max_total_pnl=None, min_realized_pnl=None, max_realized_pnl=None,
+                min_max_drawdown=None, max_max_drawdown=None, min_closed_positions=None, max_closed_positions=None,
+                sort_by='run_id', sort_order='desc', limit=20, after=None):
+        """Filter compact summaries by their original units and paginate without mixing metrics."""
+        point_bounds = {'total_pnl': (min_total_pnl, max_total_pnl),
+                        'realized_pnl': (min_realized_pnl, max_realized_pnl),
+                        'max_drawdown': (min_max_drawdown, max_max_drawdown),
+                        'closed_positions': (min_closed_positions, max_closed_positions)}
+        legacy_bounds = {'total_return': (min_total_return, max_total_return),
+                         'final_equity': (min_equity, max_equity)}
+        has_points = any(value is not None for pair in point_bounds.values() for value in pair)
+        has_legacy = any(value is not None for pair in legacy_bounds.values() for value in pair)
+
+        def matches(item):
+            """Compare only fields that have the requested meaning and finite values."""
+            point = item.get('pnl_unit') == 'point_quantity'
+            if ((unit == 'point_quantity' and not point) or (unit == 'legacy' and point)
+                    or (has_points and not point) or (has_legacy and point)
+                    or (sort_by != 'run_id' and not point)):
+                return False
+            bounds = point_bounds if point else legacy_bounds
+            for name, (low, high) in bounds.items():
+                value = Decimal(str(item[name]))
+                if not value.is_finite():
+                    raise ValueError('RESULT_SUMMARY_INVALID')
+                if (low is not None and value < low) or (high is not None and value > high):
+                    return False
+            return True
+
+        if sort_by == 'run_id' and sort_order == 'desc':
+            items = []
+            for item in self.repository.iter_run_summaries(after):
+                if not matches(item):
+                    continue
+                if len(items) == limit:
+                    return {'items': items, 'next_cursor': items[-1]['run_id']}
+                items.append(item)
+            return {'items': items, 'next_cursor': None}
+        # Sorting metrics needs only compact summaries, never a list of full run documents.
+        candidates = [item for item in self.repository.iter_run_summaries() if matches(item)]
+        candidates.sort(key=lambda item: (item['run_id'] if sort_by == 'run_id' else Decimal(str(item[sort_by])),
+                                          item['run_id']), reverse=sort_order == 'desc')
+        if after is not None:
+            cursor = next((index for index, item in enumerate(candidates) if item['run_id'] == str(after)), None)
+            candidates = candidates[cursor + 1:] if cursor is not None else []
+        items = candidates[:limit]
+        return {'items': items, 'next_cursor': items[-1]['run_id'] if len(candidates) > limit else None}
+
+    def replay_price(self, run_id):
+        """Reproduce business events using only pinned sources, calendar and resolved defaults."""
+        from .price_strategy import resolve_price_data, run_price_strategy
+        from .inline_results import exact_json
+        document = self.repository.get_input(run_id)
+        if document is None or document.get('schema_version') != 2:
+            raise ValueError('PRICE_SNAPSHOT_REQUIRED')
+        snapshot = document['payload']
+        data = resolve_price_data(snapshot['sources'], snapshot['request'], document['policy'],
+                                  document['data_metadata']['auto_fetch'])
+        return exact_json(run_price_strategy(data, snapshot['effective_config'], snapshot['sources'], document['policy']))
 
     def get_chart(self, run_id: UUID) -> dict[str, Any] | None:
         """Read chart data without executing the strategy again."""

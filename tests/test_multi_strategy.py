@@ -1,3 +1,4 @@
+"""Legacy internal engine/normalization/storage regressions; production POST accepts only price-only requests."""
 from copy import deepcopy
 from dataclasses import replace
 from datetime import timedelta
@@ -8,7 +9,7 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 
-from backtesting_api.api.app import create_app
+from legacy_inline_app import legacy_inline_app
 from backtesting_api.api.inline_schemas import InlineRunRequest
 from backtesting_api.application.inline_strategy import run_inline_strategy
 from backtesting_api.application.inline_data import resolve_inline
@@ -78,9 +79,9 @@ class MultiStrategyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir='.agents') as temporary:
             repo = FileRunRepository(Path(temporary), Path(temporary) / 'unused.json')
             service = BacktestService(repo, inline_runner=run_inline_strategy)
-            client = TestClient(create_app(service))
+            client = TestClient(legacy_inline_app(service))
             p = multi_payload()
-            response = client.post('/api/backtests', json=p)
+            response = client.post('/internal-test/legacy/backtests', json=p)
             self.assertEqual(response.status_code, 201, response.text)
             result = response.json()
             run_id = UUID(result['metadata']['run_id'])
@@ -104,7 +105,7 @@ class MultiStrategyTest(unittest.TestCase):
             self.assertGreater(len(result['evaluations']), status['evaluated_bars'])
             self.assertEqual(len(service.get_chart(run_id)['bars']), 4)
             p['strategy']['exit'].pop('bar_close')
-            response = client.post('/api/backtests', json=p)
+            response = client.post('/internal-test/legacy/backtests', json=p)
             self.assertEqual(response.status_code, 201, response.text)
             opened = response.json()['open_positions']
             self.assertEqual([lot['quantity'] for lot in opened], [3, 2])

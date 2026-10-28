@@ -1,5 +1,25 @@
 # Đặc tả giao diện — Backtesting API
 
+## Tra cứu tham số
+
+Nút **Tra cứu tham số** cạnh vùng JSON hoặc trong mục lục mở cửa sổ hai cột:
+nhóm Cấu hình / Chỉ báo / Toán tử, ô tìm kiếm trong nhóm, danh sách chọn bên trái
+và chi tiết/ví dụ bên phải. Màn hình nhỏ xếp danh sách phía trên chi tiết.
+Chỉ tải danh mục từ API khi mở lần đầu; đổi nhóm/tìm/chọn không gọi lại API.
+Lỗi tải có thông báo và có thể thử lại khi mở. Nội dung hiển thị bằng văn bản,
+không diễn giải HTML, không sửa cấu hình hoặc tự chạy. Ví dụ cấu hình được bọc
+theo đường dẫn trường; alias/toán tử giữ ví dụ gốc. Bỏ thông tin rỗng và số mẫu 0.
+Cửa sổ dùng dialog gốc: giới hạn focus bên trong, Escape/Đóng đóng cửa sổ và trả
+focus về nút mở; khi mở, focus vào ô tìm kiếm. Mã và JSON giữ nguyên khi đổi ngôn ngữ.
+
+## Thu gọn bảng kết quả
+
+Mỗi bảng lệnh đã khớp, giao dịch đã đóng, vị thế đang mở, tín hiệu, lệnh và
+lãi/lỗ theo nến có nút **Rút gọn / Mở rộng** riêng cạnh tiêu đề. Mặc định mở bảng;
+thu gọn chỉ ẩn nội dung, giữ nguyên dữ liệu và trạng thái các bảng khác.
+Nút dùng được bằng bàn phím, công bố `aria-controls` và `aria-expanded`.
+Thao tác không gọi lại API hoặc chạy lại backtest; áp dụng cả kết quả mới và lịch sử cũ.
+
 ## 1. Phạm vi hiện tại
 
 - Trang `/`: nhập tham số, điền mẫu hoặc tải payload JSON, kiểm tra và chạy.

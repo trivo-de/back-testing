@@ -1,5 +1,12 @@
 # Khớp lệnh theo phiên HNX trên nến 5 phút
 
+API hiện tại theo [hợp đồng khớp ngay hoặc LO, một vị thế và điểm](price-only-contract.md),
+đã triển khai B–D. POST/validate chỉ nhận cấu hình, máy chủ luôn lấy dữ liệu; kết quả mới là schema 3.
+[Kiểm chứng C–D](../testing/price-only-cd.md) ghi phạm vi đã kiểm tra. Lịch sử cũ vẫn đọc theo đơn vị gốc.
+
+**Các mục bên dưới là tài liệu đường cũ để đối chiếu lịch sử**, không phải cấu trúc POST
+đang được chấp nhận. Việc dọn đầy đủ tài liệu và mã cũ thuộc phần F.
+
 `hnx_sessions_v1` mô phỏng ATO mở, LO liên tục và ATC đóng trên OHLC. `execution.auction_match_quantity` giới hạn lượng khớp từng lệnh đấu giá.
 
 MTL/MOK/MAK và LO khớp nhiều lần với ngân sách đối ứng cố định được mô tả
@@ -12,7 +19,7 @@ Mục 6 ghi yêu cầu ATO/ATC chốt ngày 14/10/2026 và trạng thái kiểm 
 - Khai báo lệnh tại `strategy.entry.order` hoặc `strategy.entry.actions.<nhãn>.order`; nhóm đóng dùng `exit.bar_close` tương tự.
 - Ví dụ: LO `{"type":"LO","limit_price":{"ref":"trade_data.close"}}`, ATO `{"type":"ATO"}`, ATC `{"type":"ATC"}`.
 - Chọn `execution.matching_model: "hnx_sessions_v1"`.
-- Cấu hình cũ vẫn được đọc; cũ/mới mâu thuẫn bị từ chối. Xem [hướng dẫn chuyển đổi](strategy-payload-guide.md#91-chọn-lệnh-trong-chiến-lược).
+- Cấu hình cũ vẫn được đọc; cũ/mới mâu thuẫn bị từ chối. Xem [hướng dẫn cách khớp hiện tại](strategy-payload-guide.md#5-cách-khớp-lệnh).
 
 - `sizing.pyramiding: true`: xử lý nhiều nhánh LO/ATO theo `entry.priority`.
 - Hạn mức gồm lượng đang giữ và mở đang chờ. Mỗi lần mở có giá vốn và bảo vệ riêng.

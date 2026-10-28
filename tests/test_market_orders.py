@@ -1,4 +1,4 @@
-"""Cơ chế lệnh với lượng đối ứng giả định; không nghiệm thu thanh khoản thật."""
+"""Legacy internal order regressions with simulated liquidity, not market acceptance."""
 from copy import deepcopy
 from dataclasses import replace
 from datetime import timedelta
@@ -11,7 +11,7 @@ from unittest.mock import patch
 from uuid import UUID
 from fastapi.testclient import TestClient
 
-from backtesting_api.api.app import create_app
+from legacy_inline_app import legacy_inline_app
 from backtesting_api.application.inline_data import resolve_inline
 from backtesting_api.application.inline_results import inline_result_to_dict
 from backtesting_api.application.inline_strategy import InlineExecution, run_inline_strategy
@@ -117,10 +117,10 @@ class MarketOrdersTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir='.agents') as temporary:
             repo = FileRunRepository(Path(temporary), Path(temporary)/'unused.json')
             service = BacktestService(repo, inline_runner=run_inline_strategy)
-            client = TestClient(create_app(service))
+            client = TestClient(legacy_inline_app(service))
             for kind in ('MTL', 'MAK', 'MOK'):
                 p = market_payload(kind)
-                response = client.post('/api/backtests', json=p)
+                response = client.post('/internal-test/legacy/backtests', json=p)
                 self.assertEqual(response.status_code, 201, response.text)
                 result = response.json()
                 run_id = UUID(result['metadata']['run_id'])

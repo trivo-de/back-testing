@@ -12,28 +12,30 @@ const day = value => {
 /** Select result rows related to a fill, or return all rows without a selection. */
 export function relatedRows(run, fillId) {
     const positions = run.open_positions ?? (run.open_position ? [run.open_position] : []);
+    const points = run.schema_version === 3 ? run.pnl_history : run.equity_history;
+    const pointTime = point => point.time ?? point.trading_date;
     const all = {fills: run.fills, trades: run.trades, position: positions,
-        signals: run.signals, orders: run.orders, equity: run.equity_history, selected: null};
+        signals: run.signals, orders: run.orders, equity: points, selected: null};
     const selected = run.fills.find(/* Find the selected fill by its identifier. */ fill => fill.fill_id === fillId);
     if (!selected) return all;
     const order = run.orders.find(/* Find the order that produced the selected fill. */ item => item.order_id === selected.order_id);
-    const exactEquity = run.equity_history.filter(/* Select equity points recorded at the exact fill time. */ point => point.trading_date === selected.fill_time);
+    const exactEquity = points.filter(/* Select recorded points at the exact fill time. */ point => pointTime(point) === selected.fill_time);
     /** Compare a timestamp's date with the selected fill date. */
     const sameDay = value => value?.slice(0, 10) === selected.fill_time.slice(0, 10);
     return {
         fills: run.fills.filter(/* Select fills on the selected fill date. */ fill => sameDay(fill.fill_time)),
         trades: run.trades.filter(/* Select trades linked to the selected entry or exit fill. */ trade => trade.entry_fill_id === fillId || trade.entry_fill_ids?.includes(fillId) || trade.exit_fill_id === fillId),
-        position: positions.filter(/* Select open positions linked to the selected entry fill. */ position => position.entry_fill_id === fillId || position.entry_fill_ids?.includes(fillId)),
+        position: positions.filter(/* Select open positions linked to the selected entry fill. */ position => position.entry_fill_id === fillId || position.entry_fill_ids?.includes(fillId) || (run.schema_version === 3 && position.position_id === selected.position_id)),
         signals: run.signals.filter(/* Select the signal that produced the selected order. */ signal => signal.signal_id === order?.signal_id),
         orders: order ? [order] : [],
-        equity: exactEquity.length ? exactEquity : run.equity_history.filter(/* Select equity points on the fill date when no exact time matches. */ point => sameDay(point.trading_date)),
+        equity: exactEquity.length ? exactEquity : points.filter(/* Select recorded points on the fill date when no exact time matches. */ point => sameDay(pointTime(point))),
         selected,
     };
 }
 
 /** Validate saved result and chart identities before building chart series. */
 export function backtestData(run, payload) {
-    if (run.schema_version === 2 || typeof payload.bars?.[0]?.time === 'number') return intradayData(run, payload);
+    if ([2, 3].includes(run.schema_version) || typeof payload.bars?.[0]?.time === 'number') return intradayData(run, payload);
     for (const key of ['run_id', 'dataset_id', 'dataset_version', 'content_hash']) {
         if (!run.metadata[key] || run.metadata[key] !== payload.metadata[key]) throw Error('Chart và result không cùng run/dataset.');
     }
@@ -92,7 +94,7 @@ export function backtestData(run, payload) {
 /** Validate intraday chart sources, fills, and timing without recomputing results. */
 function intradayData(run, payload) {
     const intraday = payload.metadata?.resolution === '5';
-    const keys = run.schema_version === 2 ? ['run_id', 'input_hash', 'policy_hash'] : ['run_id', 'dataset_version', 'content_hash'];
+    const keys = [2, 3].includes(run.schema_version) ? ['run_id', 'input_hash', 'policy_hash'] : ['run_id', 'dataset_version', 'content_hash'];
     for (const key of keys) if (!run.metadata[key] || run.metadata[key] !== payload.metadata[key]) throw Error('Chart và kết quả khác nguồn.');
     /** Convert a supplied timestamp to validated Unix seconds. */
     const timestamp = value => {
@@ -123,6 +125,7 @@ function intradayData(run, payload) {
     const signals = new Map(run.signals.map(/* Index intraday signals by their identifiers. */ s => [s.signal_id, s]));
     const ids = new Set();
     const fills = run.fills.map(/* Validate an intraday fill against its order, signal, and source observation. */ fill => {
+        fill = {...fill, fill_price: fill.fill_price ?? fill.price};
         const order = orders.get(fill.order_id), signal = signals.get(order?.signal_id);
         const chartTime = timestamp(fill.bar_time ?? fill.fill_time);
         const auction = auctions.get(chartTime);
@@ -131,12 +134,12 @@ function intradayData(run, payload) {
             && auction.contract_code === fill.contract_code && numeric(auction.price) === numeric(fill.fill_price))
             || (sourceBar?.contract_code === fill.contract_code
                 && numeric(sourceBar[fill.order_type === 'ATO' ? 'open' : 'close']) === numeric(fill.fill_price)));
-        const orderHasFill = order?.status === 'filled' || Number(order?.filled_quantity) > 0;
+        const orderHasFill = order?.status?.toLowerCase() === 'filled' || Number(order?.filled_quantity) > 0;
         if ((!dates.has(chartTime) && !auctionFill) || (auctionType && !auctionFill)
             || !signal || !orderHasFill || ids.has(fill.fill_id)
             || !['BUY', 'SELL', 'LONG', 'SHORT', 'CLOSE'].includes(fill.side) || numeric(fill.fill_price) <= 0) throw Error('Khớp lệnh không thuộc chart.');
         ids.add(fill.fill_id);
-        return {...fill, chartTime, reason: signal.reason};
+        return {...fill, chartTime, signal_time: fill.signal_time ?? signal.decision_time ?? signal.signal_time, reason: signal.reason};
     });
     const volume = payload.bars.filter(/* Keep candles with an explicitly supplied volume. */ b => b.volume !== null && b.volume !== undefined).map(/* Validate and color a supplied intraday volume point. */ b => {
         const value = numeric(b.volume);
@@ -144,13 +147,14 @@ function intradayData(run, payload) {
         return {time: timestamp(b.time), value, color: numeric(b.close) >= numeric(b.open) ? '#269982' : '#d95866'};
     });
     let previous = -Infinity;
-    const equity = run.equity_history.map(/* Validate chronological equity points and convert their stored values. */ p => {
-        const time = timestamp(p.trading_date);
+    const priceOnly = run.schema_version === 3;
+    const equity = (priceOnly ? run.pnl_history : run.equity_history).map(/* Read the stored P&L or equity series without recalculating it. */ p => {
+        const time = timestamp(p.time ?? p.trading_date);
         if (time <= previous) throw Error('Thứ tự vốn không hợp lệ.');
         previous = time;
-        return {time, value: numeric(p.equity)};
+        return {time, value: numeric(priceOnly ? p.total_pnl : p.equity)};
     });
-    if (!equity.length || equity.at(-1).value !== numeric(run.summary.final_equity)) throw Error('Vốn không khớp kết quả.');
+    if (!equity.length || equity.at(-1).value !== numeric(priceOnly ? run.summary.total_pnl : run.summary.final_equity)) throw Error('Đường tích lũy không khớp kết quả.');
     const market = rows(payload.market_bars ?? []).map(/* Project market candles onto the market close series. */ b => ({time: b.time, close: b.close}));
     const indicators = {};
     for (const row of run.evaluations ?? []) for (const [name, value] of Object.entries(row.indicators ?? {})) {
@@ -165,5 +169,5 @@ function intradayData(run, payload) {
             position: buying ? 'atPriceBottom' : 'atPriceTop', shape: buying ? 'arrowUp' : 'arrowDown',
             color: buying ? '#1565c0' : '#ef6c00', size: .65, borderColor: {light: '#000', dark: '#fff'}, borderWidth: 1.5};
     }).sort(/* Sort fill markers chronologically. */ (a, b) => a.time - b.time);
-    return {candles, volume, fills, equity, market, markers, indicators, intraday};
+    return {candles, volume, fills, equity, market, markers, indicators, intraday, priceOnly};
 }

@@ -1,3 +1,4 @@
+"""Legacy internal engine/normalization/storage regressions; production POST accepts only price-only requests."""
 from copy import deepcopy
 from decimal import Decimal
 from pathlib import Path
@@ -9,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from backtesting_api.api.app import create_app
+from legacy_inline_app import legacy_inline_app
 from backtesting_api.api.inline_schemas import InlineRunRequest
 from backtesting_api.application.inline_data import resolve_inline
 from backtesting_api.application.inline_strategy import run_inline_strategy
@@ -136,7 +137,7 @@ class RawDataInputTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             repository = FileRunRepository(Path(directory), Path('unused'))
             service = BacktestService(repository, inline_runner=run_inline_strategy)
-            client = TestClient(create_app(service))
+            client = TestClient(legacy_inline_app(service))
 
             p = approved_payload()
             # Convert trade_data bars to raw fields
@@ -145,13 +146,13 @@ class RawDataInputTest(unittest.TestCase):
             p['market_data'] = {**p['market_data'], **to_raw(p['market_data'].pop('bars'))}
 
             # Validate endpoint
-            validate_res = client.post('/api/backtests/validate', json=p)
+            validate_res = client.post('/internal-test/legacy/backtests/validate', json=p)
             self.assertEqual(validate_res.status_code, 200)
             self.assertEqual(validate_res.json()['status'], 'STRUCTURE_VALID')
             self.assertTrue(validate_res.json()['runnable'])
 
             # Run endpoint
-            run_res = client.post('/api/backtests', json=p)
+            run_res = client.post('/internal-test/legacy/backtests', json=p)
             self.assertEqual(run_res.status_code, 201, run_res.text)
             self.assertIn('run_id', run_res.json()['metadata'])
 

@@ -1,4 +1,4 @@
-"""Synthetic session tests; these do not establish acceptance of market ATC data."""
+'Legacy internal engine/normalization/storage regressions; production POST accepts only price-only requests. Synthetic session tests; these do not establish acceptance of market ATC data.'
 from copy import deepcopy
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timedelta
@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from uuid import UUID
 from fastapi.testclient import TestClient
-from backtesting_api.api.app import create_app
+from legacy_inline_app import legacy_inline_app
 from backtesting_api.api.inline_schemas import InlineRunRequest
 from backtesting_api.application.inline_data import resolve_inline
 from backtesting_api.application.inline_strategy import run_inline_strategy
@@ -346,9 +346,9 @@ class SessionMatchingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir='.agents') as temporary:
             repo = FileRunRepository(Path(temporary), Path(temporary) / 'unused.json')
             service = BacktestService(repo, inline_runner=run_inline_strategy)
-            client = TestClient(create_app(service))
+            client = TestClient(legacy_inline_app(service))
             p = session_payload(atc=True)
-            response = client.post('/api/backtests', json=p)
+            response = client.post('/internal-test/legacy/backtests', json=p)
             self.assertEqual(response.status_code, 201, response.text)
             result = response.json()
             run_id = UUID(result['metadata']['run_id'])
@@ -362,9 +362,9 @@ class SessionMatchingTest(unittest.TestCase):
             self.assertFalse(any(b['time'] == chart['auctions'][0]['time'] for b in chart['bars']))
             changed = deepcopy(p)
             changed['trade_data']['auctions'][0]['price'] = '1003'
-            other = client.post('/api/backtests', json=changed).json()
+            other = client.post('/internal-test/legacy/backtests', json=changed).json()
             self.assertNotEqual(result['metadata']['input_hash'], other['metadata']['input_hash'])
-            partial = client.post('/api/backtests', json=ato_payload(2))
+            partial = client.post('/internal-test/legacy/backtests', json=ato_payload(2))
             self.assertEqual(partial.status_code, 201, partial.text)
             partial_result = partial.json()
             partial_id = UUID(partial_result['metadata']['run_id'])

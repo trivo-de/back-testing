@@ -8,10 +8,14 @@ Tài liệu cho `src/backtesting_api`: nhận chiến lược JSON, mô phỏng 
 - [Đặc tả API](design/backtest-api-specification.md)
 - [Hướng dẫn JSON chiến lược](design/strategy-payload-guide.md)
 
-## Kế hoạch đang đề xuất
+## Hợp đồng đích đã duyệt
 
-- [Tinh gọn API, thống nhất cách tính lãi/lỗ và tích hợp LLM](../tasks/plan.md)
-- [Danh sách công việc và tiêu chí nghiệm thu](../tasks/todo.md)
+- [Khớp ngay hoặc LO, một vị thế và lãi/lỗ theo điểm — A đã duyệt, B–D đã triển khai](design/price-only-contract.md)
+- [Mốc kiểm thử và dữ liệu đối chiếu](testing/price-only-baseline.md)
+- [Mốc triển khai và kiểm thử phần B](testing/price-only-runtime.md)
+- [Kiểm chứng C–D: bảo vệ, dữ liệu, lịch sử và giao diện](testing/price-only-cd.md)
+
+Kế hoạch và todo trong `tasks/` là ghi chú local bị Git bỏ qua.
 
 ## Yêu cầu và thiết kế
 

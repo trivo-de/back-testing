@@ -1,4 +1,4 @@
-"""Approved v1 formulas and timing on synthetic, reproducible price series."""
+'Legacy internal engine/normalization/storage regressions; production POST accepts only price-only requests. Approved v1 formulas and timing on synthetic, reproducible price series.'
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -13,7 +13,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from fastapi.testclient import TestClient
-from backtesting_api.api.app import create_app
+from legacy_inline_app import legacy_inline_app
 from backtesting_api.application.inline_data import resolve_inline
 from backtesting_api.application.inline_strategy import run_inline_strategy, InlineExecution, IndicatorData
 from backtesting_api.application.run_backtest import BacktestService
@@ -193,11 +193,11 @@ class InlineRuntimeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             repository = FileRunRepository(Path(directory), Path('unused'))
             service = BacktestService(repository, inline_runner=run_inline_strategy)
-            client = TestClient(create_app(service))
+            client = TestClient(legacy_inline_app(service))
             p = approved_payload()
-            ready = client.post('/api/backtests/validate', json=p)
+            ready = client.post('/internal-test/legacy/backtests/validate', json=p)
             self.assertTrue(ready.json()['runnable'])
-            response = client.post('/api/backtests', json=p)
+            response = client.post('/internal-test/legacy/backtests', json=p)
             self.assertEqual(response.status_code, 201, response.text)
             body = response.json()
             self.assertTrue(body['fills'])
@@ -205,19 +205,22 @@ class InlineRuntimeTest(unittest.TestCase):
             reloaded = client.get('/api/backtests/' + body['metadata']['run_id'])
             self.assertEqual(reloaded.json(), body)
             p['execution']['slippage_rate'] = '.01'
-            self.assertEqual(client.post('/api/backtests/validate', json=p).status_code, 422)
+            self.assertEqual(client.post('/internal-test/legacy/backtests/validate', json=p).status_code, 422)
 
-    def test_results_notebook_uses_the_json_payload_contract(self):
+    def test_legacy_results_notebook_internal_contract(self):
+        """Preserve old notebook arithmetic pending its explicit migration in T19."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             payload_path = root / 'payload.json'
             payload_path.write_text(json.dumps(approved_payload()), encoding='utf-8')
             repository = FileRunRepository(root / 'store', root / 'unused')
-            client = TestClient(create_app(BacktestService(repository, inline_runner=run_inline_strategy)))
+            client = TestClient(legacy_inline_app(BacktestService(repository, inline_runner=run_inline_strategy)))
 
             def open_api(request, timeout=120):
                 url = request if isinstance(request, str) else request.full_url
                 route = urlsplit(url).path
+                if not isinstance(request, str) and route.startswith('/api/backtests'):
+                    route = '/internal-test/legacy/backtests' + route[len('/api/backtests'):]
                 response = (client.get(route) if isinstance(request, str)
                             else client.request(request.get_method(), route, content=request.data,
                                                 headers={'Content-Type': 'application/json'}))
@@ -334,8 +337,8 @@ class InlineRuntimeTest(unittest.TestCase):
         self.assertEqual(dict(result.signals[0].details)['pivot'], D(expected['signals'][0]['pivot']))
         with tempfile.TemporaryDirectory() as directory:
             repository = FileRunRepository(Path(directory), Path('unused'))
-            client = TestClient(create_app(BacktestService(repository, inline_runner=run_inline_strategy)))
-            response = client.post('/api/backtests', json=request)
+            client = TestClient(legacy_inline_app(BacktestService(repository, inline_runner=run_inline_strategy)))
+            response = client.post('/internal-test/legacy/backtests', json=request)
             self.assertEqual(response.status_code, 201, response.text)
             body = response.json()
             self.assertEqual(body['metadata']['accounting_profile'], 'normalized_v0')

@@ -1,4 +1,4 @@
-"""Report dates, source coverage and indicator history are separate checks."""
+'Legacy internal engine/normalization/storage regressions; production POST accepts only price-only requests. Report dates, source coverage and indicator history are separate checks.'
 from datetime import datetime
 import io
 import unittest
@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
 
-from backtesting_api.api.app import create_app
+from legacy_inline_app import legacy_inline_app
 from backtesting_api.application.inline_data import resolve_inline
 from backtesting_api.application.inline_strategy import run_inline_strategy
 from backtesting_api.application.run_backtest import BacktestService
@@ -27,12 +27,12 @@ class ReportRangeTest(unittest.TestCase):
         self.repository = MemoryRepository()
         self.service = BacktestService(self.repository, inline_runner=run_inline_strategy,
                                        data_fetcher=self.fetcher)
-        self.client = TestClient(create_app(self.service))
+        self.client = TestClient(legacy_inline_app(self.service))
 
     def test_reversed_report_is_invalid_before_fetch_for_both_endpoints(self):
         p = automatic_payload()
         p['report'] = {'start_date': '2026-10-10', 'end_date': '2026-10-09'}
-        for route in ('/api/backtests/validate', '/api/backtests'):
+        for route in ('/internal-test/legacy/backtests/validate', '/internal-test/legacy/backtests'):
             response = self.client.post(route, json=p)
             self.assertEqual(response.status_code, 422, response.text)
             self.assertIn('INVALID_REPORT_RANGE', response.text)
@@ -42,7 +42,7 @@ class ReportRangeTest(unittest.TestCase):
         for start, end in (('2026-10-08', '2026-10-09'), ('2026-10-09', '2026-10-12')):
             p = automatic_payload()
             p['report'] = {'start_date': start, 'end_date': end}
-            for route, status in (('/api/backtests/validate', 200), ('/api/backtests', 201)):
+            for route, status in (('/internal-test/legacy/backtests/validate', 200), ('/internal-test/legacy/backtests', 201)):
                 with self.subTest(start=start, end=end, route=route):
                     response = self.client.post(route, json=p)
                     self.assertEqual(response.status_code, status, response.text)
@@ -61,7 +61,7 @@ class ReportRangeTest(unittest.TestCase):
         data = resolve_inline(prepared)
         self.assertEqual(data.metadata['report_range'], {'start': '2026-10-08', 'end': '2026-10-09'})
         self.assertEqual(data.metadata['available_range'], {'start': '2026-10-09', 'end': '2026-10-09'})
-        response = self.client.post('/api/backtests/validate', json=p)
+        response = self.client.post('/internal-test/legacy/backtests/validate', json=p)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()['data']['available_range'], data.metadata['available_range'])
 
@@ -72,7 +72,7 @@ class ReportRangeTest(unittest.TestCase):
         p.pop('auto_fetch_data')
         p.update(self.fetcher.fetch()[0])
         p['report'] = {'start_date': '2026-10-08', 'end_date': '2026-10-08'}
-        response = self.client.post('/api/backtests/validate', json=p)
+        response = self.client.post('/internal-test/legacy/backtests/validate', json=p)
         self.assertEqual(response.status_code, 422, response.text)
         self.assertTrue(response.json()['detail'].startswith('REPORT_DATA_MISSING'))
 
@@ -81,17 +81,17 @@ class ReportRangeTest(unittest.TestCase):
         p.pop('trade_data'); p.pop('market_data')
         p['auto_fetch_data'] = True
         p['report'] = {'start_date': '2026-10-09', 'end_date': '2026-10-10'}
-        validated = self.client.post('/api/backtests/validate', json=p)
+        validated = self.client.post('/internal-test/legacy/backtests/validate', json=p)
         self.assertEqual(validated.status_code, 200, validated.text)
         self.assertEqual(validated.json()['data']['report_range'],
                          {'start': '2026-10-09', 'end': '2026-10-10'})
-        run = self.client.post('/api/backtests', json=p)
+        run = self.client.post('/internal-test/legacy/backtests', json=p)
         self.assertEqual(run.status_code, 201, run.text)
         result = run.json()
         self.assertEqual(result['evaluation_status']['status'], 'UNEVALUABLE')
         self.assertEqual(result['signals'], [])
         self.opener.reset_mock()
-        replay = self.client.post('/api/backtests', json=validated.json()['payload'])
+        replay = self.client.post('/internal-test/legacy/backtests', json=validated.json()['payload'])
         self.assertEqual(replay.status_code, 201, replay.text)
         self.assertEqual(replay.json()['summary'], result['summary'])
         self.assertEqual(replay.json()['metadata']['report_range'], result['metadata']['report_range'])
@@ -104,13 +104,13 @@ class ReportRangeTest(unittest.TestCase):
             p.pop('trade_data'); p.pop('market_data')
             p['auto_fetch_data'] = True
             p['report'] = {'start_date': start, 'end_date': end}
-            response = self.client.post('/api/backtests/validate', json=p)
+            response = self.client.post('/internal-test/legacy/backtests/validate', json=p)
             self.assertEqual(response.status_code, 200, response.text)
             metadata = response.json()['data']
             self.assertEqual(metadata['report_range'], {'start': start, 'end': end})
             self.assertEqual(metadata['available_range'], {'start': '2026-10-09', 'end': '2026-10-09'})
             self.assertTrue(any(stamp.startswith(missing_day) for stamp in metadata['data_gaps']['trade_data']))
-            run = self.client.post('/api/backtests', json=p)
+            run = self.client.post('/internal-test/legacy/backtests', json=p)
             self.assertEqual(run.status_code, 201, run.text)
             self.assertEqual(run.json()['signals'], [])
             self.assertEqual(run.json()['evaluation_status']['status'], 'UNEVALUABLE')
@@ -122,7 +122,7 @@ class ReportRangeTest(unittest.TestCase):
         p.pop('trade_data'); p.pop('market_data')
         p['auto_fetch_data'] = True
         p['report'] = {'start_date': '2026-04-10', 'end_date': '2026-10-10'}
-        response = self.client.post('/api/backtests/validate', json=p)
+        response = self.client.post('/internal-test/legacy/backtests/validate', json=p)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()['data']['report_range'],
                          {'start': '2026-04-10', 'end': '2026-10-10'})
@@ -134,10 +134,10 @@ class ReportRangeTest(unittest.TestCase):
         p['auto_fetch_data'] = True
         self.raw = raw_source([int(datetime(2026, 4, 28, 11, tzinfo=ZONE).timestamp())])
         p['report'] = {'start_date': '2026-04-27', 'end_date': '2026-04-28'}
-        response = self.client.post('/api/backtests/validate', json=p)
+        response = self.client.post('/internal-test/legacy/backtests/validate', json=p)
         self.assertEqual(response.status_code, 200, response.text)
         p['report'] = {'start_date': '2026-10-10', 'end_date': '2026-10-11'}
         self.raw = raw_source([int(datetime(2026, 10, 9, 11, tzinfo=ZONE).timestamp())])
-        response = self.client.post('/api/backtests/validate', json=p)
+        response = self.client.post('/internal-test/legacy/backtests/validate', json=p)
         self.assertEqual(response.status_code, 422, response.text)
         self.assertTrue(response.json()['detail'].startswith('REPORT_DATA_MISSING'))

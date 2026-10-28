@@ -1,0 +1,545 @@
+{
+  "contract": "price-only-two-modes-draft-2026-10-23",
+  "purpose": "Synthetic hand-calculated oracle; not accepted market data in a public request.",
+  "request_examples": [
+    {
+      "symbol": "VN30F1M",
+      "entry": {
+        "long": {
+          "left": "price",
+          "op": "above",
+          "right": "sma20"
+        }
+      },
+      "risk": {
+        "sl": 6,
+        "tp": 12
+      }
+    },
+    {
+      "symbol": "VN30F1M",
+      "from": "2026-04-01",
+      "to": "2026-09-15",
+      "quantity": 3,
+      "entry": {
+        "long": {
+          "all": [
+            {
+              "left": "market.price",
+              "op": "above",
+              "right": "market.sma20"
+            },
+            {
+              "ref": "market.mfi14",
+              "min": 55,
+              "max": 80
+            }
+          ]
+        },
+        "short": {
+          "all": [
+            {
+              "left": "market.price",
+              "op": "below",
+              "right": "market.sma20"
+            },
+            {
+              "ref": "market.mfi14",
+              "max": 45
+            }
+          ]
+        }
+      },
+      "exit": {
+        "long": {
+          "any": [
+            {
+              "left": "price",
+              "op": "below",
+              "right": "sma20"
+            },
+            {
+              "left": "market.price",
+              "op": "cross_down",
+              "right": "market.sma20"
+            }
+          ]
+        },
+        "short": {
+          "left": "price",
+          "op": "above",
+          "right": "sma20"
+        }
+      },
+      "risk": {
+        "sl": 6,
+        "targets": [
+          {
+            "quantity": 1,
+            "pct": 6
+          },
+          {
+            "quantity": "remaining",
+            "pct": 12
+          }
+        ],
+        "trailing_after_tp1": 6
+      },
+      "order": {
+        "type": "LO",
+        "limit_price": {
+          "ref": "trade_data.close"
+        }
+      }
+    }
+  ],
+  "pnl_cases": [
+    {
+      "id": "long_partial_open",
+      "direction": "LONG",
+      "entry_price": "100",
+      "initial_quantity": 3,
+      "exits": [
+        {
+          "price": "106",
+          "quantity": 1
+        }
+      ],
+      "last_close": "103",
+      "expected": {
+        "realized": "6",
+        "unrealized": "6",
+        "total": "12",
+        "remaining": 2
+      }
+    },
+    {
+      "id": "short_partial_closed",
+      "direction": "SHORT",
+      "entry_price": "100",
+      "initial_quantity": 3,
+      "exits": [
+        {
+          "price": "94",
+          "quantity": 1
+        },
+        {
+          "price": "88",
+          "quantity": 2
+        }
+      ],
+      "last_close": "90",
+      "expected": {
+        "realized": "30",
+        "unrealized": "0",
+        "total": "30",
+        "remaining": 0
+      }
+    },
+    {
+      "id": "long_loss",
+      "direction": "LONG",
+      "entry_price": "100",
+      "initial_quantity": 2,
+      "exits": [
+        {
+          "price": "94",
+          "quantity": 2
+        }
+      ],
+      "last_close": "110",
+      "expected": {
+        "realized": "-12",
+        "unrealized": "0",
+        "total": "-12",
+        "remaining": 0
+      }
+    },
+    {
+      "id": "short_open_end",
+      "direction": "SHORT",
+      "entry_price": "100.1",
+      "initial_quantity": 2,
+      "exits": [],
+      "last_close": "97.8",
+      "expected": {
+        "realized": "0",
+        "unrealized": "4.6",
+        "total": "4.6",
+        "remaining": 2
+      }
+    }
+  ],
+  "lo_cases": [
+    {
+      "id": "buy_open_improved",
+      "side": "BUY",
+      "limit": "100",
+      "bar": [
+        "98",
+        "102",
+        "97",
+        "101"
+      ],
+      "expected_price": "98",
+      "expected_phase": "open"
+    },
+    {
+      "id": "sell_open_improved",
+      "side": "SELL",
+      "limit": "100",
+      "bar": [
+        "102",
+        "103",
+        "98",
+        "99"
+      ],
+      "expected_price": "102",
+      "expected_phase": "open"
+    },
+    {
+      "id": "buy_touch",
+      "side": "BUY",
+      "limit": "100",
+      "bar": [
+        "102",
+        "104",
+        "99",
+        "103"
+      ],
+      "expected_price": "100",
+      "expected_phase": "intrabar_assumed"
+    },
+    {
+      "id": "sell_touch",
+      "side": "SELL",
+      "limit": "100",
+      "bar": [
+        "98",
+        "101",
+        "97",
+        "99"
+      ],
+      "expected_price": "100",
+      "expected_phase": "intrabar_assumed"
+    },
+    {
+      "id": "buy_not_touched",
+      "side": "BUY",
+      "limit": "100",
+      "bar": [
+        "102",
+        "104",
+        "101",
+        "103"
+      ],
+      "expected_price": null,
+      "expected_reason": "LO_NOT_TOUCHED"
+    },
+    {
+      "id": "sell_not_touched",
+      "side": "SELL",
+      "limit": "100",
+      "bar": [
+        "98",
+        "99",
+        "96",
+        "97"
+      ],
+      "expected_price": null,
+      "expected_reason": "LO_NOT_TOUCHED"
+    }
+  ],
+  "timeline": [
+    {
+      "id": "long_partial_open",
+      "signal_time": "2026-04-01T09:05:00+07:00",
+      "source_available_at": "2026-04-01T09:05:00+07:00",
+      "entry_open_time": "2026-04-01T09:05:00+07:00",
+      "signal_bar_open": "2026-04-01T09:00:00+07:00",
+      "entry_price": "100",
+      "quantity": 3,
+      "close_points": [
+        {
+          "time": "2026-04-01T09:10:00+07:00",
+          "closed_quantity": 1,
+          "exit_price": "106",
+          "mark": "106",
+          "expected_total": "18"
+        },
+        {
+          "time": "2026-04-01T09:15:00+07:00",
+          "closed_quantity": 0,
+          "mark": "103",
+          "expected_total": "12"
+        }
+      ],
+      "expected_max_drawdown": "6"
+    }
+  ],
+  "immediate_cases": [
+    {
+      "id": "OPEN_LONG",
+      "order_type": "IMMEDIATE",
+      "action": "OPEN_LONG",
+      "signal_time": "2026-04-01T09:05:00+07:00",
+      "order_time": "2026-04-01T09:05:00+07:00",
+      "fill_time": "2026-04-01T09:05:00+07:00",
+      "source_available_at": "2026-04-01T09:05:00+07:00",
+      "event_order": [
+        "signal",
+        "order",
+        "fill"
+      ],
+      "signal_close": "100.3",
+      "next_open": "103",
+      "expected_fill_price": "100.3",
+      "expected_fill_phase": "decision_close",
+      "expected_pending": false
+    },
+    {
+      "id": "OPEN_SHORT",
+      "order_type": "IMMEDIATE",
+      "action": "OPEN_SHORT",
+      "signal_time": "2026-04-01T09:05:00+07:00",
+      "order_time": "2026-04-01T09:05:00+07:00",
+      "fill_time": "2026-04-01T09:05:00+07:00",
+      "source_available_at": "2026-04-01T09:05:00+07:00",
+      "event_order": [
+        "signal",
+        "order",
+        "fill"
+      ],
+      "signal_close": "100.3",
+      "next_open": "103",
+      "expected_fill_price": "100.3",
+      "expected_fill_phase": "decision_close",
+      "expected_pending": false
+    },
+    {
+      "id": "CLOSE_LONG",
+      "order_type": "IMMEDIATE",
+      "action": "CLOSE_LONG",
+      "signal_time": "2026-04-01T09:05:00+07:00",
+      "order_time": "2026-04-01T09:05:00+07:00",
+      "fill_time": "2026-04-01T09:05:00+07:00",
+      "source_available_at": "2026-04-01T09:05:00+07:00",
+      "event_order": [
+        "signal",
+        "order",
+        "fill"
+      ],
+      "signal_close": "100.3",
+      "next_open": "103",
+      "expected_fill_price": "100.3",
+      "expected_fill_phase": "decision_close",
+      "expected_pending": false
+    },
+    {
+      "id": "CLOSE_SHORT",
+      "order_type": "IMMEDIATE",
+      "action": "CLOSE_SHORT",
+      "signal_time": "2026-04-01T09:05:00+07:00",
+      "order_time": "2026-04-01T09:05:00+07:00",
+      "fill_time": "2026-04-01T09:05:00+07:00",
+      "source_available_at": "2026-04-01T09:05:00+07:00",
+      "event_order": [
+        "signal",
+        "order",
+        "fill"
+      ],
+      "signal_close": "100.3",
+      "next_open": "103",
+      "expected_fill_price": "100.3",
+      "expected_fill_phase": "decision_close",
+      "expected_pending": false
+    }
+  ],
+  "risk_pct_cases": [
+    {
+      "direction": "LONG",
+      "entry_price": "1300",
+      "sl_pct": "6",
+      "tp_pct": "12",
+      "trailing_pct": "6",
+      "extreme": "1400",
+      "expected_stop": "1222",
+      "expected_target": "1456",
+      "expected_trailing": "1316"
+    },
+    {
+      "direction": "SHORT",
+      "entry_price": "1300",
+      "sl_pct": "6",
+      "tp_pct": "12",
+      "trailing_pct": "6",
+      "extreme": "1200",
+      "expected_stop": "1378",
+      "expected_target": "1144",
+      "expected_trailing": "1272"
+    },
+    {
+      "direction": "LONG",
+      "entry_price": "1300",
+      "sl_pct": "0.6",
+      "tp_pct": "1.2",
+      "trailing_pct": "0.6",
+      "extreme": "1400",
+      "expected_stop": "1292.2",
+      "expected_target": "1315.6",
+      "expected_trailing": "1391.6"
+    }
+  ],
+  "close_protection_cases": [
+    {
+      "id": "long_wicks_only",
+      "direction": "LONG",
+      "entry": "100",
+      "sl_pct": "6",
+      "tp_pct": "12",
+      "bar": [
+        "100",
+        "115",
+        "93",
+        "100"
+      ],
+      "expected_reason": null,
+      "expected_fill": null
+    },
+    {
+      "id": "long_sl_beyond_threshold",
+      "direction": "LONG",
+      "entry": "100",
+      "sl_pct": "6",
+      "tp_pct": "12",
+      "bar": [
+        "90",
+        "98",
+        "88",
+        "90"
+      ],
+      "expected_reason": "STOP_LOSS",
+      "expected_fill": "90"
+    },
+    {
+      "id": "long_tp_beyond_threshold",
+      "direction": "LONG",
+      "entry": "100",
+      "sl_pct": "6",
+      "tp_pct": "12",
+      "bar": [
+        "110",
+        "120",
+        "109",
+        "115"
+      ],
+      "expected_reason": "TAKE_PROFIT",
+      "expected_fill": "115"
+    },
+    {
+      "id": "short_wicks_only",
+      "direction": "SHORT",
+      "entry": "100",
+      "sl_pct": "6",
+      "tp_pct": "12",
+      "bar": [
+        "100",
+        "107",
+        "85",
+        "100"
+      ],
+      "expected_reason": null,
+      "expected_fill": null
+    },
+    {
+      "id": "short_sl_beyond_threshold",
+      "direction": "SHORT",
+      "entry": "100",
+      "sl_pct": "6",
+      "tp_pct": "12",
+      "bar": [
+        "110",
+        "112",
+        "108",
+        "110"
+      ],
+      "expected_reason": "STOP_LOSS",
+      "expected_fill": "110"
+    },
+    {
+      "id": "short_tp_beyond_threshold",
+      "direction": "SHORT",
+      "entry": "100",
+      "sl_pct": "6",
+      "tp_pct": "12",
+      "bar": [
+        "90",
+        "91",
+        "82",
+        "85"
+      ],
+      "expected_reason": "TAKE_PROFIT",
+      "expected_fill": "85"
+    },
+    {
+      "id": "long_sl_equal",
+      "direction": "LONG",
+      "entry": "100",
+      "sl_pct": "6",
+      "tp_pct": "12",
+      "bar": [
+        "100",
+        "101",
+        "93",
+        "94"
+      ],
+      "expected_reason": "STOP_LOSS",
+      "expected_fill": "94"
+    },
+    {
+      "id": "long_tp_equal",
+      "direction": "LONG",
+      "entry": "100",
+      "sl_pct": "6",
+      "tp_pct": "12",
+      "bar": [
+        "110",
+        "113",
+        "109",
+        "112"
+      ],
+      "expected_reason": "TAKE_PROFIT",
+      "expected_fill": "112"
+    },
+    {
+      "id": "short_sl_equal",
+      "direction": "SHORT",
+      "entry": "100",
+      "sl_pct": "6",
+      "tp_pct": "12",
+      "bar": [
+        "100",
+        "107",
+        "99",
+        "106"
+      ],
+      "expected_reason": "STOP_LOSS",
+      "expected_fill": "106"
+    },
+    {
+      "id": "short_tp_equal",
+      "direction": "SHORT",
+      "entry": "100",
+      "sl_pct": "6",
+      "tp_pct": "12",
+      "bar": [
+        "90",
+        "91",
+        "87",
+        "88"
+      ],
+      "expected_reason": "TAKE_PROFIT",
+      "expected_fill": "88"
+    }
+  ]
+}

@@ -41,12 +41,13 @@ def check_runtime(payload):
 class IndicatorData:
     """Data structure for storing indicator values."""
     # Prepare indicator series and segment boundaries for each supplied source.
-    def __init__(self, data, payload):
+    def __init__(self, data, payload, *, price_only=False):
         self.rows, self.times, self.values, self.starts = {}, {}, {}, {}
         for source, rows in (('trade_data', data.bars), ('market_data', data.market_bars)):
             spec = payload.get(source)
-            rows = [b for b in rows if spec and (payload['accounting']['model'] != 'contract'
-                                                  or spec['resolution'] != '5' or continuous(b.trading_date))]
+            rows = [b for b in rows if spec and (
+                continuous(b.trading_date) if price_only else
+                payload['accounting']['model'] != 'contract' or spec['resolution'] != '5' or continuous(b.trading_date))]
             self.rows[source] = rows
             self.times[source] = [b.available_at for b in rows]
             starts, start = [], 0
@@ -75,10 +76,14 @@ class IndicatorData:
                     values = {key: [b[key] if b else None for b in bands] for key in outputs}
                 elif kind in ('HIGHEST', 'LOWEST'):
                     formula = indicators.highest if kind == 'HIGHEST' else indicators.lowest
-                    values = {'value': [formula(prices, spec['period'], i) for i in range(1, len(chunk) + 1)]}
+                    values = {'value': [None if price_only and any(v is None for v in prices[max(0, i-spec['period']):i])
+                                        else formula(prices, spec['period'], i) for i in range(1, len(chunk) + 1)]}
                 else:
-                    values = {'value': [indicators.sma(prices, spec['period'], i) if kind == 'SMA'
-                                        else indicators.mfi(chunk, spec['period'], i) for i in range(1, len(chunk) + 1)]}
+                    values = {'value': [None if price_only and (
+                        any(v is None for v in prices[max(0, i-spec['period']):i]) if kind == 'SMA' else
+                        any(b.volume is None for b in chunk[max(0, i-spec['period']-1):i])) else
+                        indicators.sma(prices, spec['period'], i) if kind == 'SMA' else
+                        indicators.mfi(chunk, spec['period'], i) for i in range(1, len(chunk) + 1)]}
                 for key, values_for_key in values.items(): outputs[key].extend(values_for_key)
             for key, values in outputs.items(): self.values[name if key == 'value' else f'{name}.{key}'] = (source, values)
 

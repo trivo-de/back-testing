@@ -87,15 +87,20 @@ class InlineStrategyTest(unittest.TestCase):
                 change(payload)
                 with self.assertRaises(ValidationError): InlineRunRequest.model_validate(payload)
 
-    def test_endpoint_does_not_run_or_store_and_schema_resolves(self):
+    def test_legacy_internal_validation_does_not_run_or_store_and_schema_resolves(self):
+        """Retain old-model validation checks without reopening the public data API."""
+        from legacy_inline_app import legacy_inline_app
         repository = MemoryRepository()
-        client = TestClient(create_app(BacktestService(repository)))
-        response = client.post('/api/backtests/validate', json=sample())
+        client = TestClient(legacy_inline_app(BacktestService(repository)))
+        response = client.post('/internal-test/legacy/backtests/validate', json=sample())
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
         self.assertEqual(body['status'], 'STRUCTURE_VALID')
         self.assertFalse(body['runnable'])
-        self.assertEqual(client.post('/api/backtests/validate', json=body['payload']).status_code, 200)
+        self.assertEqual(client.post('/internal-test/legacy/backtests/validate', json=body['payload']).status_code, 200)
+        rejected = client.post('/api/backtests/validate', json=sample())
+        self.assertEqual(rejected.status_code, 422)
+        self.assertIn('LEGACY_OR_DATA_FIELD_NOT_ALLOWED', rejected.text)
         self.assertEqual(client.post('/api/backtests', json=sample()).status_code, 422)
         self.assertEqual(client.post('/api/backtests/validate', json={'strategy': {}}).status_code, 422)
         self.assertEqual(client.post('/api/backtests/validate', content='{bad').status_code, 422)

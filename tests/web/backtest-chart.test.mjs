@@ -152,3 +152,28 @@ test('selected fill filters related audit and portfolio rows', () => {
     assert.deepEqual(selected.equity.map(row => row.trading_date), ['2020-01-02T09:05:00+07:00']);
     assert.equal(relatedRows(run).fills.length, 3);
 });
+
+
+test('schema 3 uses stored point P&L and exact fill prices without requiring monetary equity', () => {
+    const time = 1774404300, iso = stamp => new Date(stamp * 1000).toISOString();
+    const metadata = {run_id: 'points', input_hash: 'input', policy_hash: 'policy', resolution: '5'};
+    const run = {schema_version: 3, metadata, signals: [{signal_id: 's1', decision_time: iso(time + 300), reason: 'ENTRY'}],
+        orders: [{order_id: 'o1', signal_id: 's1', status: 'FILLED'}],
+        fills: [{fill_id: 'f1', order_id: 'o1', position_id: 'p1', side: 'BUY', direction: 'LONG',
+            bar_time: iso(time), fill_time: iso(time + 300), price: '100.25', quantity: 3}], trades: [],
+        open_position: {position_id: 'p1', direction: 'LONG', remaining_quantity: 3, entry_price: '100.25'},
+        pnl_history: [{time: iso(time), realized_pnl: '0', unrealized_pnl: '0', total_pnl: '0'},
+            {time: iso(time + 300), realized_pnl: '0', unrealized_pnl: '-0.75', total_pnl: '-0.75'}],
+        summary: {pnl_unit: 'point_quantity', total_pnl: '-0.75'}};
+    const payload = {metadata, bars: [{time, open: '100', high: '101', low: '99', close: '100', volume: null}]};
+    const data = backtestData(run, payload);
+    assert.equal(data.priceOnly, true);
+    assert.equal(data.markers[0].price, 100.25);
+    assert.deepEqual(data.equity, [{time, value: 0}, {time: time + 300, value: -0.75}]);
+    assert.equal(data.fills[0].signal_time, iso(time + 300));
+    const rows = relatedRows(run, 'f1');
+    assert.equal(rows.position[0].position_id, 'p1');
+    assert.equal(rows.equity[0].total_pnl, '-0.75');
+    assert.throws(() => backtestData(run, {...payload, metadata: {...metadata, input_hash: 'wrong'}}));
+    assert.throws(() => backtestData({...run, summary: {...run.summary, total_pnl: '0'}}, payload));
+});
